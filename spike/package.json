@@ -1,0 +1,11 @@
+{
+  "name": "opengeo-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "spike": "node --env-file=.env run.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0"
+  }
+}

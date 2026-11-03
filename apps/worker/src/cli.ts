@@ -1,0 +1,174 @@
+// OpenGEO-Worker: Scheduler-Schleife + CLI
+//   start                          Schleife (alle 60 s): fällige geplante Messungen anlegen, Warteschlange abarbeiten
+//   once                           Warteschlange abarbeiten, dann beenden
+//   collect --workspace <slug> [--mock]   manuelle Messung anlegen und sofort abarbeiten
+//   seed [--owner <email>]         Demo-Workspaces + Spike-Ergebnisse importieren
+//   recommend --workspace <slug> [--no-llm] [--collection <id>] [--force-site-check]
+//                                  Maßnahmen aus der letzten abgeschlossenen Messung neu berechnen
+//   profile --workspace <slug> [--force]   Beschreibung + Markentyp der eigenen Marke von der Website ableiten
+//   logos --workspace <slug> [--force]      Website-Icons der Marken holen (kostenlos)
+//   backfill-searched [--workspace <slug>]  durchsuchte Quellen (kind 'searched') aus gespeicherten ChatGPT-/Claude-Rohdaten nachtragen
+import './env.ts';
+import {
+  analyzePendingResponses, autofillBrandProfile, refreshLogos, backfillSearchedCitations, createCollection, createDueScheduledCollections, finishedCollections, generateRecommendations, isMockMode,
+  listProcessableCollections, processCollection,
+} from '@opengeo/core';
+import { recommendation } from '@opengeo/db';
+import { closeDb, db, workspace } from '@opengeo/db';
+import { and, desc, eq } from 'drizzle-orm';
+import { seed } from './seed.ts';
+
+const ts = () => new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
+const log = (m: string) => console.log(`[${ts()}] ${m}`);
+
+function parseArgs(argv: string[]) {
+  const [cmd, ...rest] = argv;
+  const flags: Record<string, string | true> = {};
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (!a.startsWith('--')) throw new Error(`Unerwartetes Argument: ${a}`);
+    const [k, inline] = a.slice(2).split('=');
+    if (inline !== undefined) flags[k] = inline;
+    else if (rest[i + 1] && !rest[i + 1].startsWith('--')) flags[k] = rest[++i];
+    else flags[k] = true;
+  }
+  return { cmd, flags };
+}
+
+async function workspaceBySlug(slug: string) {
+  const [ws] = await db.select().from(workspace).where(eq(workspace.slug, slug));
+  if (!ws) throw new Error(`Workspace ${slug} nicht gefunden`);
+  return ws;
+}
+
+let stopping = false;
+const shouldStop = () => stopping;
+
+/**
+ * Alle offenen Collections nacheinander abarbeiten (jede höchstens einmal pro Durchgang), danach ausstehende
+ * Auswertungen nachholen. Fehler einer Collection brechen den Durchgang nicht ab – andere Workspaces laufen weiter.
+ */
+async function drainQueue() {
+  const seen = new Set<string>();
+  while (!stopping) {
+    const next = (await listProcessableCollections()).find((c) => !seen.has(c.id));
+    if (!next) break;
+    seen.add(next.id);
+    log(`Messung ${next.id} (${next.status}) wird abgearbeitet`);
+    try {
+      const s = await processCollection(next.id, { shouldStop, log });
+      log(`Messung ${next.id}: ${s.status} – ${s.done} fertig, ${s.failed} fehlgeschlagen, ${s.skipped} übersprungen, ${s.pending} offen, ${s.costUsd.toFixed(4)} $${s.analysisPending ? `, ${s.analysisPending} Auswertungen ausstehend` : ''}`);
+    } catch (e) {
+      log(`Messung ${next.id} abgebrochen: ${(e as Error)?.stack ?? e}`);
+    }
+  }
+  if (stopping) return;
+  try {
+    await analyzePendingResponses({ shouldStop, log });
+  } catch (e) {
+    log(`Nachträgliche Auswertung fehlgeschlagen: ${(e as Error)?.stack ?? e}`);
+  }
+}
+
+async function main() {
+  const { cmd, flags } = parseArgs(process.argv.slice(2));
+  if (flags.mock) process.env.OPENGEO_MOCK_ENGINES = '1';
+  if (isMockMode()) log('Mock-Modus aktiv (OPENGEO_MOCK_ENGINES=1): keine echten API-Aufrufe');
+
+  switch (cmd) {
+    case 'start': {
+      const onSignal = (sig: string) => {
+        if (stopping) return;
+        stopping = true;
+        log(`${sig} empfangen – laufende Abfragen werden beendet, dann Stopp`);
+        wake?.();
+      };
+      process.on('SIGTERM', () => onSignal('SIGTERM'));
+      process.on('SIGINT', () => onSignal('SIGINT'));
+      let wake: (() => void) | undefined;
+      log('Worker gestartet (Intervall 60 s)');
+      while (!stopping) {
+        try {
+          await createDueScheduledCollections(new Date(), log);
+          await drainQueue();
+        } catch (e) {
+          log(`Fehler im Durchlauf: ${(e as Error).stack ?? e}`);
+        }
+        if (stopping) break;
+        await new Promise<void>((r) => { const t = setTimeout(r, 60_000); wake = () => { clearTimeout(t); r(); }; });
+      }
+      log('Worker beendet');
+      break;
+    }
+    case 'once':
+      await drainQueue();
+      break;
+    case 'collect': {
+      const slug = flags.workspace;
+      if (typeof slug !== 'string') throw new Error('collect --workspace <slug> [--mock]');
+      const [ws] = await db.select().from(workspace).where(eq(workspace.slug, slug));
+      if (!ws) throw new Error(`Workspace ${slug} nicht gefunden`);
+      const c = await createCollection(ws.id, 'manual');
+      log(`Messung ${c.id} für ${slug} angelegt`);
+      const s = await processCollection(c.id, { log });
+      log(`Messung ${c.id}: ${s.status} – ${s.done} fertig, ${s.failed} fehlgeschlagen, ${s.skipped} übersprungen, ${s.costUsd.toFixed(4)} $`);
+      break;
+    }
+    case 'seed': {
+      const s = await seed({ owner: typeof flags.owner === 'string' ? flags.owner : undefined, log });
+      log(`Seed fertig: ${s.workspaces.join(', ')}; importiert: ${JSON.stringify(s.imported)}; Analyse-Aufrufe: ${s.analyzerCalls}; Owner ergänzt: ${s.ownerAdded}`);
+      break;
+    }
+    case 'recommend': {
+      const slug = flags.workspace;
+      if (typeof slug !== 'string') throw new Error('recommend --workspace <slug> [--no-llm] [--collection <id>] [--force-site-check]');
+      const ws = await workspaceBySlug(slug);
+      if (typeof flags.collection === 'string') {
+        const [latest] = await finishedCollections(ws.id, 1);
+        if (latest && latest.id !== flags.collection) {
+          log(`WARNUNG: ${flags.collection} ist nicht die neueste abgeschlossene Messung (${latest.id}). Die Maßnahmen werden mit älteren Daten überschrieben, bis die nächste Messung sie neu berechnet.`);
+        }
+      }
+      const s = await generateRecommendations(ws.id, {
+        llm: !flags['no-llm'], log,
+        collectionId: typeof flags.collection === 'string' ? flags.collection : undefined,
+        forceSiteCheck: !!flags['force-site-check'],
+      });
+      log(`Maßnahmen ${slug}: Messung ${s.collectionId ?? '–'}, ${s.candidates} aktiv, ${s.created} neu, ${s.updated} aktualisiert, ${s.deactivated} inaktiv, KI: ${s.llm} (${s.phrased} formuliert, ${s.costUsd.toFixed(4)} $)`);
+      const rows = await db.select().from(recommendation)
+        .where(and(eq(recommendation.workspaceId, ws.id), eq(recommendation.active, true))).orderBy(desc(recommendation.priority));
+      for (const r of rows) console.log(`  ${Number(r.priority).toFixed(2).padStart(6)}  [${r.type}] ${r.title}  (Wirkung ${r.impact}, Aufwand ${r.effort}, ${r.status})`);
+      break;
+    }
+    case 'profile': {
+      const slug = flags.workspace;
+      if (typeof slug !== 'string') throw new Error('profile --workspace <slug> [--force]');
+      const ws = await workspaceBySlug(slug);
+      const g = await autofillBrandProfile(ws.id, { force: !!flags.force, log });
+      if (!g) log('Markenprofil: nicht geprüft (von Hand gesetzt oder kürzlich geprüft – mit --force wiederholen)');
+      else log(`Markenprofil ${slug}: ${g.description ?? '–'} | Typ: ${g.kind ?? '–'} | Quelle: ${g.source} (${g.url ?? '–'}) | ${g.costUsd.toFixed(4)} $${g.error ? ` | ${g.error}` : ''}`);
+      break;
+    }
+    case 'logos': {
+      const slug = flags.workspace;
+      if (typeof slug !== 'string') throw new Error('logos --workspace <slug> [--force]');
+      const ws = await workspaceBySlug(slug);
+      await refreshLogos(ws.id, { force: !!flags.force, log });
+      break;
+    }
+    case 'backfill-searched': {
+      const slug = flags.workspace;
+      const ws = typeof slug === 'string' ? await workspaceBySlug(slug) : null;
+      await backfillSearchedCitations({ workspaceId: ws?.id, log });
+      break;
+    }
+    default:
+      console.log('Verwendung: worker <start|once|collect --workspace <slug> [--mock]|seed [--owner <email>]|recommend --workspace <slug> [--no-llm]|profile --workspace <slug> [--force]|backfill-searched [--workspace <slug>]>');
+      process.exitCode = cmd ? 1 : 0;
+  }
+}
+
+main().catch((e) => {
+  console.error(e instanceof Error ? e.message : e);
+  process.exitCode = 1;
+}).finally(() => closeDb());

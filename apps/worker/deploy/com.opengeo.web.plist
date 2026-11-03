@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- OpenGEO-Web-App (Next.js, Port 3010). Vorher einmal bauen: pnpm --filter @opengeo/web build -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.opengeo.web</string>
+  <key>WorkingDirectory</key><string>__OPENGEO_DIR__/apps/web</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__OPENGEO_DIR__/apps/web/node_modules/.bin/next</string>
+    <string>start</string>
+    <string>-p</string>
+    <string>3010</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__HOME__/.local/bin:__HOME__/.local/opt/node/bin:/usr/bin:/bin</string>
+    <key>NODE_ENV</key><string>production</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/opengeo-web.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/opengeo-web.log</string>
+</dict>
+</plist>

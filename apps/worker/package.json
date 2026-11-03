@@ -1,0 +1,29 @@
+{
+  "name": "@opengeo/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "start": "tsx src/cli.ts start",
+    "once": "tsx src/cli.ts once",
+    "collect": "tsx src/cli.ts collect",
+    "seed": "tsx src/cli.ts seed",
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"keine Tests im Worker (siehe packages/core)\"",
+    "recommend": "tsx src/cli.ts recommend",
+    "backfill-searched": "tsx src/cli.ts backfill-searched"
+  },
+  "dependencies": {
+    "@opengeo/core": "workspace:*",
+    "@opengeo/db": "workspace:*",
+    "dotenv": "^18.0.9",
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  }
+}
