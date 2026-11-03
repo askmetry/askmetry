@@ -1,0 +1,53 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please **don't** report security vulnerabilities here – see SECURITY.md.
+        Never paste API keys, `.env` contents or other secrets.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Click …
+        3. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: setup
+    attributes:
+      label: How do you run OpenGEO?
+      options:
+        - Docker Compose (docker-compose.yml)
+        - Local development (pnpm dev / pnpm worker)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: e.g. main @ abc1234
+  - type: dropdown
+    id: engines
+    attributes:
+      label: Affected engines (if any)
+      multiple: true
+      options: [ChatGPT, Claude, Gemini, Google AI Overviews, Google AI Mode, Perplexity, Mock, Not engine-related]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output of `docker compose logs web worker` or the terminal (remove secrets).
+      render: text

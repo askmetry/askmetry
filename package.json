@@ -4,12 +4,14 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "scripts": {
-    "db:up": "docker compose up -d db",
+    "db:up": "docker compose -f docker-compose.dev.yml up -d db",
     "db:push": "pnpm --filter @opengeo/db push",
     "dev": "pnpm --filter @opengeo/web dev",
     "worker": "pnpm --filter @opengeo/worker start",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "test:unit": "pnpm --filter @opengeo/core test:unit && pnpm --filter @opengeo/web test",
+    "test:integration": "pnpm --filter @opengeo/core test:integration"
   },
   "packageManager": "pnpm@11.13.1",
   "devDependencies": {

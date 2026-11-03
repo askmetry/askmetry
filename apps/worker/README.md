@@ -33,4 +33,4 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.opengeo.web.plist
 - Status: `launchctl print gui/$(id -u)/com.opengeo.worker` · Logs: `~/Library/Logs/opengeo-worker.log`, `~/Library/Logs/opengeo-web.log`
 - Neustart nach Code-Änderung: `launchctl kickstart -k gui/$(id -u)/com.opengeo.worker`
 - Entfernen: `launchctl bootout gui/$(id -u)/com.opengeo.worker` (bzw. `com.opengeo.web`)
-- Voraussetzung: Postgres läuft (`docker compose up -d db`, colima gestartet).
+- Voraussetzung: Postgres läuft (`pnpm db:up`, colima gestartet). Alternativ ohne launchd: `docker compose up -d` im Repo-Wurzelverzeichnis (siehe README.md).

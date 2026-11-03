@@ -1,14 +1,111 @@
+# OpenGEO self-hosting stack: Postgres + schema migration + web dashboard + worker.
+#
+#   cp .env.example .env     # fill in POSTGRES_PASSWORD, BETTER_AUTH_SECRET, BETTER_AUTH_URL, API keys
+#   docker compose up -d     # builds the images on first run
+#
+# Development uses docker-compose.dev.yml instead (`pnpm db:up`: database only, port 5433).
+# The project name is pinned so this stack never collides with the dev database in the same checkout;
+# override it with `docker compose -p <name>` to run several instances.
+name: opengeo-selfhost
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://opengeo:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/opengeo
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY:-}
+  DATAFORSEO_LOGIN: ${DATAFORSEO_LOGIN:-}
+  DATAFORSEO_PASSWORD: ${DATAFORSEO_PASSWORD:-}
+  OPENGEO_MOCK_ENGINES: ${OPENGEO_MOCK_ENGINES:-0}
+  OPENGEO_MAX_BUDGET_USD: ${OPENGEO_MAX_BUDGET_USD:-200}
+  OPENGEO_SITE_CHECK: ${OPENGEO_SITE_CHECK:-1}
+
 services:
   db:
     image: postgres:17
     restart: unless-stopped
     environment:
       POSTGRES_USER: opengeo
-      POSTGRES_PASSWORD: opengeo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: opengeo
-    ports:
-      - "5433:5432"
     volumes:
-      - opengeo-db:/var/lib/postgresql/data
+      - db-data:/var/lib/postgresql/data
+    # No host port: only the other services reach the database. Uncomment for local access (psql, backups):
+    # ports:
+    #   - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opengeo -d opengeo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: create/update the schema (drizzle-kit push), then exit. web and worker wait for it.
+  # Changes that would drop data are never applied automatically: drizzle-kit wants to ask, which needs a TTY,
+  # so the service fails and web/worker do not start. Review and confirm interactively with
+  #   docker compose run --rm -it migrate node_modules/.bin/drizzle-kit push
+  # (drizzle-kit exits 0 even when the prompt fails, hence the output check.)
+  migrate:
+    image: ${OPENGEO_WORKER_IMAGE:-opengeo-worker:local}
+    build:
+      context: .
+      target: worker
+    restart: "no"
+    working_dir: /app/packages/db
+    command:
+      - sh
+      - -c
+      - 'out=$$(node_modules/.bin/drizzle-kit push 2>&1); code=$$?; echo "$$out"; case "$$out" in *Error:*) exit 1;; esac; exit $$code'
+    environment:
+      DATABASE_URL: postgres://opengeo:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/opengeo
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: ${OPENGEO_WEB_IMAGE:-opengeo-web:local}
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:${OPENGEO_PORT:-3010}}
+      OPENGEO_ALLOW_SIGNUP: ${OPENGEO_ALLOW_SIGNUP:-true}
+    ports:
+      - "${OPENGEO_BIND:-127.0.0.1}:${OPENGEO_PORT:-3010}:3010"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/api/auth/ok').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  worker:
+    image: ${OPENGEO_WORKER_IMAGE:-opengeo-worker:local}
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
+    environment:
+      <<: *app-env
+      OPENGEO_HEARTBEAT_FILE: /tmp/opengeo-worker-heartbeat
+    # Der Worker schreibt bei jedem Durchgang und jeder Messung ein Lebenszeichen; älter als 2 h = hängt.
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=require('fs').statSync('/tmp/opengeo-worker-heartbeat');process.exit(Date.now()-s.mtimeMs<7200000?0:1)"]
+      interval: 5m
+      timeout: 10s
+      start_period: 2m
+      retries: 1
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # No HTTP endpoint: health = "the process is running" (restart policy handles crashes).
+
 volumes:
-  opengeo-db:
+  db-data:

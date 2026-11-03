@@ -1,63 +1,156 @@
 # OpenGEO
 
-Open-Source-Werkzeug, das misst, wie sichtbar Marken in KI-Suchmaschinen sind – ChatGPT, Gemini, Claude, Google AI Overviews und Google AI Mode (Perplexity optional) –, welche Quellen diese KIs nutzen und wo die eigene Marke fehlt.
+**Open-source AI search visibility tracking.** OpenGEO measures how visible your brand is in AI search engines – ChatGPT, Gemini, Claude, Google AI Overviews and Google AI Mode (Perplexity optional) –, which sources those AIs rely on, and where your brand is missing while competitors get mentioned. Then it tells you what to do about it.
 
-- **Übersicht:** Sichtbarkeit, Ø Position, Empfehlungsrate, Share of Voice, eigene Seite als Quelle – je Engine und im Vergleich zu Wettbewerbern
-- **Prompts:** Heatmap Prompt × Engine, alle Antworten im Volltext mit markierten Marken und Quellen
-- **Quellen:** meistgenutzte Domains, Seiten, auf denen Wettbewerber genannt werden (Outreach-Ziele), Antworten, die deine Seite nutzen, deine Marke aber nicht nennen
-- **Lücken:** wo Wettbewerber genannt werden, du aber nicht
-- **Einstellungen:** Marken, Prompts, Themen, Engines, Wiederholungen, Zeitplan, Monatsbudget, „Jetzt messen“
+Self-hosted, multi-tenant, AGPL-3.0. You bring your own API keys and pay the providers directly – typically around $40/month for a weekly measurement of 20 questions.
 
-Lizenz: [AGPL-3.0](LICENSE). Spezifikation: [SPEC.md](SPEC.md) · Bau-Absprachen: [CONTRACT.md](CONTRACT.md)
+[Deutsche Version](README.de.md)
 
-## Schnellstart
+<!-- TODO: add a screenshot of the dashboard, e.g. docs/screenshot.png -->
+> _Screenshot coming soon._
 
-Voraussetzungen: Node 24, pnpm, Docker.
+## Features
+
+- **Overview:** visibility, average position, recommendation rate, share of voice and "your own site used as a source" – per engine and compared with your competitors.
+- **Actions:** concrete, evidence-based recommendations (own content, other sites, communities, technical basics) derived from every measurement, each with a ready-to-copy prompt for your AI assistant.
+- **Questions:** heatmap question × engine, every answer in full text with highlighted brands and sources; filter for the gaps where competitors get named and you don't.
+- **Sources:** the most-used domains, pages that mention competitors but not you (outreach targets), answers that use your site but don't name your brand.
+- **Settings:** brands, competitors, questions, topics, engines, repetitions, schedule, monthly budget, "measure now".
+- **Cost controls:** per-workspace monthly budget cap, instance-wide budget ceiling, schedules off by default for new workspaces.
+- **Multi-tenant:** accounts and workspaces with strict tenant separation; self-signup can be disabled.
+- **Bilingual UI:** German and English.
+- **Mock mode:** `OPENGEO_MOCK_ENGINES=1` replaces every engine with a free local mock – try everything without API keys.
+
+## Quickstart (Docker)
+
+Requirements: Docker with Compose v2.
 
 ```bash
-cp .env.example .env                 # Schlüssel eintragen, BETTER_AUTH_SECRET setzen
-pnpm install
-pnpm db:up                           # Postgres auf Port 5433
-pnpm db:push                         # Schema anlegen
-pnpm dev                             # Dashboard auf http://localhost:3010
-pnpm worker                          # Worker: Zeitplan + Warteschlange (zweites Terminal)
+git clone <repository-url> opengeo && cd opengeo
+cp .env.example .env
+# Edit .env – at least:
+#   POSTGRES_PASSWORD   e.g. openssl rand -hex 24
+#   BETTER_AUTH_SECRET  e.g. openssl rand -hex 32
+#   BETTER_AUTH_URL     the URL you open in the browser, e.g. http://localhost:3010 or https://geo.example.com
+#   API keys            see "Configuration" (or OPENGEO_MOCK_ENGINES=1 to try it for free)
+docker compose up -d
 ```
 
-Konto unter `/signup` anlegen, Workspace erstellen, Marken und Prompts eintragen, „Jetzt messen“.
+Open <http://localhost:3010>, create an account under `/signup`, create a workspace, add your brand, competitors and questions, and click "Measure now".
 
-Beispieldaten (Paylindo + MediShift aus dem Prototyp, ohne API-Kosten): `pnpm --filter @opengeo/worker seed --owner du@example.com`
+What `docker compose up -d` starts (project name `opengeo-selfhost`):
 
-## Kosten
+| Service | What it does |
+|---|---|
+| `db` | Postgres 17, data in the volume `db-data`, not exposed on the host |
+| `migrate` | one-shot: creates/updates the database schema, then exits |
+| `web` | the dashboard (Next.js) on `127.0.0.1:${OPENGEO_PORT:-3010}` |
+| `worker` | scheduler + queue: runs due measurements every 60 s |
 
-Standard-Einstellungen sind auf Kosten optimiert (Messwerte und Begründung: SPEC.md Kapitel 9). Bei 20 Prompts × 2 Wiederholungen × wöchentlich: ca. 40 $/Monat. Jeder Workspace hat einen Budget-Deckel; ist er erreicht, werden weitere Abfragen übersprungen. `OPENGEO_MOCK_ENGINES=1` ersetzt alle Engines durch einen kostenlosen Mock.
+Operations:
 
-Kostenschutz für gehostete Instanzen:
+```bash
+docker compose logs -f web worker            # logs
+git pull && docker compose up -d --build   # update: rebuild images, migrate, restart
+docker compose exec -T db pg_dump -U opengeo opengeo > backup.sql   # backup
+docker compose exec -T db psql -U opengeo opengeo < backup.sql      # restore into an empty database
+docker compose down                          # stop (data stays in the volume)
+```
 
-- Neue Workspaces starten mit **ausgeschaltetem Zeitplan** – automatische Messungen erst nach bewusstem Einschalten in den Einstellungen.
-- `OPENGEO_MAX_BUDGET_USD` (Standard `200`): Obergrenze für das Monatsbudget je Workspace. Höhere Werte lehnt die Web-App ab; der Worker deckelt zusätzlich auf diesen Wert.
-- `OPENGEO_ALLOW_SIGNUP` (Standard `true`): mit `false` ist die Selbstregistrierung abgeschaltet (better-auth `disableSignUp`, `/signup` zeigt einen Hinweis). Konten dann z. B. lokal anlegen, bevor die Variable gesetzt wird.
-- Monatsausgaben = Summe der Run-Kosten nach Abschlusszeitpunkt (Europe/Berlin); auch bezahlte Fehlversuche werden verbucht.
-- Fehlt `ANTHROPIC_API_KEY` (Auswertung), bricht der Worker eine echte Messung vor dem ersten Engine-Aufruf ab. Scheitert nur die Auswertung, bleibt die Antwort gespeichert und wird beim nächsten Worker-Durchgang (`once`/`start`) ohne neuen Engine-Aufruf ausgewertet.
+- **Public access:** the web port binds to `127.0.0.1` by default. Put a reverse proxy with TLS (Caddy, nginx, Traefik) in front and set `BETTER_AUTH_URL` to the public URL. Set `OPENGEO_BIND=0.0.0.0` only if you really want to expose the port directly.
+- **Close signups** after creating your accounts: `OPENGEO_ALLOW_SIGNUP=false`, then `docker compose up -d`.
+- **Schema updates** run automatically on every start. Changes that would drop data are never applied automatically: `migrate` fails, web and worker don't start, and you confirm interactively with `docker compose run --rm -it migrate node_modules/.bin/drizzle-kit push`.
 
-## Tests
+## Costs
+
+The default engine settings are cost-optimised and were chosen in a measured cost and quality experiment (see [SPEC.md](SPEC.md), chapter 9 – in German):
+
+| Engine | Default setting | ≈ cost per request |
+|---|---|---|
+| ChatGPT | gpt-5.5, search context `low`, reasoning `low`, `flex` tier | $0.065 |
+| Claude | Sonnet 5.5, effort `medium`, max. 3 searches | $0.08–0.09 |
+| Gemini | gemini-3.5-flash + Google Search grounding | $0.01 |
+| Google AI Overviews / AI Mode | DataForSEO Live | $0.004 each |
+| Analysis of answers | Claude Haiku 5.5 | < $0.001 |
+
+With 20 questions × 2 repetitions × weekly that is **about $40/month**. Every workspace has a monthly budget cap – once it is reached, further requests are skipped. New workspaces start with the schedule switched off. `OPENGEO_MAX_BUDGET_USD` caps what any workspace may set as its budget. Monthly spend is the sum of run costs by completion time (Europe/Berlin); paid failed attempts count too.
+
+Prices are list prices as measured on 31 Oct 2026 – check your providers' current pricing.
+
+## Configuration
+
+All configuration is done through environment variables in `.env` (see [.env.example](.env.example) for a commented template). Docker Compose reads the same file.
+
+| Variable | Default | Used by | Description |
+|---|---|---|---|
+| `POSTGRES_PASSWORD` | – (required for Docker) | Docker | Password of the bundled Postgres. Use URL-safe characters (e.g. hex). |
+| `DATABASE_URL` | `postgres://opengeo:opengeo@localhost:5433/opengeo` | dev | Postgres connection string. In Docker it is built from `POSTGRES_PASSWORD`. |
+| `BETTER_AUTH_SECRET` | – (required) | web | Secret for sessions; long random string. |
+| `BETTER_AUTH_URL` | `http://localhost:3010` | web | Public base URL of the dashboard. |
+| `OPENAI_API_KEY` | – | worker | ChatGPT engine. |
+| `GEMINI_API_KEY` | – | worker | Gemini engine. |
+| `ANTHROPIC_API_KEY` | – | worker | Claude engine **and** the analysis of all answers (required for real measurements). |
+| `PERPLEXITY_API_KEY` | – | worker | Perplexity engine (optional). |
+| `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | – | worker | Google AI Overviews and AI Mode via DataForSEO. |
+| `OPENGEO_MOCK_ENGINES` | `0` | worker, web | `1` = replace all engines and the analysis with a free local mock. |
+| `OPENGEO_MAX_BUDGET_USD` | `200` | worker, web | Upper limit for any workspace's monthly budget (USD). |
+| `OPENGEO_ALLOW_SIGNUP` | `true` | web | `false` disables self-signup (`/signup` and the sign-up API). |
+| `OPENGEO_SITE_CHECK` | on | worker | `0` disables fetching your brand's website (robots.txt, homepage) for technical recommendations. |
+| `OPENGEO_HEARTBEAT_FILE` | unset | worker | File the worker touches on every loop and measurement; the Docker healthcheck uses it (set automatically in `docker-compose.yml`). |
+| `OPENGEO_PORT` | `3010` | Docker | Host port of the web dashboard. |
+| `OPENGEO_BIND` | `127.0.0.1` | Docker | Host interface the web port binds to. |
+| `OPENGEO_WEB_IMAGE` / `OPENGEO_WORKER_IMAGE` | `opengeo-web:local` / `opengeo-worker:local` | Docker | Image names (to use prebuilt images). |
+
+Engines without a key are skipped. If `ANTHROPIC_API_KEY` is missing, the worker aborts a real measurement before the first engine call. If only the analysis fails, the answer is kept and analysed on the next worker pass without a new engine call.
+
+Development and test-only variables: `TEST_DATABASE_URL` (integration tests, default `…localhost:5433/opengeo_test`), `OPENGEO_MOCK_COST_USD` (cost reported by the mock engine), `E2E_BASE` / `E2E_SHOTS` (browser test).
+
+## Development
+
+Requirements: Node 24, pnpm 11, Docker.
+
+```bash
+cp .env.example .env                 # add keys, set BETTER_AUTH_SECRET (or OPENGEO_MOCK_ENGINES=1)
+pnpm install
+pnpm db:up                           # Postgres on localhost:5433 (docker-compose.dev.yml)
+pnpm db:push                         # create the schema
+pnpm dev                             # dashboard on http://localhost:3010
+pnpm worker                          # worker: schedule + queue (second terminal)
+```
+
+Sample data without API costs: `pnpm --filter @opengeo/worker seed --owner you@example.com` (needs the local spike results). More worker commands: [apps/worker/README.md](apps/worker/README.md) (German).
+
+Tests:
 
 ```bash
 pnpm typecheck
-pnpm test                            # Unit- + Integrationstests (Mock-Engines, Datenbank opengeo_test)
-node e2e/full-flow.mjs login|check|create|verify   # Browser-Test gegen http://localhost:3010 (Zugang in .e2e-credentials)
+pnpm test:unit                       # no database, no network
+pnpm test:integration                # mock engines, database opengeo_test (created automatically)
+pnpm test                            # everything
+node e2e/full-flow.mjs login|check|create|verify   # browser test against http://localhost:3010 (credentials in .e2e-credentials)
 ```
 
-`create` + `verify` lösen mit dem Worker eine echte Messung aus (1 Prompt × 5 Engines ≈ 0,25 $).
+`create` + `verify` trigger a real measurement through the worker (1 question × 5 engines ≈ $0.25) unless the worker runs in mock mode.
 
-## Struktur
+Repository layout:
 
 ```
-packages/db      Drizzle-Schema, DB-Client
-packages/core    Engine-Adapter, Preise, Auswertung, Messlauf mit Budgetprüfung
-apps/worker      Zeitplan-Schleife + CLI (seed, collect, once), launchd-Vorlagen
-apps/web         Next.js-Dashboard mit Login und Mandantentrennung
-spike/           Prototyp und Kosten-Experiment
-e2e/             Browser-Test
+packages/db      Drizzle schema, database client
+packages/core    engine adapters, pricing, analysis, measurement runner with budget checks, recommendations
+apps/worker      scheduler loop + CLI (seed, collect, once, recommend, …), launchd templates
+apps/web         Next.js dashboard with login and tenant separation
+spike/           prototype and cost experiment
+e2e/             browser test
 ```
 
-Dauerbetrieb auf dem Mac mini: siehe [apps/worker/README.md](apps/worker/README.md).
+Running permanently on a Mac without Docker (launchd): see [apps/worker/README.md](apps/worker/README.md).
+
+Background documents (German): [SPEC.md](SPEC.md) (specification), [DESIGN.md](DESIGN.md) (design principles), [GEO-PLAYBOOK.md](GEO-PLAYBOOK.md) (what really helps visibility), [CONTRACT.md](CONTRACT.md) (internal build agreements).
+
+## Contributing
+
+Contributions are welcome – see [CONTRIBUTING.md](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md). Please report security issues privately as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+[GNU Affero General Public License v3.0 only](LICENSE) (AGPL-3.0-only). If you run a modified version of OpenGEO as a network service, you must make the source code of your version available to its users.
