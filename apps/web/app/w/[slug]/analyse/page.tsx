@@ -8,7 +8,7 @@ import { BrandMark } from '@/components/brand-mark';
 import { logoMap } from '@/lib/logos';
 import { getI18n, getT } from '@/lib/i18n/server';
 import { brandMetrics, engineLabel, groupBy, loadBase, loadTrend, normName, sortEngines, untrackedBrands } from '@/lib/metrics';
-import { loadRecData, rankingFrom } from '@opengeo/core';
+import { claudeBatchWaiting, loadRecData, rankingFrom } from '@opengeo/core';
 
 /** „Platz in der Antwort“ erst ab 5 Nennungen zeigen – darunter ist der Mittelwert nicht aussagekräftig. */
 const MIN_POS = 5;
@@ -30,6 +30,9 @@ export default async function AnalysePage({ params, searchParams }: { params: Pr
   const placeHint = (mentioned: number) => (mentioned === 0 ? t.notNamed : mentioned < MIN_POS ? t.tooFew(mentioned) : t.firstIsOne);
   const engineName = (e: string) => engineLabel(e, locale);
   const active = all.filter((c) => c.status === 'queued' || c.status === 'running');
+  // geplante Messung wartet noch auf gebündelte Claude-Abfragen (Batch) → Wartezeit erklären
+  const batchWaiting = active[0]?.status === 'running' ? await claudeBatchWaiting(ws.id) : 0;
+  const batchNote = batchWaiting ? ` ${tt.common.batchWaiting(batchWaiting)}` : '';
 
   if (!own) {
     return (<><PageHeader title={t.title} /><EmptyState title={t.noBrand.title} action={{ href: `/w/${slug}/settings/marke`, label: t.noBrand.action }}>{t.noBrand.text}</EmptyState></>);
@@ -39,7 +42,7 @@ export default async function AnalysePage({ params, searchParams }: { params: Pr
       <>
         <PageHeader title={t.title} />
         <EmptyState title={t.noMeasurement} action={{ href: `/w/${slug}/settings/messung`, label: t.toSettings }}>
-          {active.length ? (active[0]!.status === 'running' ? t.runningNow : t.queuedNow) : t.startFirst}
+          {active.length ? (active[0]!.status === 'running' ? t.runningNow + batchNote : t.queuedNow) : t.startFirst}
         </EmptyState>
       </>
     );
@@ -78,7 +81,7 @@ export default async function AnalysePage({ params, searchParams }: { params: Pr
 
       {active.length > 0 && (
         <p className="mb-4 rounded-xl bg-accent-soft px-4 py-2.5 text-sm">
-          {active[0]!.status === 'running' ? t.newRunning : t.newQueued} <Link className="text-accent hover:underline" href={`/w/${slug}/settings/messung`}>{t.viewStatus}</Link>
+          {active[0]!.status === 'running' ? t.newRunning + batchNote : t.newQueued} <Link className="text-accent hover:underline" href={`/w/${slug}/settings/messung`}>{t.viewStatus}</Link>
         </p>
       )}
 

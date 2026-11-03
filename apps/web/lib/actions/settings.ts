@@ -11,7 +11,7 @@ import { isNoPermission, requireEditor } from '@/lib/session';
 import { getI18n } from '@/lib/i18n/server';
 import { validateDomains } from '@/lib/domain-validation';
 import { isValidCron } from '@opengeo/core/schedule';
-import { autofillBrandProfile, refreshLogos } from '@opengeo/core';
+import { autofillBrandProfile, claudeBatchWaiting, refreshLogos } from '@opengeo/core';
 import type { FormState } from './workspaces';
 
 function isUniqueViolation(e: unknown): boolean {
@@ -224,7 +224,11 @@ export async function startCollection(_p: FormState, f: FormData): Promise<FormS
   if (!activePrompts.length) return { error: g.t.errors.noActivePrompts };
   const running = await db.select({ id: collection.id }).from(collection)
     .where(and(eq(collection.workspaceId, g.ws.id), inArray(collection.status, ['queued', 'running']))).limit(1);
-  if (running.length) return { error: g.t.errors.alreadyRunning };
+  if (running.length) {
+    // wartet die laufende Messung nur noch auf gebündelte Claude-Abfragen (Batch), die Wartezeit erklären
+    const waiting = await claudeBatchWaiting(g.ws.id);
+    return { error: waiting ? `${g.t.errors.alreadyRunning} ${(await getI18n()).t.common.batchWaiting(waiting)}` : g.t.errors.alreadyRunning };
+  }
   try {
     await db.insert(collection).values({ workspaceId: g.ws.id, status: 'queued', trigger: 'manual' });
   } catch (e) {

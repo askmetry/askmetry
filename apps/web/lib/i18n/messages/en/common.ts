@@ -30,6 +30,8 @@ const common: typeof de = {
     queued: 'queued', running: 'running', done: 'completed', failed: 'failed', budget_exceeded: 'budget reached',
   },
   trigger: { scheduled: 'scheduled', manual: 'manual', import: 'import' },
+  batchWaiting: (n: number) =>
+    `${n} Claude ${n === 1 ? 'query is' : 'queries are'} still waiting for results (lower-cost batch processing) – usually within an hour, at the latest after 24 hours.`,
   noPermission: 'No permission: read-only access doesn’t allow changes.',
   saving: '…',
 };

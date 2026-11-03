@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db, prompt } from '@opengeo/db';
-import { nextMeasurementText } from '@opengeo/core';
+import { claudeBatchWaiting, nextMeasurementText } from '@opengeo/core';
 import { ActionForm } from '@/components/action-form';
 import { AutoRefresh } from '@/components/auto-refresh';
 import { SchedulePicker } from '@/components/schedule-picker';
@@ -30,6 +30,7 @@ export default async function MessungPage({ params }: { params: Promise<{ slug: 
   const activePrompts = prompts.filter((p) => p.active).length;
   const [stats, costs] = await Promise.all([runStatsByCollection(ws.id), loadCosts(ws, activePrompts)]);
   const active = all.filter((c) => c.status === 'queued' || c.status === 'running');
+  const batchWaiting = active.length ? await claudeBatchWaiting(ws.id) : 0;
   const planned = activePrompts * ws.engines.length * ws.repetitions;
   const next = nextMeasurementText(ws, new Date(), locale);
 
@@ -60,6 +61,7 @@ export default async function MessungPage({ params }: { params: Promise<{ slug: 
                     <span className="tabular-nums text-muted">{total ? m.progress(fin, total) : m.waiting}</span>
                   </div>
                   {total > 0 && <div className="mt-2"><Bar value={fin / total} /></div>}
+                  {c.status === 'running' && batchWaiting > 0 && <p className="mt-2 text-xs text-muted" data-testid="batch-waiting">{tt.common.batchWaiting(batchWaiting)}</p>}
                 </li>
               );
             })}

@@ -5,7 +5,7 @@ import { and, eq, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { BatchRequest, BatchResultLine, BatchTransport } from '../../src/claude-batch.ts';
 import { EngineError } from '../../src/errors.ts';
-import { batchReservedUsd, createCollection, processCollection, useClaudeBatch } from '../../src/runner.ts';
+import { batchReservedUsd, createCollection, processCollection, SUBMITTING, useClaudeBatch } from '../../src/runner.ts';
 import type { Engine, EngineResult, RunContext } from '../../src/types.ts';
 
 const PREFIX = 'it-batch-';
@@ -41,21 +41,31 @@ const BATCH_COST = 0.045;
 
 /** Attrappe der Batches API („Server“-Zustand überlebt Worker-Neustarts, weil er nicht am Runner hängt). */
 function fakeApi() {
-  const batches = new Map<string, { status: string; endedAt: string | null; requests: BatchRequest[]; results: Map<string, BatchResultLine['result']> }>();
+  const batches = new Map<string, { status: string; createdAt: string; endedAt: string | null; requests: BatchRequest[]; results: Map<string, BatchResultLine['result']> }>();
   let n = 0;
-  let failNext: Error | null = null;
+  let failNext: { e: Error; created: boolean } | null = null;
   const t: BatchTransport & {
-    batches: typeof batches; submits: number; failNextSubmit(e: Error): void;
+    batches: typeof batches; submits: number; failNextSubmit(e: Error, opts?: { created?: boolean }): void; lastId(): string;
     end(id: string, fn: (req: BatchRequest) => BatchResultLine['result'] | null, endedAt?: string): void;
   } = {
     batches, submits: 0,
-    failNextSubmit(e) { failNext = e; },
+    // created: der Batch wird angelegt, die Antwort geht aber verloren (Zeitüberschreitung/5xx nach dem Anlegen)
+    failNextSubmit(e, opts = {}) { failNext = { e, created: !!opts.created }; },
+    lastId() { return [...batches.keys()].at(-1)!; },
     async submit(requests) {
-      if (failNext) { const e = failNext; failNext = null; throw e; }
+      const f = failNext;
+      failNext = null;
+      if (f && !f.created) throw f.e;
       t.submits++;
       const id = `msgbatch_${++n}_${Math.random().toString(36).slice(2, 8)}`;
-      batches.set(id, { status: 'in_progress', endedAt: null, requests, results: new Map() });
+      batches.set(id, { status: 'in_progress', createdAt: new Date().toISOString(), endedAt: null, requests, results: new Map() });
+      if (f) throw f.e;
       return { id, processing_status: 'in_progress' };
+    },
+    async *list() {
+      for (const [id, b] of [...batches].reverse()) {
+        yield { id, processing_status: b.status, created_at: b.createdAt, ended_at: b.endedAt, request_counts: { processing: b.status === 'ended' ? 0 : b.requests.length, succeeded: b.status === 'ended' ? b.requests.length : 0 } };
+      }
     },
     async retrieve(id) {
       const b = batches.get(id);
@@ -175,11 +185,11 @@ describe('Claude über die Message Batches API (Runner)', () => {
     expect(runs.every((r) => r.attempts === 2 && /expired/.test(r.error ?? ''))).toBe(true);
   });
 
-  it('fehlgeschlagenes Einreichen: vorübergehend → später erneut, verlorener Batch (404) → neu einreichen', async () => {
+  it('eindeutig abgelehntes Einreichen (429) → später erneut, verlorener Batch (404) → neu einreichen', async () => {
     const ws = await seedWorkspace(`${PREFIX}submitfail`);
     const api = fakeApi();
     const c = await createCollection(ws.id, 'manual');
-    api.failNextSubmit(new EngineError('Claude-Batch Einreichen: 529 overloaded', { status: 529, retryable: true }));
+    api.failNextSubmit(new EngineError('Claude-Batch Einreichen: 429 rate_limit_error', { status: 429, retryable: true }));
     const s1 = await processCollection(c.id, { ...fast, batchTransport: api });
     expect(s1).toMatchObject({ status: 'running', pending: 3, batchPending: 0 });
     let runs = await db.select().from(run).where(eq(run.collectionId, c.id));
@@ -243,6 +253,112 @@ describe('Claude über die Message Batches API (Runner)', () => {
     } finally {
       process.env.ANTHROPIC_API_KEY = prev;
     }
+  });
+
+  /** Uhr zurückdrehen: Markierung/Einreichung und (Attrappe) Anlagezeitpunkt der Batches gleich weit in die Vergangenheit */
+  async function ago(collectionId: string, api: ReturnType<typeof fakeApi>, minutes: number) {
+    const at = new Date(Date.now() - minutes * 60_000);
+    await db.update(run).set({ batchSubmittedAt: at, startedAt: at }).where(and(eq(run.collectionId, collectionId), eq(run.status, 'running')));
+    for (const b of api.batches.values()) b.createdAt = at.toISOString();
+  }
+
+  it('mehrdeutiges Einreichen (5xx, Batch doch angelegt): nie neu einreichen, Batch über die Liste zuordnen', async () => {
+    const ws = await seedWorkspace(`${PREFIX}ambig`);
+    const api = fakeApi();
+    const c = await createCollection(ws.id, 'manual');
+    api.failNextSubmit(new EngineError('Claude-Batch Einreichen: 529 overloaded', { status: 529, retryable: true }), { created: true });
+    const s1 = await processCollection(c.id, { ...fast, batchTransport: api });
+    expect(s1).toMatchObject({ status: 'running', batchPending: 3 });
+    let runs = await db.select().from(run).where(eq(run.collectionId, c.id));
+    expect(runs.every((r) => r.status === 'running' && r.batchId!.startsWith(SUBMITTING) && r.attempts === 1)).toBe(true);
+    // vor Ablauf der Schonfrist und auch danach: kein zweites Einreichen
+    await processCollection(c.id, { ...fast, batchTransport: api });
+    await ago(c.id, api, 6);
+    await processCollection(c.id, { ...fast, batchTransport: api }); // Kandidat läuft noch → warten
+    expect(api.submits).toBe(1);
+    runs = await db.select().from(run).where(eq(run.collectionId, c.id));
+    expect(runs.every((r) => r.batchId!.startsWith(SUBMITTING))).toBe(true);
+    // Kandidat endet → custom_ids passen → zugeordnet; nächster Durchgang verarbeitet die Ergebnisse
+    api.end(api.lastId(), () => ({ type: 'succeeded', message: message('**Paylindo**') }));
+    await processCollection(c.id, { ...fast, batchTransport: api });
+    runs = await db.select().from(run).where(eq(run.collectionId, c.id));
+    expect(runs.every((r) => r.batchId === api.lastId())).toBe(true);
+    const s = await processCollection(c.id, { ...fast, batchTransport: api });
+    expect(s).toMatchObject({ status: 'done', done: 3 });
+    expect(api.submits).toBe(1);
+    expect(s.costUsd).toBeCloseTo(3 * BATCH_COST, 4);
+  });
+
+  it('mehrdeutiges Einreichen ohne angelegten Batch: nach Wartezeit failed statt neu einreichen; fremde Batches werden nicht zugeordnet', async () => {
+    const ws = await seedWorkspace(`${PREFIX}ambig-none`);
+    const api = fakeApi();
+    // fremder Batch im selben API-Workspace mit passender Größe und Zeit
+    await api.submit([1, 2, 3].map((i) => ({ custom_id: `fremd-${i}`, params: {} })));
+    api.end(api.lastId(), () => ({ type: 'expired' }));
+    const c = await createCollection(ws.id, 'manual');
+    api.failNextSubmit(new TypeError('fetch failed')); // Netzfehler ohne Status
+    await processCollection(c.id, { ...fast, batchTransport: api });
+    await ago(c.id, api, 10);
+    const s1 = await processCollection(c.id, { ...fast, batchTransport: api });
+    expect(s1).toMatchObject({ status: 'running', batchPending: 3 }); // noch in der Wartezeit
+    await ago(c.id, api, 31);
+    const s2 = await processCollection(c.id, { ...fast, batchTransport: api });
+    expect(s2).toMatchObject({ status: 'failed', failed: 3, pending: 0 });
+    expect(api.submits).toBe(1); // nur der fremde
+    const runs = await db.select().from(run).where(eq(run.collectionId, c.id));
+    expect(runs.every((r) => /nicht erneut eingereicht/.test(r.error ?? ''))).toBe(true);
+  });
+
+  it('Absturz zwischen Einreichen und Speichern der Batch-ID: Markierung bleibt, Batch wird zugeordnet statt neu eingereicht', async () => {
+    const ws = await seedWorkspace(`${PREFIX}crash-id`);
+    const api = fakeApi();
+    const c = await createCollection(ws.id, 'manual');
+    await processCollection(c.id, { ...fast, batchTransport: api });
+    // Zustand nach Absturz: echte ID nie gespeichert, nur die Markierung
+    await db.update(run).set({ batchId: `${SUBMITTING}abgestuerzt` }).where(eq(run.collectionId, c.id));
+    await ago(c.id, api, 20); // > STALE_RUN_MS
+    api.end(api.lastId(), () => ({ type: 'succeeded', message: message('**SumUp**') }));
+    await processCollection(c.id, { ...fast, batchTransport: api });
+    const s = await processCollection(c.id, { ...fast, batchTransport: api });
+    expect(s).toMatchObject({ status: 'done', done: 3 });
+    expect(api.submits).toBe(1);
+  });
+
+  it('gelöschte Frage während des Wartens: Kosten ihres Ergebnisses landen auf der Messung', async () => {
+    const ws = await seedWorkspace(`${PREFIX}orphan`);
+    const api = fakeApi();
+    const c = await createCollection(ws.id, 'manual');
+    await processCollection(c.id, { ...fast, batchTransport: api });
+    const [p] = await db.select().from(prompt).where(and(eq(prompt.workspaceId, ws.id), like(prompt.text, 'Frage A%')));
+    await db.delete(prompt).where(eq(prompt.id, p.id)); // Run per cascade weg
+    api.end(api.lastId(), () => ({ type: 'succeeded', message: message('**Paylindo**') }));
+    const s = await processCollection(c.id, { ...fast, batchTransport: api });
+    expect(s).toMatchObject({ status: 'done', done: 2 });
+    expect(s.costUsd).toBeCloseTo(3 * BATCH_COST, 4);
+    const again = await processCollection(c.id, { ...fast, batchTransport: api }); // nicht doppelt
+    expect(again.costUsd).toBeCloseTo(3 * BATCH_COST, 4);
+  });
+
+  it('Budget erreicht vor dem synchronen Nachgang: Ablehnung wird gespeichert, pause_turn als bezahlter Fehlschlag', async () => {
+    const ws = await seedWorkspace(`${PREFIX}resume-budget`, { budget: '0.10' });
+    const api = fakeApi();
+    const c = await createCollection(ws.id, 'manual');
+    let calls = 0;
+    const engine: Engine = { key: 'claude', provider: 'anthropic', enabled: () => true, run: async () => { calls++; throw new Error('darf nicht laufen'); } };
+    const opts = { ...fast, batchTransport: api, engineFor: () => engine, estimates: { claude_batch: 0.01, claude: 0.2, mock: 0 } };
+    await processCollection(c.id, opts);
+    api.end(api.lastId(), (req) => promptOf(req).startsWith('Frage A')
+      ? { type: 'succeeded', message: message('', { stop_reason: 'pause_turn' }) }
+      : { type: 'succeeded', message: message('', { stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'cyber' }, content: [] }) });
+    const s = await processCollection(c.id, opts);
+    expect(calls).toBe(0);
+    expect(s).toMatchObject({ done: 2, failed: 1, pending: 0 });
+    const rs = await db.select().from(response).where(eq(response.workspaceId, ws.id));
+    expect(rs.map((r) => r.answerType)).toEqual(['refusal', 'refusal']);
+    const runs = await db.select({ run, text: prompt.text }).from(run).innerJoin(prompt, eq(prompt.id, run.promptId)).where(eq(run.collectionId, c.id));
+    const a = runs.find((x) => x.text.startsWith('Frage A'))!.run;
+    expect(a).toMatchObject({ status: 'failed' });
+    expect(Number(a.costUsd)).toBeCloseTo(BATCH_COST, 4);
   });
 
   it('Budget mit Batch-Preisen: Reservierung eingereichter Batches gilt auch in späteren Durchgängen', async () => {

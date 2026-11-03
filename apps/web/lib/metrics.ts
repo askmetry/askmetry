@@ -507,7 +507,8 @@ export async function loadTrend(workspaceId: string, own: BrandLike | undefined)
         -- Quellenregel: searched-Zeilen nur, wenn die Antwort keine cited-Zeilen hat
         and (ci.kind = 'cited' or not exists (select 1 from ${citation} c2 where c2.response_id = ci.response_id and c2.kind = 'cited'))
     )
-    select c.id, c.created_at,
+    -- Zeitpunkt der Messung = Abschluss (Claude-Batches antworten bis zu 24 h nach dem Anlegen), wie „Messung vom …“
+    select c.id, coalesce(c.finished_at, c.created_at) as created_at,
       (select count(*) from r where r.collection_id = c.id)::int as n,
       (select count(distinct response_id) from m where m.collection_id = c.id and m.brand_id = ${own.id})::int as mentioned,
       (select count(distinct response_id) from m where m.collection_id = c.id and m.brand_id = ${own.id} and m.recommended)::int as recommended,
@@ -517,7 +518,7 @@ export async function loadTrend(workspaceId: string, own: BrandLike | undefined)
       (select avg(position)::float from m where m.collection_id = c.id and m.brand_id = ${own.id}) as avg_pos
     from ${collection} c
     where c.workspace_id = ${workspaceId} and c.status in ('done','budget_exceeded')
-    order by c.created_at asc
+    order by coalesce(c.finished_at, c.created_at) asc
   `);
   // Collections ohne Antworten (z. B. alles wegen Budget übersprungen) sind kein Trendpunkt
   return res.rows.filter((x) => Number(x.n) > 0).map((x) => ({

@@ -29,6 +29,9 @@ const common = {
     queued: 'in Warteschlange', running: 'läuft', done: 'abgeschlossen', failed: 'fehlgeschlagen', budget_exceeded: 'Budget erreicht',
   } as Record<string, string>,
   trigger: { scheduled: 'geplant', manual: 'manuell', import: 'Import' } as Record<string, string>,
+  // Geplante Messungen schicken Claude-Abfragen gebündelt (Batch, halber Preis); die Messung läuft so lange weiter
+  batchWaiting: (n: number) =>
+    `${n} ${n === 1 ? 'Claude-Abfrage wartet' : 'Claude-Abfragen warten'} noch auf ihr Ergebnis (günstigere gebündelte Verarbeitung) – meist innerhalb einer Stunde, spätestens nach 24 Stunden.`,
   noPermission: 'Keine Berechtigung: Leserechte erlauben keine Änderungen.',
   saving: '…',
 };

@@ -18,6 +18,7 @@ export interface BatchInfo {
   id: string;
   /** in_progress → (canceling) → ended */
   processing_status: 'in_progress' | 'canceling' | 'ended' | string;
+  created_at?: string;
   ended_at?: string | null;
   expires_at?: string | null;
   request_counts?: Record<string, number>;
@@ -37,7 +38,12 @@ export interface BatchTransport {
   submit(requests: BatchRequest[]): Promise<BatchInfo>;
   retrieve(batchId: string): Promise<BatchInfo>;
   results(batchId: string): AsyncIterable<BatchResultLine>;
+  /** Batches des API-Workspaces, neueste zuerst (GET /v1/messages/batches, seitenweise) – zum Zuordnen unklarer Einreichungen */
+  list(): AsyncIterable<BatchInfo>;
 }
+
+/** Anzahl Anfragen eines Batches (Summe aller request_counts) */
+export const batchRequestTotal = (b: BatchInfo) => Object.values(b.request_counts ?? {}).reduce((a, n) => a + (Number(n) || 0), 0);
 
 /** SDK-Fehler (APIError mit status) als EngineError: 429/5xx/Netzwerk wiederholbar, 4xx nicht. */
 function asEngineError(e: unknown, what: string): EngineError {
@@ -61,7 +67,8 @@ export function anthropicBatchTransport(): BatchTransport {
   return {
     async submit(requests) {
       try {
-        return await c().messages.batches.create({ requests } as any) as unknown as BatchInfo;
+        // feste Obergrenze: danach gilt das Einreichen als unklar und wird über list() zugeordnet (SUBMIT_GRACE_MS)
+        return await c().messages.batches.create({ requests } as any, { timeout: 120_000 }) as unknown as BatchInfo;
       } catch (e) { throw asEngineError(e, 'Einreichen'); }
     },
     async retrieve(id) {
@@ -73,6 +80,11 @@ export function anthropicBatchTransport(): BatchTransport {
       let it: AsyncIterable<any>;
       try { it = await c().messages.batches.results(id); } catch (e) { throw asEngineError(e, 'Ergebnisse'); }
       for await (const line of it) yield line as BatchResultLine;
+    },
+    async *list() {
+      try {
+        for await (const b of c().messages.batches.list({ limit: 100 })) yield b as unknown as BatchInfo;
+      } catch (e) { throw asEngineError(e, 'Liste'); }
     },
   };
 }

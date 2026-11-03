@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { eq, sql } from 'drizzle-orm';
 import { db, prompt } from '@opengeo/db';
-import { buildStatusBrief, keyInsight, loadRecData, pickTopRecommendations, rankingFrom } from '@opengeo/core';
+import { buildStatusBrief, claudeBatchWaiting, keyInsight, loadRecData, pickTopRecommendations, rankingFrom } from '@opengeo/core';
 import { CATEGORIES, categoryOf, categoryText, localizeRec, scoreVerdict, type RecCategory } from '@opengeo/core/present';
 import { ActionForm } from '@/components/action-form';
 import { BrandProfileBanner } from '@/components/brand-profile';
@@ -42,6 +42,9 @@ export default async function Uebersicht({ params }: { params: Promise<{ slug: s
   const t = tt.overview;
   const { ws, own, brands, selected, previous, all, canEdit } = ctx;
   const running = all.find((c) => c.status === 'queued' || c.status === 'running');
+  // geplante Messung wartet noch auf gebündelte Claude-Abfragen (Batch) → Wartezeit erklären
+  const batchWaiting = running?.status === 'running' ? await claudeBatchWaiting(ws.id) : 0;
+  const batchNote = batchWaiting ? ` ${tt.common.batchWaiting(batchWaiting)}` : '';
 
   if (!own) {
     return <EmptyState title={t.noBrand.title} action={{ href: `/w/${slug}/settings/marke`, label: t.noBrand.action }}>{t.noBrand.text}</EmptyState>;
@@ -50,7 +53,7 @@ export default async function Uebersicht({ params }: { params: Promise<{ slug: s
     if (running) {
       return (
         <EmptyState title={t.firstRunning.title} action={{ href: `/w/${slug}/settings/messung`, label: t.firstRunning.action }}>
-          {t.firstRunning.text}
+          {t.firstRunning.text + batchNote}
         </EmptyState>
       );
     }
@@ -131,7 +134,7 @@ export default async function Uebersicht({ params }: { params: Promise<{ slug: s
           <h1 className="text-2xl font-semibold tracking-tight">{own.name}</h1>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted">
             <span>{t.measuredOn(f.date(selected.finishedAt ?? selected.createdAt, false))}</span>
-            {running ? <span>{t.newRunning}</span> : canEdit && (
+            {running ? <span>{t.newRunning + batchNote}</span> : canEdit && (
               <>
                 <span aria-hidden>·</span>
                 <ActionForm action={startCollection} slug={slug} submit={t.measureAgain} inline className="contents"
