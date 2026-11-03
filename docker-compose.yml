@@ -8,14 +8,11 @@
 # override it with `docker compose -p <name>` to run several instances.
 name: opengeo-selfhost
 
+# Shared by web and worker. The web app only needs the Anthropic key (brand profile suggestions);
+# the engine keys below go to the worker alone, so the internet-facing container holds as few secrets as possible.
 x-app-env: &app-env
   DATABASE_URL: postgres://opengeo:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/opengeo
-  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-  PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY:-}
-  DATAFORSEO_LOGIN: ${DATAFORSEO_LOGIN:-}
-  DATAFORSEO_PASSWORD: ${DATAFORSEO_PASSWORD:-}
   OPENGEO_MOCK_ENGINES: ${OPENGEO_MOCK_ENGINES:-0}
   OPENGEO_MAX_BUDGET_USD: ${OPENGEO_MAX_BUDGET_USD:-200}
   OPENGEO_SITE_CHECK: ${OPENGEO_SITE_CHECK:-1}
@@ -39,11 +36,10 @@ services:
       timeout: 5s
       retries: 20
 
-  # One-shot: create/update the schema (drizzle-kit push), then exit. web and worker wait for it.
-  # Changes that would drop data are never applied automatically: drizzle-kit wants to ask, which needs a TTY,
-  # so the service fails and web/worker do not start. Review and confirm interactively with
-  #   docker compose run --rm -it migrate node_modules/.bin/drizzle-kit push
-  # (drizzle-kit exits 0 even when the prompt fails, hence the output check.)
+  # One-shot: apply the versioned migrations (packages/db/drizzle), then exit. web and worker wait for it.
+  # Safe to run on every start: already applied migrations are skipped, concurrent runs wait for each other.
+  # A database created by an older OpenGEO version (drizzle-kit push, no migration history) is adopted
+  # if its schema matches the baseline; otherwise migrate fails with instructions and web/worker do not start.
   migrate:
     image: ${OPENGEO_WORKER_IMAGE:-opengeo-worker:local}
     build:
@@ -51,10 +47,7 @@ services:
       target: worker
     restart: "no"
     working_dir: /app/packages/db
-    command:
-      - sh
-      - -c
-      - 'out=$$(node_modules/.bin/drizzle-kit push 2>&1); code=$$?; echo "$$out"; case "$$out" in *Error:*) exit 1;; esac; exit $$code'
+    command: ["node", "src/migrate.ts"]
     environment:
       DATABASE_URL: postgres://opengeo:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/opengeo
     depends_on:
@@ -94,6 +87,11 @@ services:
     stop_grace_period: 60s
     environment:
       <<: *app-env
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY:-}
+      DATAFORSEO_LOGIN: ${DATAFORSEO_LOGIN:-}
+      DATAFORSEO_PASSWORD: ${DATAFORSEO_PASSWORD:-}
       OPENGEO_HEARTBEAT_FILE: /tmp/opengeo-worker-heartbeat
     # Der Worker schreibt bei jedem Durchgang und jeder Messung ein Lebenszeichen; älter als 2 h = hängt.
     healthcheck:

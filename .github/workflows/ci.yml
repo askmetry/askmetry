@@ -1,4 +1,5 @@
-# CI: install → typecheck → unit tests → integration tests (Postgres) → web build, plus Docker image builds.
+# CI: install → migrations in sync with schema.ts → typecheck → unit tests → migrations + integration tests (Postgres)
+#     → web build, plus Docker image builds.
 #
 # Where jobs run
 # - Pull requests (including forks) ALWAYS run on GitHub-hosted ubuntu-latest: free for public repositories
@@ -51,6 +52,26 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # Fails when packages/db/src/schema.ts was changed without `pnpm db:generate`. Needs no database.
+      # drizzle-kit exits 0 on errors (e.g. the rename prompt, which needs a TTY), so its output is checked too.
+      # Hand edits to an existing .sql file are not detected here.
+      - name: Migrations match schema.ts
+        run: |
+          log="$RUNNER_TEMP/drizzle-generate.log"
+          pnpm db:generate 2>&1 | tee "$log"
+          if grep -qiE 'error|warning' "$log"; then
+            echo "::error::drizzle-kit generate failed (renames need an interactive 'pnpm db:generate'). Run it locally and commit packages/db/drizzle."; exit 1
+          fi
+          pnpm --filter @opengeo/db exec drizzle-kit check 2>&1 | tee "$log"
+          if [ "${PIPESTATUS[0]}" -ne 0 ] || grep -qiE 'error|warning' "$log"; then
+            echo "::error::drizzle-kit check found problems in packages/db/drizzle (e.g. colliding migrations after a merge)."; exit 1
+          fi
+          changes=$(git status --porcelain --untracked-files=all -- packages/db/drizzle)
+          if [ -n "$changes" ]; then
+            echo "::error::packages/db/src/schema.ts has changes without a migration. Run 'pnpm db:generate' and commit packages/db/drizzle."
+            echo "$changes"; git diff -- packages/db/drizzle; exit 1
+          fi
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -69,6 +90,15 @@ jobs:
             sleep 2
           done
           docker logs "$PG_CONTAINER"; exit 1
+
+      # Fresh database, then a second run that must be a no-op (the integration tests migrate their own opengeo_test)
+      - name: Migrations (fresh database, run twice)
+        env:
+          DATABASE_URL: postgres://opengeo:opengeo@127.0.0.1:55439/opengeo
+        run: |
+          pnpm db:migrate
+          pnpm db:migrate | tee "$RUNNER_TEMP/migrate-2.log"
+          grep -q "Database is up to date" "$RUNNER_TEMP/migrate-2.log"
 
       - name: Integration tests
         run: pnpm test:integration

@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
 
-// Integrationstest gegen die separate Datenbank opengeo_test (wird bei Bedarf angelegt und mit dem Schema befüllt)
+// Integrationstest gegen die separate Datenbank opengeo_test (wird bei jedem Lauf neu angelegt und migriert)
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? 'postgres://opengeo:opengeo@localhost:5433/opengeo_test';
 
 export default defineConfig({

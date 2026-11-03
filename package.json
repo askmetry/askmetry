@@ -5,6 +5,8 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "db:up": "docker compose -f docker-compose.dev.yml up -d db",
+    "db:generate": "pnpm --filter @opengeo/db generate",
+    "db:migrate": "pnpm --filter @opengeo/db migrate",
     "db:push": "pnpm --filter @opengeo/db push",
     "dev": "pnpm --filter @opengeo/web dev",
     "worker": "pnpm --filter @opengeo/worker start",

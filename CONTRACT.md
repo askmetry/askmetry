@@ -14,14 +14,14 @@ Gemeinsame Absprache für alle, die am MVP bauen. Fachliche Spezifikation: [SPEC
 ## Struktur (pnpm-Monorepo, TypeScript, ESM)
 
 ```
-packages/db      Drizzle-Schema (schema.ts = Domäne, auth-schema.ts = better-auth), db-Client  [Lead + Web]
+packages/db      Drizzle-Schema (schema.ts = Domäne, auth-schema.ts = better-auth), Migrationen (drizzle/), db-Client  [Lead + Web]
 packages/core    Engines, Preise, Analyse, Kennzahlen-Helfer, Collection-Runner                [Core]
 apps/worker      Scheduler-Schleife + CLI (seed, collect, once)                                [Core]
 apps/web         Next.js-Dashboard, Auth, Einstellungen                                       [Web]
 ```
 
-- Pakete werden als TS-Quellen konsumiert (`exports` → `./src/*.ts`, `allowImportingTsExtensions`). Scripts laufen mit `tsx`. Next nutzt `transpilePackages`.
-- Schema-Änderungen: nur additiv, minimal, danach `pnpm db:push`. Im Abschlussbericht nennen.
+- Pakete werden als TS-Quellen konsumiert (`exports` → `./src/*.ts`, `allowImportingTsExtensions`). Scripts laufen mit `tsx`, Ausnahme `packages/db/src/migrate.ts`: läuft mit reinem `node` (Type-Stripping, im Worker-Image ohne tsx), also keine TS-Syntax mit Laufzeitwirkung (`erasableSyntaxOnly`). Next nutzt `transpilePackages`.
+- Schema-Änderungen: nur additiv, minimal. Ablauf: `schema.ts` ändern → `pnpm db:generate` → erzeugte Migration in `packages/db/drizzle` prüfen (mitcommitten, bereits veröffentlichte nie ändern) → `pnpm db:migrate`. `pnpm db:push` nur für Wegwerf-Experimente. Im Abschlussbericht nennen.
 - Gleichzeitige `pnpm add` in mehreren Paketen können kollidieren → bei Lock-Fehlern kurz warten und wiederholen.
 
 ## Datenmodell (siehe packages/db/src/schema.ts)
@@ -157,18 +157,23 @@ Konkrete, priorisierte Handlungsempfehlungen je Workspace. Erzeugt von `generate
 
 **Ablauf im Worker** (alles in `processCollection`, das der Worker für laufende Collections jede Minute aufruft):
 1. Zuerst Ergebnisse eingereichter Batches dieser Collection abholen (`retrieve` → bei `processing_status = 'ended'` die `.jsonl`-Ergebnisse streamen, Zuordnung über `custom_id` = Run-ID).
-2. Fällige Claude-Runs (pending bzw. hängend, ohne `batch_id`) mit Budget-Prüfung claimen und als **ein Batch je Collection** einreichen; `run.batch_id`, `run.batch_submitted_at` (neu, additiv, nullable) und `attempts + 1` setzen. Übrige Engines laufen synchron wie bisher.
+2. Fällige Claude-Runs (pending bzw. hängend, ohne `batch_id`) mit Budget-Prüfung claimen, **vor** dem Einreichen markieren (`batch_id = 'submitting:<uuid>'`, `batch_submitted_at`, `attempts + 1`), dann als **ein Batch je Collection** einreichen (Timeout 2 min) und die echte ID eintragen. Übrige Engines laufen synchron wie bisher.
+   - **Einreichen fehlgeschlagen:** nur bei eindeutiger Ablehnung (HTTP 4xx außer 408) zurück auf `pending` bzw. `failed` (Versuchslogik). Bei mehrdeutigem Fehler (Zeitüberschreitung, Netzfehler, 5xx) – und ebenso wenn der Worker nach dem Einreichen stirbt oder das Speichern der ID scheitert – bleibt die Markierung: solche Runs werden **nie still neu eingereicht**.
+   - **Zuordnung** (`reconcileSubmission`, frühestens 5 min nach der Markierung): `GET /v1/messages/batches` (neueste zuerst; Batch-Objekt hat `created_at`, `request_counts`, keine Metadaten) → Kandidaten = angelegt zwischen Markierung − 2 min und + 5 min, mindestens so viele Anfragen wie markierte Runs, noch keinem Run zugeordnet. Zugeordnet wird erst, wenn ein Kandidat beendet ist und seine Ergebnis-`custom_id`s alle markierten Run-IDs enthalten (eindeutig, auch bei fremden Batches im selben API-Workspace). Läuft ein Kandidat noch, wird gewartet (höchstens 48 h). Ohne passenden Batch nach 30 min → `failed` mit Hinweis „nicht erneut eingereicht, um Doppelkosten zu vermeiden“.
 3. Run-Zustand während des Wartens: `status = 'running'` mit `batch_id` → zählt als offen (Collection bleibt `running`), gilt **nie als hängend** (`claimRun` und die Todo-Abfrage schließen `batch_id is not null` aus) und wird nicht erneut eingereicht. Ein Worker-Neustart verliert nichts: Zustand liegt in der DB, Ergebnisse 29 Tage bei Anthropic.
 4. Übernahme eines Ergebnisses atomar (`startedAt = batch_submitted_at` bzw. nach `STALE_RUN_MS` erneut) – zwei Worker verarbeiten es nicht doppelt; Unique-Index auf `response.run_id` als zweite Sicherung.
 - **Einzelne Fehler:** `errored` (außer `invalid_request_error` u. ä. → sofort `failed`), `expired`, `canceled`, fehlendes Ergebnis, Batch nicht mehr abrufbar (404 sofort, sonstige Fehler nach 48 h): Run zurück auf `pending` (`batch_id` null) und im nächsten Durchgang neu eingereicht, solange `attempts < maxAttempts` (3), sonst `failed`. Diese Fälle kosten nichts. Fehler beim Einreichen: wiederholbar → `pending`, sonst `failed`.
-- **Bekanntes Restrisiko:** Absturz genau zwischen erfolgreichem Einreichen und dem Speichern der `batch_id` → die Runs gelten nach 15 min als hängend und werden erneut eingereicht (doppelte Kosten für diese Runs, Batch-ID steht im Log).
 
 **Kosten/Budget:** `usage.batch = true` → `costFromUsage` rechnet Claude-Tokens zum halben Preis; Suchgebühr (0,01 $/Suche) vorsichtig unverändert. Synchron nachgeholte Teile stehen in `usage.sync` und kosten den Normalpreis. Schätzung vor dem Einreichen `estimatedCostPerRun.claude_batch = 0,06 $` (statt 0,09 $). Eingereichte, noch nicht abgerechnete Batch-Runs werden über `batchReservedUsd(workspaceId)` (Anzahl × Schätzung) bei jeder Budget-Prüfung mitgezählt – auch in späteren Durchgängen und anderen Collections desselben Workspaces.
 
 **Zeitpunkt:** `response.created_at` und `run.finished_at` = `ended_at` des Batches (Zeitpunkt der Antwort, nicht der Abholung); `collection.finished_at` = Abschluss nach dem letzten Ergebnis. Dadurch zählen die Kosten im Monat der Antwort (`monthToDateSpend`) und „Messung vom …“ (UI nutzt `finishedAt ?? createdAt`) stimmt. **Hinweis für apps/web:** `loadTrend` (lib/metrics.ts) datiert Trendpunkte nach `collection.created_at`; bei Batches kann die Antwort bis zu 24 h (meist < 1 h) später liegen → besser `coalesce(finished_at, created_at)` verwenden. Die Reihenfolge der Messungen ist davon nicht betroffen (je Workspace höchstens eine aktive Messung).
 - Solange ein Batch läuft, bleibt die geplante Messung `running` → „Jetzt messen“ ist in dieser Zeit (meist < 1 h, höchstens 24 h) blockiert (`CollectionActiveError`).
 - `ProcessSummary.batchPending` = Runs, die im Batch warten.
-- **Weitere bekannte Restrisiken:** Ein Einreichen, das mit Zeitüberschreitung/Netzfehler endet, obwohl der Batch angelegt wurde, führt im nächsten Durchgang zu einer zweiten Einreichung (doppelte Kosten, der erste Batch wird nicht abgeholt). Der synchrone Nachgang (pause_turn/Ablehnung, Normalpreis) hat keine eigene Budget-Prüfung (durch die Batch-Reservierung grob gedeckt). Wird ein Prompt gelöscht, während sein Run im Batch wartet, wird dessen Batch-Ergebnis nicht verbucht. Ein Fehler nach Übernahme eines Ergebnisses bucht den Run als `failed` mit den bezahlten Kosten (wie synchron), statt ihn hängen zu lassen.
+- **Synchroner Nachgang nur mit Budget:** vor pause_turn-Fortsetzung bzw. Neustellung einer Ablehnung (Normalpreis, Schätzung `estimatedCostPerRun.claude`) wird das Monatsbudget geprüft. Reicht es nicht: Ablehnung wird wie synchron ohne Fallback als Antwort (`answer_type 'refusal'`) gespeichert; eine unvollständige pause_turn-Antwort wird – wie synchron nach erschöpften Fortsetzungen – als bezahlter Fehlschlag gebucht (eine halbe Antwort würde die Kennzahlen verfälschen).
+- **Gelöschte Frage während des Wartens:** Run ist per cascade weg; die Kosten seines Ergebnisses werden auf der Collection gebucht (genau einmal, wenn kein Run des Batches mehr wartet; Merker: `batch_submitted_at` der abgeschlossenen Runs wird dabei geleert). Restrisiko: werden **alle** Fragen eines Batches gelöscht, wird er nie mehr gelesen und seine Kosten nicht verbucht.
+- Ein Fehler nach Übernahme eines Ergebnisses bucht den Run als `failed` mit den bezahlten Kosten (wie synchron), statt ihn hängen zu lassen.
+- **UI:** `claudeBatchWaiting(workspaceId)` (core) = wartende Batch-Runs. Messung-Seite (Status), Übersicht, Analyse und die Meldung von „Jetzt messen“ zeigen dann `common.batchWaiting(n)` („… warten noch auf ihr Ergebnis … meist innerhalb einer Stunde, spätestens nach 24 Stunden“, de/en).
+- **Kein Abbrechen langer Batches** (bewusst): `batches.cancel` + synchrones Nachholen nach z. B. 6 h wäre ohne Doppelkosten nur so möglich: abbrechen, auf `ended` warten, bereits verarbeitete Anfragen normal übernehmen und nur `canceled` synchron nachholen. Das spart bei geplanten (nicht zeitkritischen) Messungen selten Zeit, kostet für die nachgeholten Anfragen den doppelten Tokenpreis und ist ein zusätzlicher Zustand mit eigenen Fehlerfällen. Batches enden fast immer < 1 h (echter Lauf: 1,8 min).
 
 
 ## Sprachen (03.11.2026)

@@ -19,7 +19,7 @@ Lizenz: [AGPL-3.0](LICENSE). Spezifikation: [SPEC.md](SPEC.md) · Bau-Absprachen
 
 ```bash
 cp .env.example .env     # POSTGRES_PASSWORD, BETTER_AUTH_SECRET, BETTER_AUTH_URL und API-Schlüssel eintragen
-docker compose up -d     # baut die Images, legt das Schema an, startet db, web und worker
+docker compose up -d     # baut die Images, spielt die Migrationen ein, startet db, web und worker
 ```
 
 Dashboard unter <http://localhost:3010> (Port: `OPENGEO_PORT`; gebunden an `127.0.0.1`, für öffentlichen Zugriff einen Reverse-Proxy mit TLS davorsetzen). `OPENGEO_MOCK_ENGINES=1` zum kostenlosen Ausprobieren. Details zu Diensten, Updates, Backups und Schema-Änderungen: [README.md – Quickstart](README.md#quickstart-docker).
@@ -32,10 +32,12 @@ Voraussetzungen: Node 24, pnpm 11, Docker.
 cp .env.example .env                 # Schlüssel eintragen, BETTER_AUTH_SECRET setzen
 pnpm install
 pnpm db:up                           # nur Postgres auf Port 5433 (docker-compose.dev.yml)
-pnpm db:push                         # Schema anlegen
+pnpm db:migrate                      # Schema anlegen/aktualisieren (versionierte Migrationen)
 pnpm dev                             # Dashboard auf http://localhost:3010
 pnpm worker                          # Worker: Zeitplan + Warteschlange (zweites Terminal)
 ```
+
+Schema ändern: `packages/db/src/schema.ts` bearbeiten → `pnpm db:generate` → neue Datei in `packages/db/drizzle` prüfen und mitcommitten → `pnpm db:migrate`. Die CI schlägt fehl, wenn `schema.ts` Änderungen ohne Migration hat. `pnpm db:push` gleicht das Schema ohne Migration direkt ab – nur für schnelle lokale Experimente (siehe [CONTRIBUTING.md](CONTRIBUTING.md#schema-changes)).
 
 Konto unter `/signup` anlegen, Workspace erstellen, Marken und Fragen eintragen, „Jetzt messen“.
 

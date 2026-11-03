@@ -43,7 +43,7 @@ What `docker compose up -d` starts (project name `opengeo-selfhost`):
 | Service | What it does |
 |---|---|
 | `db` | Postgres 17, data in the volume `db-data`, not exposed on the host |
-| `migrate` | one-shot: creates/updates the database schema, then exits |
+| `migrate` | one-shot: applies new database migrations (`packages/db/drizzle`), then exits |
 | `web` | the dashboard (Next.js) on `127.0.0.1:${OPENGEO_PORT:-3010}` |
 | `worker` | scheduler + queue: runs due measurements every 60 s |
 
@@ -51,7 +51,7 @@ Operations:
 
 ```bash
 docker compose logs -f web worker            # logs
-git pull && docker compose up -d --build   # update: rebuild images, migrate, restart
+git pull && docker compose up -d --build   # update: rebuild images, migrate, restart (back up first)
 docker compose exec -T db pg_dump -U opengeo opengeo > backup.sql   # backup
 docker compose exec -T db psql -U opengeo opengeo < backup.sql      # restore into an empty database
 docker compose down                          # stop (data stays in the volume)
@@ -59,7 +59,8 @@ docker compose down                          # stop (data stays in the volume)
 
 - **Public access:** the web port binds to `127.0.0.1` by default. Put a reverse proxy with TLS (Caddy, nginx, Traefik) in front and set `BETTER_AUTH_URL` to the public URL. Set `OPENGEO_BIND=0.0.0.0` only if you really want to expose the port directly.
 - **Close signups** after creating your accounts: `OPENGEO_ALLOW_SIGNUP=false`, then `docker compose up -d`.
-- **Schema updates** run automatically on every start. Changes that would drop data are never applied automatically: `migrate` fails, web and worker don't start, and you confirm interactively with `docker compose run --rm -it migrate node_modules/.bin/drizzle-kit push`.
+- **Schema updates** are versioned SQL migrations in `packages/db/drizzle`, reviewed and committed with the code. `migrate` applies the ones your database doesn't have yet on every start; already applied migrations are skipped, so restarts change nothing. If a migration fails, it is rolled back, `migrate` exits with an error and web and worker don't start (`docker compose logs migrate`). Take a backup before updating.
+- **Installations from before migrations existed** (schema created with `drizzle-kit push`) are adopted automatically on the first update: if the schema matches the baseline migration, it is recorded as applied without running it, and your data stays untouched. If it doesn't match, `migrate` stops without changing anything and prints the differences and how to fix them.
 
 ## Costs
 
@@ -89,7 +90,7 @@ All configuration is done through environment variables in `.env` (see [.env.exa
 | `BETTER_AUTH_URL` | `http://localhost:3010` | web | Public base URL of the dashboard. |
 | `OPENAI_API_KEY` | – | worker | ChatGPT engine. |
 | `GEMINI_API_KEY` | – | worker | Gemini engine. |
-| `ANTHROPIC_API_KEY` | – | worker | Claude engine **and** the analysis of all answers (required for real measurements). |
+| `ANTHROPIC_API_KEY` | – | worker, web | Claude engine, the analysis of all answers (required for real measurements) and brand profile suggestions in the web app. |
 | `PERPLEXITY_API_KEY` | – | worker | Perplexity engine (optional). |
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | – | worker | Google AI Overviews and AI Mode via DataForSEO. |
 | `OPENGEO_MOCK_ENGINES` | `0` | worker, web | `1` = replace all engines and the analysis with a free local mock. |
@@ -113,10 +114,12 @@ Requirements: Node 24, pnpm 11, Docker.
 cp .env.example .env                 # add keys, set BETTER_AUTH_SECRET (or OPENGEO_MOCK_ENGINES=1)
 pnpm install
 pnpm db:up                           # Postgres on localhost:5433 (docker-compose.dev.yml)
-pnpm db:push                         # create the schema
+pnpm db:migrate                      # create/update the schema (versioned migrations)
 pnpm dev                             # dashboard on http://localhost:3010
 pnpm worker                          # worker: schedule + queue (second terminal)
 ```
+
+Schema changes: edit `packages/db/src/schema.ts`, run `pnpm db:generate`, review and commit the new file in `packages/db/drizzle`, then `pnpm db:migrate`. CI fails if `schema.ts` has changes without a migration. `pnpm db:push` syncs the schema directly without a migration – a shortcut for quick local experiments only (see [CONTRIBUTING.md](CONTRIBUTING.md#schema-changes)).
 
 Sample data without API costs: `pnpm --filter @opengeo/worker seed --owner you@example.com` (needs the local spike results). More worker commands: [apps/worker/README.md](apps/worker/README.md) (German).
 
@@ -125,7 +128,7 @@ Tests:
 ```bash
 pnpm typecheck
 pnpm test:unit                       # no database, no network
-pnpm test:integration                # mock engines, database opengeo_test (created automatically)
+pnpm test:integration                # mock engines, database opengeo_test (recreated on every run)
 pnpm test                            # everything
 node e2e/full-flow.mjs login|check|create|verify   # browser test against http://localhost:3010 (credentials in .e2e-credentials)
 ```
@@ -135,7 +138,7 @@ node e2e/full-flow.mjs login|check|create|verify   # browser test against http:/
 Repository layout:
 
 ```
-packages/db      Drizzle schema, database client
+packages/db      Drizzle schema, migrations (drizzle/), migrate command, database client
 packages/core    engine adapters, pricing, analysis, measurement runner with budget checks, recommendations
 apps/worker      scheduler loop + CLI (seed, collect, once, recommend, …), launchd templates
 apps/web         Next.js dashboard with login and tenant separation

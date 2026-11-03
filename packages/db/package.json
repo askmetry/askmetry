@@ -6,9 +6,12 @@
   "license": "AGPL-3.0-only",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema.ts"
+    "./schema": "./src/schema.ts",
+    "./migrate": "./src/migrate.ts"
   },
   "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "node src/migrate.ts",
     "push": "drizzle-kit push --force",
     "typecheck": "tsc --noEmit"
   },
