@@ -151,7 +151,7 @@ Grundlage: Spike (20 Prompts × 5 Engines) und Kosten-Experiment (`spike/experim
 | Engine | Einstellung | Kosten/Anfrage | Bemerkung |
 |---|---|---|---|
 | ChatGPT | gpt-5.5, Suchkontext `low`, Denktiefe `low`, **flex** (ab 03.11.) | ~0,065 $ (ohne flex ~0,12 $) | Teure Standardeinstellung ~0,22 $. Abweichung zur günstigen Einstellung (Marken-Überlappung 0,43–0,46) = normale Schwankung zwischen zwei Läufen (0,46). gpt-5.4-mini: 0,02 $, aber deutlich andere Antworten (0,10) → nicht verwenden. |
-| Claude | Sonnet 5.5, Denktiefe `medium`, max. 3 Suchen, Such-Anweisung | ~0,08 $ | Opus 5.5: ~0,19 $. Sonnet ohne Anweisung sucht oft gar nicht. Haiku 5.5: ~0,01 $, Option für knappe Budgets. |
+| Claude | Sonnet 5.5, Denktiefe `medium`, max. 3 Suchen, Such-Anweisung; geplante Messungen über die **Batches API** (ab 03.11.) | ~0,08 $ (Batch ~0,05 $, Tokens −50 %, Suchen unverändert) | Opus 5.5: ~0,19 $. Sonnet ohne Anweisung sucht oft gar nicht. Haiku 5.5: ~0,01 $, Option für knappe Budgets. |
 | Gemini | gemini-3.5-flash + Google Search Grounding | ~0,01 $ | Grounding bis 5.000 Suchen/Monat kostenlos. |
 | Google AI Overviews | DataForSEO Live + Nachladen | ~0,004 $ | Sporadische 40101-Fehler → Wiederholungen. Standard-Warteschlange wäre 3× günstiger. |
 | Google AI Mode | DataForSEO Live | ~0,004 $ | |
@@ -159,7 +159,7 @@ Grundlage: Spike (20 Prompts × 5 Engines) und Kosten-Experiment (`spike/experim
 
 **Monat bei Standard-Einstellung** (20 Prompts × 2 Wiederholungen × wöchentlich ≈ 173 Anfragen je Engine): ChatGPT ~24 $, Claude ~12 $, Gemini ~2 $, Google ~1,5 $ → **~40 $ (~37 €)**. Ein Budget-Deckel pro Workspace stoppt Läufe bei Überschreitung.
 
-Weitere Hebel für später: Batch-APIs (−50 % Tokens, Websuche teils unterstützt), Wiederholungen nur für Prompts mit unklarem Ergebnis, Haiku für Claude.
+Weitere Hebel für später: Wiederholungen nur für Prompts mit unklarem Ergebnis, Haiku für Claude. Umgesetzt: OpenAI flex (03.11.), Claude Message Batches API für geplante Messungen (03.11., gleiche Anfrage ohne Server-Fallback, Ablehnungen synchron neu gestellt; Ablauf siehe CONTRACT.md).
 
 ### 9.1 Qualitätstest vom 03.11.2026
 
@@ -181,7 +181,20 @@ Ergebnisse:
 - **Claude Sonnet vs. Opus:** Sonnet sucht immer (Opus antwortete in 15 % ohne Websuche, also aus Trainingswissen) und ist das claude.ai-Standardmodell, weicht aber systematisch von Opus ab (0,21 < 0,46). Sonnet bleibt Standard, weil es dem Nutzererlebnis näher ist.
 - **chat-latest** (vollständig gemessen, 40 Abfragen): doppelt so teuer wie flex, nennt weniger Marken und Quellen und weicht stärker von der Referenz ab (0,29 statt 0,38) → kein Vorteil, flex bleibt Standard.
 - Wiederholungen bleiben vorerst bei 2 je Prompt (Entscheidung 03.11.2026).
-- Offen: Claude-Batch-API (−50 % auf Tokens, Websuche unterstützt) im Runner.
+- Claude-Batch-API im Runner umgesetzt (geplante Messungen; manuelle bleiben synchron) – Ergebnis des echten Durchlaufs siehe 9.2.
+
+### 9.2 Claude-Batch, echter Durchlauf vom 03.11.2026
+
+3 paylindo-Prompts (eigener Test-Workspace `batch-test-paylindo`), Sonnet 5.5 mit gleichen Einstellungen, Vergleich mit den synchronen Läufen aus 9.1:
+
+| | Batch | synchron (9.1, je 2 Läufe) |
+|---|---|---|
+| Dauer | 1,8 min für den ganzen Batch | 15–25 s je Anfrage |
+| $/Anfrage (Claude) | 0,049 / 0,045 / 0,064 (Ø 0,053) | Ø 0,097 / 0,064 / 0,105 (Ø 0,088) |
+| Suchen | 1 / 1 / 2 | 1 / 1 / 3 |
+| Antwortlänge, Quellen | 1,8–2,6 Tsd. Zeichen, je 9 gelesene Quellen | 1,8–2,7 Tsd. Zeichen, je 9 gelesene Quellen |
+
+Antwort, Quellen (`searched`), Analyse (Nennungen, answer_type) und Kosten kamen wie bei synchronen Messungen in der DB an; Ersparnis ~40 % je Anfrage (Tokens −50 %, Suchgebühr unverändert). Gesamtkosten des Tests inkl. Auswertung 0,16 $.
 
 ## 10. Roadmap
 

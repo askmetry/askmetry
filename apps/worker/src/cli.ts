@@ -1,7 +1,9 @@
 // OpenGEO-Worker: Scheduler-Schleife + CLI
 //   start                          Schleife (alle 60 s): fällige geplante Messungen anlegen, Warteschlange abarbeiten
 //   once                           Warteschlange abarbeiten, dann beenden
-//   collect --workspace <slug> [--mock]   manuelle Messung anlegen und sofort abarbeiten
+//   collect --workspace <slug> [--mock] [--batch]   manuelle Messung anlegen und sofort abarbeiten
+//                                  (--batch: Claude über die Message Batches API wie bei geplanten Messungen;
+//                                   Ergebnisse holt `once`/`start` später ab)
 //   seed [--owner <email>]         Demo-Workspaces + Spike-Ergebnisse importieren
 //   recommend --workspace <slug> [--no-llm] [--collection <id>] [--force-site-check]
 //                                  Maßnahmen aus der letzten abgeschlossenen Messung neu berechnen
@@ -9,6 +11,7 @@
 //   logos --workspace <slug> [--force]      Website-Icons der Marken holen (kostenlos)
 //   backfill-searched [--workspace <slug>]  durchsuchte Quellen (kind 'searched') aus gespeicherten ChatGPT-/Claude-Rohdaten nachtragen
 import './env.ts';
+import { writeFileSync } from 'node:fs';
 import {
   analyzePendingResponses, autofillBrandProfile, refreshLogos, backfillSearchedCitations, createCollection, createDueScheduledCollections, finishedCollections, generateRecommendations, isMockMode,
   listProcessableCollections, processCollection,
@@ -44,6 +47,13 @@ async function workspaceBySlug(slug: string) {
 let stopping = false;
 const shouldStop = () => stopping;
 
+/** Lebenszeichen für Docker-Healthchecks: Datei aus OPENGEO_HEARTBEAT_FILE bei jedem Fortschritt anfassen. */
+const HEARTBEAT = process.env.OPENGEO_HEARTBEAT_FILE;
+function heartbeat() {
+  if (!HEARTBEAT) return;
+  try { writeFileSync(HEARTBEAT, new Date().toISOString()); } catch (e) { log(`Heartbeat nicht schreibbar: ${(e as Error).message}`); }
+}
+
 /**
  * Alle offenen Collections nacheinander abarbeiten (jede höchstens einmal pro Durchgang), danach ausstehende
  * Auswertungen nachholen. Fehler einer Collection brechen den Durchgang nicht ab – andere Workspaces laufen weiter.
@@ -54,10 +64,11 @@ async function drainQueue() {
     const next = (await listProcessableCollections()).find((c) => !seen.has(c.id));
     if (!next) break;
     seen.add(next.id);
+    heartbeat();
     log(`Messung ${next.id} (${next.status}) wird abgearbeitet`);
     try {
       const s = await processCollection(next.id, { shouldStop, log });
-      log(`Messung ${next.id}: ${s.status} – ${s.done} fertig, ${s.failed} fehlgeschlagen, ${s.skipped} übersprungen, ${s.pending} offen, ${s.costUsd.toFixed(4)} $${s.analysisPending ? `, ${s.analysisPending} Auswertungen ausstehend` : ''}`);
+      log(`Messung ${next.id}: ${s.status} – ${s.done} fertig, ${s.failed} fehlgeschlagen, ${s.skipped} übersprungen, ${s.pending} offen${s.batchPending ? ` (davon ${s.batchPending} im Claude-Batch, Abholung im nächsten Durchgang)` : ''}, ${s.costUsd.toFixed(4)} $${s.analysisPending ? `, ${s.analysisPending} Auswertungen ausstehend` : ''}`);
     } catch (e) {
       log(`Messung ${next.id} abgebrochen: ${(e as Error)?.stack ?? e}`);
     }
@@ -89,6 +100,7 @@ async function main() {
       log('Worker gestartet (Intervall 60 s)');
       while (!stopping) {
         try {
+          heartbeat();
           await createDueScheduledCollections(new Date(), log);
           await drainQueue();
         } catch (e) {
@@ -105,13 +117,13 @@ async function main() {
       break;
     case 'collect': {
       const slug = flags.workspace;
-      if (typeof slug !== 'string') throw new Error('collect --workspace <slug> [--mock]');
+      if (typeof slug !== 'string') throw new Error('collect --workspace <slug> [--mock] [--batch]');
       const [ws] = await db.select().from(workspace).where(eq(workspace.slug, slug));
       if (!ws) throw new Error(`Workspace ${slug} nicht gefunden`);
       const c = await createCollection(ws.id, 'manual');
       log(`Messung ${c.id} für ${slug} angelegt`);
-      const s = await processCollection(c.id, { log });
-      log(`Messung ${c.id}: ${s.status} – ${s.done} fertig, ${s.failed} fehlgeschlagen, ${s.skipped} übersprungen, ${s.costUsd.toFixed(4)} $`);
+      const s = await processCollection(c.id, { log, ...(flags.batch && { batch: true }) });
+      log(`Messung ${c.id}: ${s.status} – ${s.done} fertig, ${s.failed} fehlgeschlagen, ${s.skipped} übersprungen, ${s.costUsd.toFixed(4)} $${s.batchPending ? ` – ${s.batchPending} Runs im Claude-Batch, Ergebnisse holt \`once\`/\`start\` ab` : ''}`);
       break;
     }
     case 'seed': {

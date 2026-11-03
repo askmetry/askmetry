@@ -59,7 +59,11 @@ export function costFromUsage(input: {
       inTok = num(usage.input_tokens ?? usage.prompt_tokens);
       outTok = num(usage.output_tokens ?? usage.completion_tokens);
   }
-  // OpenAI flex: Tokens zu Batch-Preisen (−50 %), Suchgebühr unverändert
-  const tokenFactor = engine === 'chatgpt' && usage.service_tier === 'flex' ? 0.5 : 1;
-  return (tokenFactor * (inTok * p.input + outTok * p.output)) / 1e6 + searches * p.perSearch;
+  // OpenAI flex bzw. Claude Message Batches API: Tokens zu Batch-Preisen (−50 %), Suchgebühr vorsichtig unverändert
+  const tokenFactor = (engine === 'chatgpt' && usage.service_tier === 'flex') || (engine === 'claude' && usage.batch === true) ? 0.5 : 1;
+  const own = (tokenFactor * (inTok * p.input + outTok * p.output)) / 1e6 + searches * p.perSearch;
+  // Claude-Batch: synchron (Normalpreis) nachgeholter Teil – pause_turn-Fortsetzung oder Neustellung nach Ablehnung
+  const sync = engine === 'claude' && usage.batch === true && usage.sync && typeof usage.sync === 'object'
+    ? costFromUsage({ engine, model: input.model, usage: { ...usage.sync, batch: false, sync: undefined } }) : 0;
+  return own + sync;
 }

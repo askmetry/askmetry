@@ -1,10 +1,12 @@
 // Collection-Runner: Runs anlegen und abarbeiten (Parallelität, Wiederholungen, Budget, Wiederaufnahme)
 import { collection, db, prompt, recommendationGeneration, response, run, workspace } from '@opengeo/db';
-import { and, asc, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { analyzeLocally, analyzeWithLlm, type AnalysisResult } from './analyze.ts';
+import { anthropicBatchTransport, classifyBatchResult, type BatchRequest, type BatchTransport } from './claude-batch.ts';
 import { exceedsBudget, maxBudgetUsd } from './budget.ts';
 import { engineDefaults, estimatedCostPerRun } from './engine-config.ts';
-import { getEngine, isMockMode } from './engines/index.ts';
+import { CLAUDE_DEFAULT_MODEL, claudeParams, type ClaudeResume } from './engines/claude.ts';
+import { claude as claudeEngine, getEngine, isMockMode } from './engines/index.ts';
 import { EngineError, errorCost, isForeignKeyViolation, isRetryable, isUniqueViolation } from './errors.ts';
 import { runLimited } from './limiter.ts';
 import { addCost, loadWorkspaceBrands, storeAnalysis, storeResponse } from './store.ts';
@@ -12,6 +14,8 @@ import type { BrandRef, Engine, EngineResult } from './types.ts';
 import { sleep } from './util.ts';
 
 export const STALE_RUN_MS = 15 * 60 * 1000;
+/** Batch nach so langer Zeit weiter nicht abrufbar (Netz-/API-Fehler) → Runs neu einreichen bzw. als Fehler buchen */
+export const BATCH_GIVE_UP_MS = 48 * 60 * 60 * 1000;
 
 type Trigger = 'scheduled' | 'manual' | 'import';
 
@@ -97,6 +101,13 @@ export interface ProcessOptions {
   analyzer?: (answer: string, brands: BrandRef[]) => Promise<AnalysisResult>;
   /** Maßnahmen nach Abschluss berechnen (Standard: an); false = aus, Objekt = Optionen für generateRecommendations */
   recommend?: false | import('./recommend/index.ts').GenerateOptions;
+  /**
+   * Claude-Runs über die Message Batches API (Standard: nur geplante Messungen, wenn engineDefaults.claude.batch;
+   * nie im Mock-Modus). true/false erzwingt bzw. verbietet den Batch-Weg für diese Collection.
+   */
+  batch?: boolean;
+  /** Batches-Transport ersetzen (Tests) */
+  batchTransport?: BatchTransport;
 }
 
 export interface ProcessSummary {
@@ -108,6 +119,8 @@ export interface ProcessSummary {
   costUsd: number;
   /** gespeicherte Antworten, deren Auswertung noch aussteht */
   analysisPending?: number;
+  /** Runs, die in einem Claude-Batch auf ihr Ergebnis warten (zählen zu pending) */
+  batchPending?: number;
 }
 
 function estimateFor(engine: string, opts: ProcessOptions) {
@@ -220,17 +233,20 @@ async function claimRun(runId: string) {
     status: 'running', startedAt: new Date(), error: null,
   }).where(and(
     eq(run.id, runId),
+    // Runs in einem Claude-Batch (batch_id gesetzt) gelten nie als hängend – sonst doppelte Einreichung
+    isNull(run.batchId),
     or(eq(run.status, 'pending'), and(eq(run.status, 'running'), lt(run.startedAt, staleBefore))),
   )).returning();
   return r;
 }
 
 /** Run als fehlgeschlagen markieren und bezahlte Kosten verbuchen. */
-async function markRunFailed(runId: string, collectionId: string, error: string, attempts: number, costUsd: number) {
+async function markRunFailed(runId: string, collectionId: string, error: string, attempts: number, costUsd: number, batchId?: string) {
   await db.transaction(async (tx) => {
     const updated = await tx.update(run).set({
       status: 'failed', error: error.slice(0, 1000), finishedAt: new Date(), attempts, costUsd: costUsd.toFixed(4),
-    }).where(eq(run.id, runId)).returning({ id: run.id });
+    }).where(batchId ? and(eq(run.id, runId), eq(run.status, 'running'), eq(run.batchId, batchId)) : eq(run.id, runId))
+      .returning({ id: run.id });
     if (updated.length && costUsd) {
       await tx.update(collection).set({ costUsd: sql`${collection.costUsd} + ${costUsd.toFixed(4)}::numeric` })
         .where(eq(collection.id, collectionId));
@@ -270,10 +286,14 @@ export async function processCollection(collectionId: string, opts: ProcessOptio
       .where(eq(collection.id, c.id));
 
     const brands = await loadWorkspaceBrands(ws.id);
+    const batchMode = useClaudeBatch(c.trigger, opts);
+    const transport = opts.batchTransport ?? anthropicBatchTransport();
+    // 1. Ergebnisse bereits eingereichter Claude-Batches abholen (auch nach einem Worker-Neustart)
+    await collectClaudeBatches(c.id, ws.id, brands, transport, opts);
     const staleBefore = new Date(Date.now() - STALE_RUN_MS);
     const todo = await db.select({ run, promptText: prompt.text, country: prompt.country, language: prompt.language })
       .from(run).innerJoin(prompt, eq(prompt.id, run.promptId))
-      .where(and(eq(run.collectionId, c.id), or(
+      .where(and(eq(run.collectionId, c.id), isNull(run.batchId), or(
         eq(run.status, 'pending'),
         and(eq(run.status, 'running'), lt(run.startedAt, staleBefore)),
       )))
@@ -293,7 +313,8 @@ export async function processCollection(collectionId: string, opts: ProcessOptio
     const admit = (estimate: number): Promise<boolean> => {
       const p = gate.then(async () => {
         if (budgetHit) return false;
-        const spent = await monthToDateSpend(ws.id);
+        // eingereichte, noch nicht abgerechnete Batch-Runs zählen mit ihrer Schätzung (auch aus früheren Durchgängen)
+        const spent = await monthToDateSpend(ws.id) + await batchReservedUsd(ws.id, opts);
         if (exceedsBudget({ monthSpendUsd: spent, reservedUsd: reserved, estimateUsd: estimate, budgetUsd: budget })) {
           budgetHit = true;
           log(`Budget erreicht (${spent.toFixed(2)} $ + ${reserved.toFixed(2)} $ reserviert + ${estimate} $ > ${budget} $) – restliche Runs übersprungen`);
@@ -309,7 +330,19 @@ export async function processCollection(collectionId: string, opts: ProcessOptio
     const skip = (runId: string) => db.update(run).set({ status: 'skipped', error: 'Monatsbudget erreicht', finishedAt: new Date() })
       .where(and(eq(run.id, runId), inArray(run.status, ['pending', 'running'])));
 
-    const tasks = todo.map(({ run: r, promptText, country, language }) => {
+    // 2. fällige Claude-Runs als ein Batch einreichen (geplante Messungen); alle übrigen Runs synchron wie bisher
+    // im Mock-Modus nur mit Test-Transport (nie echte, bezahlte Batches)
+    const batchable = batchMode && (opts.batchTransport || (!mock && claudeEngine.enabled()))
+      ? todo.filter((t) => t.run.engine === 'claude') : [];
+    if (batchable.length && !opts.shouldStop?.()) {
+      await submitClaudeBatch(c.id, batchable, transport, {
+        admit, skip, isBudgetHit: () => budgetHit, release: (n) => { reserved -= n; },
+        estimate: batchEstimate(opts), mock, maxAttempts, log,
+      }, opts);
+    }
+    const syncTodo = batchable.length ? todo.filter((t) => !batchable.includes(t)) : todo;
+
+    const tasks = syncTodo.map(({ run: r, promptText, country, language }) => {
       let engine: Engine | null = null;
       let engineErr = '';
       try { engine = engineFor(r.engine); } catch (e) { engineErr = errMsg(e); }
@@ -467,11 +500,298 @@ export async function finalizeCollection(collectionId: string, opts: {
     }
   }
   const [fresh] = await db.select({ costUsd: collection.costUsd }).from(collection).where(eq(collection.id, collectionId));
-  return { status, done, failed, skipped, pending: open, costUsd: Number(fresh.costUsd), analysisPending };
+  const batchPending = open ? await db.$count(run, and(eq(run.collectionId, collectionId), eq(run.status, 'running'), isNotNull(run.batchId))) : 0;
+  return { status, done, failed, skipped, pending: open, costUsd: Number(fresh.costUsd), analysisPending, batchPending };
 }
 
 /** Nächste abzuarbeitende Collections: queued sowie unterbrochene (running) – älteste zuerst. */
 export async function listProcessableCollections() {
   return db.select({ id: collection.id, workspaceId: collection.workspaceId, status: collection.status })
     .from(collection).where(inArray(collection.status, ['queued', 'running'])).orderBy(asc(collection.createdAt));
+}
+
+// ---------------------------------------------------------------------------
+// Claude über die Message Batches API (geplante Messungen)
+// ---------------------------------------------------------------------------
+// Ablauf: fällige Claude-Runs claimen (status 'running') → ein Batch je Collection einreichen → batch_id am Run
+// speichern. Solche Runs sind von der Hängend-Regel (STALE_RUN_MS) und vom erneuten Einreichen ausgenommen. Jeder
+// spätere Worker-Durchgang (processCollection einer laufenden Collection) fragt den Status ab und verarbeitet fertige
+// Ergebnisse wie synchrone: gleiche Auswertung (parseClaudeContent), Quellen, Analyse, Kosten (Tokens −50 %).
+// Fehlgeschlagene Einzelanfragen (errored/expired/canceled) laufen über die Versuchslogik (attempts/maxAttempts).
+
+/** Claude-Runs dieser Collection über die Batches API? */
+export function useClaudeBatch(trigger: string, opts: Pick<ProcessOptions, 'batch'> = {}): boolean {
+  if (opts.batch !== undefined) return opts.batch;
+  if (isMockMode()) return false;
+  return trigger === 'scheduled' && (engineDefaults.claude as { batch?: boolean }).batch !== false;
+}
+
+function batchEstimate(opts: ProcessOptions): number {
+  return opts.estimates?.claude_batch ?? (isMockMode() ? (opts.estimates?.mock ?? 0) : estimatedCostPerRun.claude_batch ?? 0);
+}
+
+/** Geschätzte Kosten aller eingereichten, noch nicht abgerechneten Batch-Runs des Workspaces (Budget-Reservierung). */
+export async function batchReservedUsd(workspaceId: string, opts: ProcessOptions = {}): Promise<number> {
+  const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(run)
+    .where(and(eq(run.workspaceId, workspaceId), eq(run.status, 'running'), isNotNull(run.batchId)));
+  return n * batchEstimate(opts);
+}
+
+type TodoRow = { run: typeof run.$inferSelect; promptText: string; country: string; language: string };
+
+/**
+ * Einzelanfrage ohne Ergebnis: erneut einreichen (zurück auf pending), solange Versuche übrig sind, sonst Fehler.
+ * batchId: nur ändern, wenn der Run noch in genau diesem Batch wartet (nie einen inzwischen fertigen Run zurücksetzen).
+ */
+async function retryOrFail(r: { id: string; attempts: number }, collectionId: string, message: string, retryable: boolean, maxAttempts: number, costUsd = 0, batchId?: string) {
+  if (retryable && r.attempts < maxAttempts && !costUsd) {
+    await db.update(run).set({ status: 'pending', batchId: null, batchSubmittedAt: null, startedAt: null, error: message.slice(0, 1000) })
+      .where(batchId ? and(eq(run.id, r.id), eq(run.status, 'running'), eq(run.batchId, batchId)) : eq(run.id, r.id));
+    return 'retry' as const;
+  }
+  await markRunFailed(r.id, collectionId, message, r.attempts, costUsd, batchId);
+  return 'failed' as const;
+}
+
+async function submitClaudeBatch(collectionId: string, rows: TodoRow[], transport: BatchTransport, ctx: {
+  admit: (estimate: number) => Promise<boolean>;
+  skip: (runId: string) => Promise<unknown>;
+  isBudgetHit: () => boolean;
+  release: (usd: number) => void;
+  estimate: number;
+  mock: boolean;
+  maxAttempts: number;
+  log: (m: string) => void;
+}, opts: ProcessOptions) {
+  const claimed: TodoRow[] = [];
+  let reservedHere = 0;
+  try {
+    // Budget mit Batch-Preisen prüfen und je Run reservieren (gleiches Budget-Tor wie synchron)
+    for (const t of rows) {
+      if (opts.shouldStop?.()) break;
+      if (ctx.isBudgetHit() || !(await ctx.admit(ctx.estimate))) { await ctx.skip(t.run.id); continue; }
+      reservedHere += ctx.estimate;
+      const r = await claimRun(t.run.id);
+      if (r) claimed.push({ ...t, run: r });
+      else { ctx.release(ctx.estimate); reservedHere -= ctx.estimate; } // ein anderer Worker hat ihn
+    }
+    if (!claimed.length) return;
+    const options = ctx.mock ? {} : ((engineDefaults as Record<string, Record<string, unknown>>).claude ?? {});
+    // custom_id = Run-ID (UUID, erfüllt ^[a-zA-Z0-9_-]{1,64}$); Parameter identisch zur synchronen Abfrage, ohne fallbacks
+    const requests: BatchRequest[] = claimed.map((t) => ({
+      custom_id: t.run.id, params: claudeParams(t.promptText, { country: t.country, options }) as Record<string, unknown>,
+    }));
+    let info;
+    try {
+      info = await transport.submit(requests);
+    } catch (e) {
+      const msg = errMsg(e);
+      ctx.log(`✗ Claude-Batch (${claimed.length} Anfragen) nicht eingereicht: ${msg}`);
+      for (const t of claimed) {
+        const res = await retryOrFail({ id: t.run.id, attempts: t.run.attempts + 1 }, collectionId, msg, isRetryable(e), ctx.maxAttempts);
+        if (res === 'retry') await db.update(run).set({ attempts: t.run.attempts + 1 }).where(eq(run.id, t.run.id));
+      }
+      return;
+    }
+    const now = new Date();
+    // startedAt = batchSubmittedAt markiert „Ergebnis noch nicht übernommen“ (siehe claimBatchResult)
+    await db.update(run).set({
+      batchId: info.id, batchSubmittedAt: now, startedAt: now, attempts: sql`${run.attempts} + 1`, error: null,
+    }).where(inArray(run.id, claimed.map((t) => t.run.id)));
+    ctx.log(`→ Claude-Batch ${info.id} eingereicht: ${claimed.length} Anfragen (Status ${info.processing_status})`);
+  } finally {
+    // ab jetzt reserviert batchReservedUsd (Datenbank) die Kosten – auch über Worker-Neustarts hinweg
+    ctx.release(reservedHere);
+  }
+}
+
+/**
+ * Ergebnis eines Batch-Runs atomar übernehmen: nur einmal (startedAt noch = batchSubmittedAt) oder nach einem
+ * abgebrochenen Übernahmeversuch (startedAt älter als STALE_RUN_MS). Schützt vor doppelter Verarbeitung durch zwei Worker.
+ */
+async function claimBatchResult(runId: string, batchId: string) {
+  const staleBefore = new Date(Date.now() - STALE_RUN_MS);
+  const [r] = await db.update(run).set({ startedAt: new Date() }).where(and(
+    eq(run.id, runId), eq(run.batchId, batchId), eq(run.status, 'running'),
+    or(sql`${run.startedAt} = ${run.batchSubmittedAt}`, lt(run.startedAt, staleBefore)),
+  )).returning();
+  return r;
+}
+
+/** Fertige Claude-Batches einer Collection abholen und verarbeiten. Gibt die Zahl der verarbeiteten Runs zurück. */
+async function collectClaudeBatches(collectionId: string, workspaceId: string, brands: BrandRef[], transport: BatchTransport, opts: ProcessOptions): Promise<number> {
+  const log = opts.log ?? (() => {});
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const waiting = await db.select({ run, promptText: prompt.text, country: prompt.country, language: prompt.language })
+    .from(run).innerJoin(prompt, eq(prompt.id, run.promptId))
+    .where(and(eq(run.collectionId, collectionId), eq(run.status, 'running'), isNotNull(run.batchId)));
+  if (!waiting.length) return 0;
+  const byBatch = new Map<string, typeof waiting>();
+  for (const w of waiting) byBatch.set(w.run.batchId!, [...(byBatch.get(w.run.batchId!) ?? []), w]);
+  let handled = 0;
+  for (const [batchId, rows] of byBatch) {
+    if (opts.shouldStop?.()) break;
+    let info;
+    try {
+      info = await transport.retrieve(batchId);
+    } catch (e) {
+      const oldest = Math.min(...rows.map((w) => w.run.batchSubmittedAt?.getTime() ?? Date.now()));
+      // 404: Batch existiert nicht (mehr) → sofort neu einreichen; sonst erst nach BATCH_GIVE_UP_MS aufgeben
+      const gone = (e as { status?: number })?.status === 404;
+      if (gone || Date.now() - oldest > BATCH_GIVE_UP_MS) {
+        log(`✗ Claude-Batch ${batchId} nicht abrufbar (${errMsg(e)}) – ${rows.length} Runs werden neu eingereicht bzw. als Fehler gebucht`);
+        for (const w of rows) {
+          if (!(await claimBatchResult(w.run.id, batchId))) continue;
+          await retryOrFail(w.run, collectionId, `Claude-Batch ${batchId} nicht abrufbar: ${errMsg(e)}`, true, maxAttempts, 0, batchId);
+          handled++;
+        }
+      } else {
+        log(`⚠ Claude-Batch ${batchId}: Status nicht abrufbar (${errMsg(e)}) – nächster Durchgang`);
+      }
+      continue;
+    }
+    if (info.processing_status !== 'ended') {
+      log(`… Claude-Batch ${batchId}: ${info.processing_status} (${rows.length} Anfragen offen)`);
+      continue;
+    }
+    // Zeitpunkt der Antwort: Ende des Batches (nicht der Zeitpunkt, zu dem der Worker abholt)
+    const at = info.ended_at ? new Date(info.ended_at) : new Date();
+    const pending = new Map(rows.map((w) => [w.run.id, w]));
+    try {
+      for await (const line of transport.results(batchId)) {
+        const w = pending.get(line.custom_id);
+        if (!w) continue; // Run inzwischen gelöscht oder schon verarbeitet
+        pending.delete(line.custom_id);
+        if (opts.shouldStop?.()) break;
+        try {
+          if (await handleBatchResult(w, batchId, line, at, brands, collectionId, workspaceId, opts)) handled++;
+        } catch (e) {
+          log(`✗ claude #${w.run.repetition} (Batch ${batchId}): ${errMsg(e)}`);
+        }
+      }
+    } catch (e) {
+      // dauerhaft nicht lesbar (z. B. Ergebnisse nach 29 Tagen gelöscht) → nach BATCH_GIVE_UP_MS neu einreichen bzw. Fehler
+      if (Date.now() - at.getTime() > BATCH_GIVE_UP_MS) {
+        log(`✗ Claude-Batch ${batchId}: Ergebnisse nicht lesbar (${errMsg(e)}) – ${pending.size} Runs werden neu eingereicht bzw. als Fehler gebucht`);
+        for (const w of pending.values()) {
+          if (!(await claimBatchResult(w.run.id, batchId))) continue;
+          await retryOrFail(w.run, collectionId, `Claude-Batch ${batchId}: Ergebnisse nicht lesbar: ${errMsg(e)}`, true, maxAttempts, 0, batchId);
+          handled++;
+        }
+      } else {
+        log(`⚠ Claude-Batch ${batchId}: Ergebnisse nicht lesbar (${errMsg(e)}) – nächster Durchgang`);
+      }
+      continue;
+    }
+    if (opts.shouldStop?.()) break;
+    // Batch beendet, aber ohne Ergebnis für diesen Run (sollte nicht vorkommen) → neu einreichen
+    for (const w of pending.values()) {
+      if (!(await claimBatchResult(w.run.id, batchId))) continue;
+      await retryOrFail(w.run, collectionId, `Claude-Batch ${batchId}: kein Ergebnis für diese Anfrage`, true, maxAttempts, 0, batchId);
+      handled++;
+    }
+  }
+  return handled;
+}
+
+async function handleBatchResult(
+  w: TodoRow, batchId: string, line: import('./claude-batch.ts').BatchResultLine, at: Date, brands: BrandRef[],
+  collectionId: string, workspaceId: string, opts: ProcessOptions,
+): Promise<boolean> {
+  const r = await claimBatchResult(w.run.id, batchId);
+  if (!r) return false; // ein anderer Worker übernimmt gerade
+  // wie synchron: ein Fehler nach der Übernahme darf den Run nicht dauerhaft „running“ lassen (sonst alle 15 min neu
+  // übernommen und ggf. erneut bezahlt) → bezahlte Kosten verbuchen und Run als Fehler abschließen
+  const st = { paid: 0, attempts: r.attempts, stored: false };
+  try {
+    return await processBatchResult(w, r, batchId, line, at, brands, collectionId, workspaceId, opts, st);
+  } catch (e) {
+    const msg = errMsg(e);
+    if (st.stored) {
+      await db.update(run).set({ error: `Auswertung ausstehend – ${msg}`.slice(0, 1000) }).where(eq(run.id, r.id));
+    } else if (isForeignKeyViolation(e) && !(await runExists(r.id))) {
+      // Prompt/Run während der Verarbeitung gelöscht – bezahlte Kosten auf der Collection verbuchen
+      if (st.paid) await db.update(collection).set({ costUsd: sql`${collection.costUsd} + ${st.paid.toFixed(4)}::numeric` }).where(eq(collection.id, collectionId));
+    } else {
+      await markRunFailed(r.id, collectionId, msg, st.attempts, st.paid, batchId);
+    }
+    throw e;
+  }
+}
+
+async function processBatchResult(
+  w: TodoRow, r: typeof run.$inferSelect, batchId: string, line: import('./claude-batch.ts').BatchResultLine, at: Date,
+  brands: BrandRef[], collectionId: string, workspaceId: string, opts: ProcessOptions,
+  st: { paid: number; attempts: number; stored: boolean },
+): Promise<boolean> {
+  const log = opts.log ?? (() => {});
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const model = (engineDefaults.claude as { model?: string }).model ?? CLAUDE_DEFAULT_MODEL;
+  const out = classifyBatchResult(line, model);
+  if (out.kind === 'error') {
+    const res = await retryOrFail(r, collectionId, out.message, out.retryable, maxAttempts, 0, batchId);
+    log(`${res === 'retry' ? '↻' : '✗'} claude #${r.repetition} (Batch): ${out.message}${res === 'retry' ? ' – wird neu eingereicht' : ''}`);
+    return true;
+  }
+  let result = out.kind === 'result' ? out.result : undefined;
+  if (out.kind === 'resume') {
+    // pause_turn bzw. Ablehnung: synchron nachholen (Ablehnung mit Server-Fallback wie bei synchronen Messungen)
+    st.paid = out.batchCostUsd;
+    const engine = (opts.engineFor ?? getEngine)('claude');
+    const delay = opts.retryDelayMs ?? 5000;
+    let lastErr = '';
+    for (let a = 1; a <= maxAttempts; a++) {
+      if (a > 1) await sleep(delay * 2 ** (a - 2));
+      if (a > 1) st.attempts++;
+      await db.update(run).set({ startedAt: new Date() }).where(eq(run.id, r.id)); // gilt sonst als abgebrochen
+      try {
+        const options = isMockMode() ? {} : ((engineDefaults as Record<string, Record<string, unknown>>).claude ?? {});
+        const res = await engine.run(w.promptText, {
+          country: w.country, language: w.language, engineKey: 'claude', repetition: r.repetition, brands, options,
+          claudeResume: out.resume satisfies ClaudeResume,
+        });
+        result = res;
+        st.paid -= out.batchCostUsd; // result.costUsd enthält den Batch-Anteil bereits
+        break;
+      } catch (e) {
+        st.paid += errorCost(e);
+        lastErr = errMsg(e);
+        log(`✗ claude #${r.repetition} (Batch, ${out.resume.kind}) Versuch ${a}: ${lastErr}`);
+        if (!isRetryable(e)) break;
+      }
+    }
+    if (!result) {
+      await markRunFailed(r.id, collectionId, lastErr, st.attempts, st.paid, batchId);
+      return true;
+    }
+  }
+  if (!result) throw new Error('kein Ergebnis'); // nicht erreichbar
+  // gleiche Regel wie synchron: leere Antwort ohne Ablehnung = bezahlter, nicht wiederholbarer Fehlschlag
+  if (!result.answer?.trim() && !result.noAiAnswer && !result.refusal) {
+    await markRunFailed(r.id, collectionId, 'leere Antwort', st.attempts, st.paid + result.costUsd, batchId);
+    return true;
+  }
+  st.paid += result.costUsd;
+  let saved;
+  try {
+    saved = await db.transaction((tx) => storeResponse(tx, {
+      runId: r.id, collectionId, workspaceId, result: result!, costUsd: st.paid, attempts: st.attempts, analyzed: false, at,
+    }));
+  } catch (e) {
+    if (!isUniqueViolation(e)) throw e;
+    // Antwort existiert schon (paralleler Worker): Run abschließen statt ewig „running“; doppelt bezahlte Kosten buchen
+    await db.transaction(async (tx) => {
+      await tx.update(run).set({ status: 'done', finishedAt: at, error: null })
+        .where(and(eq(run.id, r.id), eq(run.status, 'running'), eq(run.batchId, batchId)));
+      await addCost(tx, r.id, collectionId, st.paid);
+    });
+    st.stored = true;
+    return false;
+  }
+  st.stored = true;
+  log(`✓ claude #${r.repetition} (Batch, ${result.model}, ${result.costUsd.toFixed(4)} $${result.refusal ? ', abgelehnt' : ''})`);
+  if (saved.pending) {
+    await analyzeStored({ responseId: saved.responseId, runId: r.id, collectionId, workspaceId, answer: result.answer, brands }, opts);
+  }
+  return true;
 }

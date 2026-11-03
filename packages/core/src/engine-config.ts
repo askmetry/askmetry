@@ -19,6 +19,9 @@ export const engineDefaults = {
     effort: 'medium',
     maxSearches: 3,
     system: 'Recherchiere vor deiner Antwort im Web nach aktuellen Informationen und stütze dich auf die gefundenen Quellen.',
+    // Geplante Messungen über die Message Batches API: gleiche Anfrage (ohne Server-Fallback), Tokens −50 %.
+    // Manuelle Messungen („Jetzt messen“) bleiben immer synchron. false = auch geplante Messungen synchron.
+    batch: true,
   },
   perplexity: { model: 'sonar', searchContextSize: 'low' },
   // DataForSEO Live: AI Overviews ~0,004 $ (inkl. Nachladen), AI Mode ~0,004 $
@@ -47,6 +50,8 @@ export const estimatedCostPerRun: Record<string, number> = {
   chatgpt: 0.08, // flex, gemessen 03.11.2026: Ø 0,065 $ (Puffer für Rückfall auf Normalpreis)
   gemini: 0.012,
   claude: 0.09,
+  // Claude über die Batches API: Tokens −50 % (~0,06 $ → 0,03 $), Suchen (bis 3 × 0,01 $) unverändert
+  claude_batch: 0.06,
   perplexity: 0.008,
   google_aio: 0.004,
   google_ai_mode: 0.004,

@@ -5,7 +5,7 @@ Gemeinsame Absprache für alle, die am MVP bauen. Fachliche Spezifikation: [SPEC
 ## Umgebung (Mac mini, kein Homebrew, kein sudo)
 
 - `export PATH=~/.local/bin:~/.local/opt/node/bin:$PATH` (Node 24, pnpm 11, docker via colima)
-- Postgres läuft: `docker compose up -d db` → `postgres://opengeo:opengeo@localhost:5433/opengeo`
+- Postgres läuft: `pnpm db:up` (docker-compose.dev.yml) → `postgres://opengeo:opengeo@localhost:5433/opengeo`
 - Web-App: **Port 3010** (3000–3008 sind von anderen Projekten belegt – nie anfassen)
 - Root-`.env` (nicht committen): `DATABASE_URL`, API-Schlüssel. **Schlüssel nie ausgeben oder loggen.** Die echten Schlüssel stehen in `spike/.env`; die App liest `opengeo/.env` (wird vom Lead angelegt).
 - **Keine echten API-Aufrufe in Tests oder bei der Entwicklung.** Dafür gibt es die Mock-Engine (`OPENGEO_MOCK_ENGINES=1`). Echte Aufrufe kosten Geld; nur der Lead startet sie.
@@ -51,7 +51,7 @@ Basis: Antworten mit nicht-leerem Text (`response.answer <> ''`), gefiltert nach
 
 ## UI
 
-Deutsch, sachlich, hell + dunkel. Zielgruppe: Marketing-Verantwortliche ohne Technikwissen.
+Deutsch (Standard) und Englisch, sachlich, hell + dunkel. Zielgruppe: Marketing-Verantwortliche ohne Technikwissen. Siehe „Sprachen“.
 
 ## Maßnahmen (Tabellen `recommendation`, `site_check`, `recommendation_generation`)
 
@@ -87,7 +87,7 @@ Konkrete, priorisierte Handlungsempfehlungen je Workspace. Erzeugt von `generate
 
 ## Darstellung, Claude-Prompts, Lagebericht (seit 02.11.2026, siehe DESIGN.md)
 
-**Texte der Maßnahmen:** `title` ≤ 70 Zeichen als Handlung (Verb-Satz), `why` genau ein Satz ≤ 140 Zeichen **ohne URLs** (URLs stehen in `evidence`), durchgehend du-Form. `why` kommt immer aus den Regeln (exakte Zahlen, geprüfte Grammatik); die KI formuliert nur Titel und Schritte. Technik-Schritte (JSON-LD/Schema, robots.txt, llms.txt) stehen nur in `technical`-Maßnahmen; die KI-Ausgabe wird sonst verworfen (Standardtexte). `PHRASE_VERSION` default 3 / content_gap 4.
+**Texte der Maßnahmen:** `title` ≤ 70 Zeichen als Handlung (Verb-Satz), `why` genau ein Satz ≤ 140 Zeichen **ohne URLs** (URLs stehen in `evidence`), durchgehend du-Form. `why` kommt immer aus den Regeln (exakte Zahlen, geprüfte Grammatik); die KI formuliert nur Titel und Schritte. Technik-Schritte (JSON-LD/Schema, robots.txt, llms.txt) stehen nur in `technical`-Maßnahmen; die KI-Ausgabe wird sonst verworfen (Standardtexte). `PHRASE_VERSION` default 5 / content_gap 6.
 
 **`@opengeo/core/present`** (rein, ohne DB/SDK – auch in Client-Komponenten nutzbar; auch über `@opengeo/core` exportiert):
 - `RecCategory = 'content' | 'offsite' | 'community' | 'technical'`, `CATEGORIES` (label, owner, order), `categoryOf(type)` – Mapping: name_on_own_page/content_gap/positioning/sentiment → content, outreach → offsite, community → community, technical → technical.
@@ -147,3 +147,41 @@ Konkrete, priorisierte Handlungsempfehlungen je Workspace. Erzeugt von `generate
 - Links in Maßnahmen (`apps/web/lib/linkify.ts`): verlinkt werden nur exakte Beleg-URLs, Pfade auf eigenen Domains bzw. der Domain der Maßnahme, Subreddits und zitierte Beleg-Titel. Keine Subdomains, keine fremden Pfade.
 - **Eigenes Logo:** `brand.logo_data` (Base64), `logo_type`, `logo_updated_at`. Actions `uploadBrandLogo`/`removeBrandLogo` (nur eigene Marke, Typ per `sniffImage`, ≤ `LOGO_MAX_BYTES`). `loadBrands` lädt `logo_data` nicht mit. `logoMap` liefert für Marken mit Upload `/w/<slug>/markenlogo/<id>?v=<zeit>`.
 - **addCompetitors:** mehrere Namen (`name` mehrfach, höchstens 10) als Wettbewerber ohne Website; vorhandene Namen werden übersprungen.
+
+## Claude über die Message Batches API (03.11.2026)
+
+**Wann:** Geplante Messungen (`trigger = 'scheduled'`) schicken ihre Claude-Runs über die Message Batches API (Tokens −50 %). Manuelle Messungen („Jetzt messen“) bleiben synchron, weil Nutzer dort sofort Ergebnisse erwarten. Schalter: `engineDefaults.claude.batch` (Standard `true`; `false` = auch geplante Messungen synchron); `ProcessOptions.batch` erzwingt/verbietet den Weg je Collection (CLI: `collect --workspace <slug> --batch`). Im Mock-Modus nie (außer ausdrücklich mit `batch: true` + Test-Transport).
+*Begründung:* Option an der Engine statt fest am Trigger, damit Self-Hoster es abschalten können; der Trigger bleibt das Kriterium, weil nur geplante Messungen Wartezeit vertragen.
+
+**Gleiche Qualität:** `claudeParams()` (engines/claude.ts) baut die Anfrage für beide Wege: Modell `claude-sonnet-5-5`, `output_config.effort = medium`, `web_search_20260209` mit `max_uses = 3` und `user_location`, gleiche Such-Anweisung als `system`, `max_tokens = 16000`. Einziger Unterschied: der Server-Fallback (`fallbacks: 'default'` + Beta-Header `server-side-fallback-2026-07-01`), den der synchrone Adapter sendet, ist im Batch verboten und fehlt dort. Deshalb wird eine **Ablehnung (`refusal`) aus dem Batch synchron mit Fallback neu gestellt** – Ergebnis wie bei einer synchronen Messung. **`pause_turn`** im Batch wird synchron mit den bisherigen Inhalten fortgesetzt (wie die synchrone Schleife). Auswertung mit derselben Funktion `parseClaudeContent` (Antwort, `cited`/`searched`, Ablehnung), danach dieselbe Speicherung/Analyse wie synchron (`storeResponse` → `analyzeStored`).
+
+**Ablauf im Worker** (alles in `processCollection`, das der Worker für laufende Collections jede Minute aufruft):
+1. Zuerst Ergebnisse eingereichter Batches dieser Collection abholen (`retrieve` → bei `processing_status = 'ended'` die `.jsonl`-Ergebnisse streamen, Zuordnung über `custom_id` = Run-ID).
+2. Fällige Claude-Runs (pending bzw. hängend, ohne `batch_id`) mit Budget-Prüfung claimen und als **ein Batch je Collection** einreichen; `run.batch_id`, `run.batch_submitted_at` (neu, additiv, nullable) und `attempts + 1` setzen. Übrige Engines laufen synchron wie bisher.
+3. Run-Zustand während des Wartens: `status = 'running'` mit `batch_id` → zählt als offen (Collection bleibt `running`), gilt **nie als hängend** (`claimRun` und die Todo-Abfrage schließen `batch_id is not null` aus) und wird nicht erneut eingereicht. Ein Worker-Neustart verliert nichts: Zustand liegt in der DB, Ergebnisse 29 Tage bei Anthropic.
+4. Übernahme eines Ergebnisses atomar (`startedAt = batch_submitted_at` bzw. nach `STALE_RUN_MS` erneut) – zwei Worker verarbeiten es nicht doppelt; Unique-Index auf `response.run_id` als zweite Sicherung.
+- **Einzelne Fehler:** `errored` (außer `invalid_request_error` u. ä. → sofort `failed`), `expired`, `canceled`, fehlendes Ergebnis, Batch nicht mehr abrufbar (404 sofort, sonstige Fehler nach 48 h): Run zurück auf `pending` (`batch_id` null) und im nächsten Durchgang neu eingereicht, solange `attempts < maxAttempts` (3), sonst `failed`. Diese Fälle kosten nichts. Fehler beim Einreichen: wiederholbar → `pending`, sonst `failed`.
+- **Bekanntes Restrisiko:** Absturz genau zwischen erfolgreichem Einreichen und dem Speichern der `batch_id` → die Runs gelten nach 15 min als hängend und werden erneut eingereicht (doppelte Kosten für diese Runs, Batch-ID steht im Log).
+
+**Kosten/Budget:** `usage.batch = true` → `costFromUsage` rechnet Claude-Tokens zum halben Preis; Suchgebühr (0,01 $/Suche) vorsichtig unverändert. Synchron nachgeholte Teile stehen in `usage.sync` und kosten den Normalpreis. Schätzung vor dem Einreichen `estimatedCostPerRun.claude_batch = 0,06 $` (statt 0,09 $). Eingereichte, noch nicht abgerechnete Batch-Runs werden über `batchReservedUsd(workspaceId)` (Anzahl × Schätzung) bei jeder Budget-Prüfung mitgezählt – auch in späteren Durchgängen und anderen Collections desselben Workspaces.
+
+**Zeitpunkt:** `response.created_at` und `run.finished_at` = `ended_at` des Batches (Zeitpunkt der Antwort, nicht der Abholung); `collection.finished_at` = Abschluss nach dem letzten Ergebnis. Dadurch zählen die Kosten im Monat der Antwort (`monthToDateSpend`) und „Messung vom …“ (UI nutzt `finishedAt ?? createdAt`) stimmt. **Hinweis für apps/web:** `loadTrend` (lib/metrics.ts) datiert Trendpunkte nach `collection.created_at`; bei Batches kann die Antwort bis zu 24 h (meist < 1 h) später liegen → besser `coalesce(finished_at, created_at)` verwenden. Die Reihenfolge der Messungen ist davon nicht betroffen (je Workspace höchstens eine aktive Messung).
+- Solange ein Batch läuft, bleibt die geplante Messung `running` → „Jetzt messen“ ist in dieser Zeit (meist < 1 h, höchstens 24 h) blockiert (`CollectionActiveError`).
+- `ProcessSummary.batchPending` = Runs, die im Batch warten.
+- **Weitere bekannte Restrisiken:** Ein Einreichen, das mit Zeitüberschreitung/Netzfehler endet, obwohl der Batch angelegt wurde, führt im nächsten Durchgang zu einer zweiten Einreichung (doppelte Kosten, der erste Batch wird nicht abgeholt). Der synchrone Nachgang (pause_turn/Ablehnung, Normalpreis) hat keine eigene Budget-Prüfung (durch die Batch-Reservierung grob gedeckt). Wird ein Prompt gelöscht, während sein Run im Batch wartet, wird dessen Batch-Ergebnis nicht verbucht. Ein Fehler nach Übernahme eines Ergebnisses bucht den Run als `failed` mit den bezahlten Kosten (wie synchron), statt ihn hängen zu lassen.
+
+
+## Sprachen (03.11.2026)
+
+**UI-Sprache** (je Nutzer, `de` | `en`): Cookie `opengeo_locale` (Umschalter im Avatar-Menü und auf Login/Signup, Server Action `setLocale`) → `Accept-Language` (höchstes q mit unterstützter Hauptsprache) → Deutsch. Keine Sprach-Präfixe in URLs; deutsche Slugs (`/fragen`, `/quellen`, `/massnahmen`) bleiben. `<html lang>` folgt der UI-Sprache.
+- Code: `apps/web/lib/i18n/` – `config.ts` (rein: `resolveLocale`, `localeFromAcceptLanguage`), `server.ts` (`getI18n()` → `{ locale, t, f }`), `client.tsx` (`useI18n/useT/useFmt`, Provider im Root-Layout), `format.ts` (Intl: de „38 %“, „03.11.2026, 15:17“ · en „38%“, „Nov 3, 2026, 3:17 PM“, Zeitzone Europe/Berlin).
+- Wörterbücher ohne Bibliothek: `messages/de/<bereich>.ts` ist die Quelle, `messages/en/<bereich>.ts` ist als `typeof de` typisiert – fehlende/überzählige Schlüssel oder andere Funktions-Signaturen sind Typfehler; `messages.test.ts` prüft zusätzlich Vollständigkeit und deutsche Reste. Interpolation/Plural als Funktionen.
+- Server-Action-Meldungen kommen aus `getI18n()` der Anfrage. `lib/format.ts` (fmtPct …) ist nur noch deutscher Altbestand.
+
+**Workspace-Sprache** (`workspace.language`, `de` | `en`): Sprache der gemessenen Fragen und aller **KI-formulierten** Texte (Haiku-Formulierung der Maßnahmen-Titel/-Schritte in `phrase.ts`, Markenprofil-Satz in `profile.ts`). Die UI-Sprache ändert daran nichts.
+
+**Texte aus `packages/core`** (Entscheidung):
+- Regeltexte der Maßnahmen entstehen beim Generieren in **beiden** Sprachen: `evidence.texts = { de: {title, why, steps}, en: {…} }` (gleich viele Schritte je Sprache). Die Spalten `title/why/steps` und `evidence.fallback` stehen in der Workspace-Sprache (Eingabe für die KI). Die KI bekommt `texts` nicht.
+- Anzeige: `localizeRec(rec, uiLang)` (`@opengeo/core/present`) – regelbasiert (`phrasedBy = 'rules'`) → `texts[uiLang]`; KI-formuliert → Titel/Schritte bleiben in der Workspace-Sprache (`done_steps` beziehen sich auf genau diese Schritte), `why` immer aus `texts[uiLang]`. Altbestand ohne `texts` bleibt deutsch, bis die nächste Generierung läuft.
+- Beim Anzeigen gerendert (reine Funktionen mit `lang`): Kategorien `categoryText`, `impactText`, `effortText`, `scoreVerdict`, `engineName`, Kennzahl-Beschriftung `recMetricLabels` (statt der gespeicherten `evidence.current.label`), `keyInsight(…, lang)`, `outreachExclusions(…, lang)`, `nextMeasurementText(…, lang)`, `buildStatusBrief(…, lang)`, `promptDeliverable(…, lang)`, `buildClaudePrompt(rec, ctx, lang)` – der Prompt steht in der UI-Sprache; weicht `ctx.contentLanguage` (Workspace-Sprache) ab, verlangt er die Ergebnisse ausdrücklich in dieser Sprache.
+- Technische Maßnahme robots: `evidence.redirectsByLang` / `consequenceByLang` je Sprache (`redirects`/`consequence` = Workspace-Sprache).

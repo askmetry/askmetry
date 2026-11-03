@@ -118,10 +118,15 @@ export const run = pgTable('run', {
   costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).notNull().default('0'),
   startedAt: timestamp('started_at', { withTimezone: true }),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
+  // Claude über die Message Batches API: ID des Batches, in dem der Run (status 'running') auf sein Ergebnis wartet.
+  // Solche Runs gelten nie als hängend und werden nicht erneut eingereicht; Ergebnisse holt der Worker später ab.
+  batchId: text('batch_id'),
+  batchSubmittedAt: timestamp('batch_submitted_at', { withTimezone: true }),
   createdAt: createdAt(),
 }, (t) => [
   uniqueIndex('run_unique').on(t.collectionId, t.promptId, t.engine, t.repetition),
   index('run_status_idx').on(t.status),
+  index('run_batch_idx').on(t.batchId).where(sql`batch_id is not null`),
 ]);
 
 // Antwort einer Engine (1:1 zu run)

@@ -9,6 +9,7 @@ export * from './schedule.ts';
 export * from './limiter.ts';
 export * from './store.ts';
 export * from './runner.ts';
+export * from './claude-batch.ts';
 export * from './scheduler.ts';
 export * from './backfill.ts';
 export * from './recommend/index.ts';

@@ -55,6 +55,8 @@ export interface RunContext {
   repetition?: number;
   /** Engine-Key, unter dem der Run läuft (Mock ersetzt im Mock-Modus alle Engines) */
   engineKey?: string;
+  /** Claude: Fortsetzung einer Batch-Antwort (pause_turn) bzw. synchrone Neustellung nach Ablehnung (engines/claude.ts) */
+  claudeResume?: unknown;
 }
 
 export interface Engine {
