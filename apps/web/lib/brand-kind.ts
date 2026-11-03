@@ -1,12 +1,8 @@
 // Markentyp (brand.kind) – rein, auch im Browser nutzbar.
-export const BRAND_KINDS = [
-  { value: 'provider', label: 'Anbieter' },
-  { value: 'portal', label: 'Vergleichsportal' },
-  { value: 'retailer', label: 'Händler' },
-  { value: 'other', label: 'Sonstiges' },
-] as const;
-export type BrandKind = (typeof BRAND_KINDS)[number]['value'];
-export const isBrandKind = (v: unknown): v is BrandKind => BRAND_KINDS.some((k) => k.value === v);
+// Bezeichnungen je Sprache: t.settings.profile.kinds[value]
+export const BRAND_KINDS = ['provider', 'portal', 'retailer', 'other'] as const;
+export type BrandKind = (typeof BRAND_KINDS)[number];
+export const isBrandKind = (v: unknown): v is BrandKind => (BRAND_KINDS as readonly unknown[]).includes(v);
 
 /** Leere Eingabe → null (unbekannt); ungültig → undefined. */
 export function parseBrandKind(v: string): BrandKind | null | undefined {

@@ -2,6 +2,7 @@
 // Gleiche Regeln wie apps/web/lib/metrics.ts: Domain-Abgleich host === d || host.endsWith('.' + d), www. entfernt, IDN als Punycode.
 import { matchesAnyDomain, normalizeDomain } from '../domains.ts';
 import { engineLabels, type EngineKey } from '../types.ts';
+import type { Lang } from '../i18n.ts';
 
 export type Resp = { id: string; promptId: string; engine: string };
 export type Ment = { responseId: string; brandId: string | null; name: string; position: number; recommended: boolean; sentiment: string; snippet: string | null; isCompetitor?: boolean | null };
@@ -33,6 +34,8 @@ export interface RecData {
   cits: Cit[];
   /** Website-Check der eigenen Domains (optional) */
   siteChecks?: SiteCheckResult[];
+  /** Workspace-Sprache (workspace.language): Sprache der gespeicherten Standardtexte und der KI-Formulierung; Standard 'de' */
+  lang?: Lang;
 }
 
 export const engineLabel = (k: string) => engineLabels[k as EngineKey] ?? k;
@@ -167,7 +170,7 @@ export function indexData(d: RecData) {
   const promptText = (pid: string) => d.prompts.get(pid)?.text ?? '';
   return {
     own, competitors, compById, respById, ments, cits, mentsByResp, ownNamed, compsByResp, metricCits, allCits,
-    respsByPrompt, ownSiteResps, promptText, N: d.resps.length,
+    respsByPrompt, ownSiteResps, promptText, N: d.resps.length, lang: (d.lang ?? 'de') as Lang,
   };
 }
 export type Indexed = ReturnType<typeof indexData>;

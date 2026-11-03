@@ -47,6 +47,8 @@ Seiten, Threads und Domains aus den Belegen sind überall klickbar (neuer Tab). 
 | Lücken | Filter **„Fragen ohne dich“** |
 | cited / searched | **zitiert** / **gelesen** („Die KI hat die Seite geöffnet, nennt sie aber nicht als Quelle.“) |
 
+Englisch (UI-Sprache `en`, natürliches SaaS-Englisch, „you“, Satz-Großschreibung): Übersicht **Overview** · Maßnahmen **Actions** · Fragen **Questions** · Quellen **Sources** · Analyse **Analysis** · Einstellungen **Settings** · KI-Sichtbarkeit **AI visibility** · Empfohlen **Recommended** · Anteil an allen Nennungen **Share of voice** · Platz in der Antwort **Position in answer** · KI-Suche **AI search** / **AI engines** (Chips) · Fragen ohne dich **Questions without you** · zitiert/gelesen **cited/read** · Lagebericht **Status report** · „Prompt kopieren“ **Copy prompt** · Kategorien **Your content · Other websites · Community · Technical**. Score-Urteile: Barely visible · Rarely visible · Clearly visible · Highly visible.
+
 Urteil zum Score: 0–9 „Kaum sichtbar“, 10–29 „Selten sichtbar“, 30–59 „Gut sichtbar“, ab 60 „Sehr präsent“.
 
 ## Maßnahmen-Kategorien

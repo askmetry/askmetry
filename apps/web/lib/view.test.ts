@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Cit } from './metrics';
 import { parseSimpleCron, scheduleText, toCron } from './schedule';
-import { fillLevel, joinDe, rankingWithOwn, recForDomain, recTarget, recTargets, shapingSources, toScore, topWithOwn } from './view';
+import { fillLevel, rankingWithOwn, recForDomain, recTarget, recTargets, shapingSources, toScore, topWithOwn } from './view';
 
 describe('fillLevel / toScore', () => {
   it('ordnet Anteile den Punkten zu', () => {
@@ -63,15 +63,6 @@ describe('shapingSources', () => {
       { label: 'r/finanzen', responses: 2 },
       { label: 'r/de', responses: 1 },
     ]);
-  });
-});
-
-describe('joinDe', () => {
-  it('verbindet mit „und“', () => {
-    expect(joinDe([])).toBe('');
-    expect(joinDe(['A'])).toBe('A');
-    expect(joinDe(['A', 'B'])).toBe('A und B');
-    expect(joinDe(['A', 'B', 'C'])).toBe('A, B und C');
   });
 });
 

@@ -9,12 +9,15 @@ import { domainsWithLogo } from '@opengeo/core';
 import { Card } from '@/components/ui';
 import { myWorkspaces } from '@/lib/workspaces';
 import { requireUser } from '@/lib/session';
+import { getT } from '@/lib/i18n/server';
 
-export const metadata = { title: 'Workspaces' };
-const ROLE: Record<string, string> = { owner: 'Inhaber', admin: 'Admin', viewer: 'Nur lesen' };
+export async function generateMetadata() {
+  return { title: (await getT()).workspaces.metaTitle };
+}
 
 export default async function WorkspacesPage() {
   const u = await requireUser();
+  const t = (await getT()).workspaces;
   const list = await myWorkspaces(u.id);
   // eigene Marke je Workspace für das Logo
   const owns = list.length ? await db.select({ ws: brand.workspaceId, id: brand.id, name: brand.name, domains: brand.domains, logoType: brand.logoType, logoUpdatedAt: brand.logoUpdatedAt }).from(brand)
@@ -31,11 +34,11 @@ export default async function WorkspacesPage() {
       </header>
       <main className="mx-auto grid max-w-5xl gap-6 px-6 py-10 md:grid-cols-[1fr_360px]">
         <div>
-          <h1 className="mb-1 text-2xl font-semibold tracking-tight">Deine Workspaces</h1>
-          <p className="mb-6 text-sm text-muted">Ein Workspace bündelt eine Marke, ihre Wettbewerber und die Fragen, die wir den KI-Suchen stellen.</p>
+          <h1 className="mb-1 text-2xl font-semibold tracking-tight">{t.title}</h1>
+          <p className="mb-6 text-sm text-muted">{t.intro}</p>
           {list.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-card px-6 py-10 text-center text-sm text-muted">
-              Du bist noch in keinem Workspace. Lege rechts deinen ersten an.
+              {t.empty}
             </div>
           ) : (
             <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
@@ -46,14 +49,14 @@ export default async function WorkspacesPage() {
                       {(() => { const o = ownBy.get(w.id); const d = o?.domain; return <BrandMark name={o?.name ?? w.name} size={32} own src={o?.custom != null ? `/w/${w.slug}/markenlogo/${o.id}?v=${o.custom}` : d && has.has(d) ? `/w/${w.slug}/logo/${encodeURIComponent(d)}` : null} />; })()}
                       <span className="truncate font-medium">{w.name}</span>
                     </span>
-                    <span className="text-xs text-muted">{ROLE[w.role] ?? w.role} →</span>
+                    <span className="text-xs text-muted">{t.roles[w.role] ?? w.role} →</span>
                   </Link>
                 </li>
               ))}
             </ul>
           )}
         </div>
-        <Card title="Neuer Workspace"><CreateWorkspaceForm /></Card>
+        <Card title={t.new}><CreateWorkspaceForm /></Card>
       </main>
     </div>
   );

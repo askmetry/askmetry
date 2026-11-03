@@ -67,7 +67,7 @@ function MdLink({ href, children, node }: ComponentProps<'a'> & { node?: unknown
   return <a {...common} className="md-link">{children}</a>;
 }
 
-export function AnswerMarkdown({ text, terms }: { text: string; terms: readonly Term[] }) {
+export function AnswerMarkdown({ text, terms, imageLabel = 'Bild' }: { text: string; terms: readonly Term[]; imageLabel?: string }) {
   return (
     <div className="answer-md">
       <Markdown
@@ -78,7 +78,7 @@ export function AnswerMarkdown({ text, terms }: { text: string; terms: readonly 
         components={{
           a: MdLink,
           table: ({ node: _n, ...p }) => <div className="md-table"><table {...p} /></div>,
-          img: ({ alt }) => (alt ? <span className="text-muted">[Bild: {alt}]</span> : null),
+          img: ({ alt }) => (alt ? <span className="text-muted">[{imageLabel}: {alt}]</span> : null),
         }}
       >
         {text}

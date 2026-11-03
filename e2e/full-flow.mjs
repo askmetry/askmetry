@@ -5,6 +5,8 @@
 //                                      Fixture: pnpm --filter @opengeo/web exec tsx scripts/dev-recommendations.ts e2e-test)
 //   node e2e/full-flow.mjs create    – Workspace „E2E Test“ anlegen, Marke/Prompt/Einstellungen, „Jetzt messen“
 //   node e2e/full-flow.mjs verify    – Ergebnis der Messung im E2E-Workspace prüfen
+//   node e2e/full-flow.mjs i18n      – Sprachumschalter: Oberfläche auf Englisch (paylindo), danach zurück auf Deutsch
+// Alle Phasen laufen auf Deutsch (Accept-Language de + Sprach-Cookie), damit die Text-Prüfungen stimmen.
 // Zugangsdaten: .e2e-credentials (E2E_EMAIL, E2E_PASSWORD). Screenshots: E2E_SHOTS oder ./e2e/shots
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
@@ -34,6 +36,8 @@ const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 }, locale: 'de-DE',
   ...(phase !== 'login' && fs.existsSync(STATE) && { storageState: STATE }),
 });
+// Oberfläche fest auf Deutsch (Cookie hat Vorrang vor Accept-Language; ein im Auth-State gespeichertes Cookie wird überschrieben)
+await context.addCookies([{ name: 'opengeo_locale', value: 'de', url: BASE }]);
 await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
 const page = await context.newPage();
 const errors = [];
@@ -389,6 +393,46 @@ try {
     const detail = await visit(link, 'e2e-frage-detail', ['ChatGPT', 'Gemini', 'Claude']);
     check(/https?:\/\//.test(detail) || detail.includes('.de'), 'Detailseite zeigt Quellen');
     await visit(`/w/${slug}/quellen`, 'e2e-quellen', []);
+  }
+  if (phase === 'i18n') {
+    const ws = 'paylindo';
+    const lang = () => page.getAttribute('html', 'lang');
+    await page.goto(`${BASE}/w/${ws}`, { waitUntil: 'networkidle' });
+    check(await lang() === 'de', 'Standard: Oberfläche auf Deutsch');
+    // Umschalter im Konto-Menü
+    await page.click('[data-testid=user-menu] summary');
+    await page.locator('[data-testid=locale-switcher] button', { hasText: 'en' }).click();
+    await page.waitForFunction(() => document.documentElement.lang === 'en', null, { timeout: 10000 });
+    const nav = await page.innerText('header nav');
+    check(['Overview', 'Actions', 'Questions'].every((x) => nav.includes(x)), 'Navigation auf Englisch');
+    await page.screenshot({ path: path.join(SHOTS, `${ws}-uebersicht-en.png`), fullPage: true });
+    const cookie = (await context.cookies(BASE)).find((c) => c.name === 'opengeo_locale');
+    check(cookie?.value === 'en', 'Sprach-Cookie gesetzt');
+    for (const [url, expect] of [
+      [`/w/${ws}/settings/marke`, ['Brand', 'What you offer']],
+      [`/w/${ws}/settings/wettbewerber`, ['Competitors', '+ Competitor']],
+      [`/w/${ws}/settings/fragen`, ['Add question', 'Topics']],
+      [`/w/${ws}/settings/messung`, ['Measure now', 'Schedule', 'Past measurements']],
+      [`/w/${ws}/settings/kosten`, ['Spent in', 'Cost per AI engine']],
+      [`/w/${ws}/settings/workspace`, ['Country', 'Language']],
+    ]) {
+      const text = await visit(url, `${url.split('/').pop()}-en`, expect);
+      // nur UI-Wörter prüfen – Fragen, Markenbeschreibung usw. sind Daten des Workspaces (Deutsch)
+      check(!/\b(Einstellungen|Speichern|Hinzufügen|Wettbewerber|Bisherige|Durchgänge|Nur lesen)\b/.test(text), `${url}: keine deutschen UI-Texte`);
+    }
+    // Login-Seite (ohne Anmeldung) folgt dem Cookie
+    const anon = await browser.newContext({ locale: 'de-DE' });
+    await anon.addCookies([{ name: 'opengeo_locale', value: 'en', url: BASE }]);
+    const p2 = await anon.newPage();
+    await p2.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+    check((await p2.innerText('body')).includes('Sign in'), 'Login auf Englisch per Cookie (trotz Accept-Language de)');
+    await anon.close();
+    // zurück auf Deutsch
+    await page.goto(`${BASE}/w/${ws}`, { waitUntil: 'networkidle' });
+    await page.click('[data-testid=user-menu] summary');
+    await page.locator('[data-testid=locale-switcher] button', { hasText: 'de' }).click();
+    await page.waitForFunction(() => document.documentElement.lang === 'de', null, { timeout: 10000 });
+    check((await page.innerText('header nav')).includes('Übersicht'), 'Zurück auf Deutsch');
   }
 } catch (e) {
   // Absturz zählt als Fehlschlag (vorher verschluckte process.exit im finally den Fehler)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildClaudePrompt, CATEGORIES, categoryOf, cleanForeign, effortText, impactText, isLikelyCompetitor, promptDeliverable, scoreVerdict, type PromptContext, type RecLike,
+  buildClaudePrompt, CATEGORIES, categoryOf, categoryText, cleanForeign, effortText, engineName, impactText, isLikelyCompetitor, localizeRec, promptDeliverable,
+  recMetricLabels, scoreVerdict, type PromptContext, type RecLike,
 } from '../../src/recommend/present.ts';
 import { escapeAnswer } from '../../src/analyze.ts';
 import { keyInsightFrom, pickTopRecommendations, type Overview } from '../../src/recommend/brief.ts';
@@ -223,5 +224,97 @@ describe('Übersicht', () => {
       { type: 'content_gap', priority: '9' }, { type: 'name_on_own_page', priority: '8' }, { type: 'outreach', priority: '3' }, { type: 'technical', priority: '2' },
     ];
     expect(pickTopRecommendations(rows).map((r) => r.type)).toEqual(['content_gap', 'outreach', 'technical']);
+  });
+});
+
+describe('Englisch', () => {
+  // deutsche Reste: Umlaute/ß und typische Funktionswörter (Fremdinhalte wie Fragen und Zitate aus den Belegen ausgenommen)
+  const GERMAN = /[äöüÄÖÜß]| (und|nicht|der|die|das|mit|für|oder|deine?|wird|Antworten|Fragen) /;
+  const strip = (p: string, rec: RecLike) => {
+    let out = p;
+    const ev = rec.evidence as any;
+    const foreign = [rec.title, ctx.brand.description!, ...(ev.examples ?? []).flatMap((x: any) => [x.prompt, x.snippet]), ...(ev.ownExamples ?? []).flatMap((x: any) => [x.prompt, x.snippet]),
+      ...(ev.prompts ?? []).map((x: any) => x.text), ...(ev.urls ?? []).map((x: any) => x.title), ev.source].filter(Boolean);
+    for (const f of foreign) out = out.split(f).join('');
+    return out;
+  };
+  const ctxEn: PromptContext = { ...ctx, nextMeasurement: 'Monday, Nov 9, 3:17 AM' };
+  for (const rec of recs) {
+    it(`${rec.key}: englischer Prompt ohne deutsche Reste`, () => {
+      const p = buildClaudePrompt(rec, ctxEn, 'en');
+      for (const h of ['## Context', '## What our measurement shows', '## Your task', '## Done when', '## Goal']) expect(p).toContain(h);
+      expect(p).toMatch(/Ask me questions first if any facts are missing\. Don’t make up numbers, prices or quotes\.$/);
+      expect(p).toContain('Monday, Nov 9');
+      expect(p).not.toMatch(/undefined|NaN|\[object|\bnull\b|bitte prüfen/);
+      const rest = strip(p, rec);
+      expect(rest.match(GERMAN)?.[0] ?? null, rest.split('\n').find((l) => GERMAN.test(l))).toBeNull();
+      const d = promptDeliverable(rec, 'en');
+      expect(d).toMatch(/^Your AI delivers: /);
+      expect(d).not.toMatch(GERMAN);
+    });
+  }
+  it('Inhaltssprache: Hinweis nur, wenn sie von der Prompt-Sprache abweicht', () => {
+    const rec = recs[0]!;
+    expect(buildClaudePrompt(rec, { ...ctx, contentLanguage: 'en' }, 'en')).not.toContain('Write all deliverables');
+    expect(buildClaudePrompt(rec, { ...ctx, contentLanguage: 'de' }, 'en')).toContain('Write all deliverables (page text, emails, posts) in German');
+    expect(buildClaudePrompt(rec, { ...ctx, contentLanguage: 'de' }, 'de')).toBe(buildClaudePrompt(rec, ctx, 'de'));
+    expect(buildClaudePrompt(rec, { ...ctx, contentLanguage: 'en' }, 'de')).toContain('Schreibe alle Ergebnisse (Seitentexte, Mails, Beiträge) auf Englisch');
+  });
+  it('Kategorien, Wirkung, Zeit, Urteil, KI-Suchen', () => {
+    expect(categoryText('offsite', 'en').label).toBe('Other websites');
+    expect(categoryText('offsite').label).toBe(CATEGORIES.offsite.label);
+    expect(impactText(3, 'en')).toBe('High impact');
+    expect(effortText({ type: 'technical', key: 'technical:robots', effort: 1 }, 'en')).toBe('about 30 min');
+    expect(effortText({ type: 'community', effort: 2 }, 'en')).toBe('about 1 hr per week');
+    for (const t of ['name_on_own_page', 'content_gap', 'positioning', 'sentiment', 'outreach', 'community', 'technical']) {
+      for (const e of [1, 2, 3]) expect(effortText({ type: t, effort: e }, 'en')).not.toMatch(/ca\.|Std|Tag|Woche/);
+    }
+    expect(scoreVerdict(4, 'en')).toEqual({ label: 'Barely visible', tone: 'red' });
+    expect(engineName('google_aio', 'en')).toBe('Google AI Overviews');
+    expect(engineName('google_aio')).toBe('Google-Übersicht');
+  });
+  it('wichtigste Erkenntnis auf Englisch', () => {
+    const o: Overview = {
+      collectionId: 'c', at: new Date('2026-10-31'), responses: 50, engines: ['chatgpt'],
+      own: { name: 'Paylindo', isOwn: true, named: 2, rate: 0.04, domain: 'paylindo.de', siteResponses: 17, siteShare: 0.34, byEngine: [] },
+      competitors: [{ name: 'SumUp', isOwn: false, named: 41, rate: 0.82 }],
+    };
+    expect(keyInsightFrom(o, 'en').text).toBe('AI search engines use paylindo.de as a source in 17 of 50 answers (34%) – but almost never mention Paylindo (2 of 50).');
+    expect(keyInsightFrom({ ...o, own: { ...o.own, siteShare: 0.05 } }, 'en')).toMatchObject({ kind: 'competitor_ahead', text: 'SumUp is mentioned in 41 of 50 answers, Paylindo in 2.' });
+    expect(keyInsightFrom({ ...o, own: { ...o.own, named: 45, rate: 0.9, siteShare: 0.05 } }, 'en').text).toBe('Paylindo is in the lead: mentioned in 45 of 50 answers – SumUp in 41.');
+    expect(keyInsightFrom({ ...o, competitors: [], own: { ...o.own, named: 0, rate: 0, siteShare: 0.05 } }, 'en').text).toBe('Paylindo isn’t mentioned in any of the 50 answers.');
+  });
+});
+
+describe('localizeRec', () => {
+  const texts = {
+    de: { title: 'Titel DE', why: 'Warum DE', steps: ['Schritt 1', 'Schritt 2'] },
+    en: { title: 'Title EN', why: 'Why EN', steps: ['Step 1', 'Step 2'] },
+  };
+  const base = { title: 'Gespeichert', why: 'Gespeichert warum', steps: ['g1'] };
+  it('Regeltexte in der UI-Sprache', () => {
+    const r = { ...base, evidence: { texts, phrasedBy: 'rules' } };
+    expect(localizeRec(r, 'en')).toMatchObject({ title: 'Title EN', why: 'Why EN', steps: ['Step 1', 'Step 2'] });
+    expect(localizeRec(r, 'de')).toMatchObject({ title: 'Titel DE', why: 'Warum DE', steps: ['Schritt 1', 'Schritt 2'] });
+  });
+  it('KI-Texte bleiben (Workspace-Sprache), why kommt aus den Regeln', () => {
+    const r = { ...base, evidence: { texts, phrasedBy: 'llm' } };
+    expect(localizeRec(r, 'en')).toMatchObject({ title: 'Gespeichert', why: 'Why EN', steps: ['g1'] });
+  });
+  it('Altbestand ohne texts bleibt unverändert', () => {
+    const r = { ...base, evidence: { phrasedBy: 'rules' } };
+    expect(localizeRec(r, 'en')).toBe(r);
+    const n = { ...base, evidence: null };
+    expect(localizeRec(n, 'en')).toBe(n);
+  });
+});
+
+describe('recMetricLabels', () => {
+  it('Beschriftung je Typ und Sprache, technical ohne Kennzahl', () => {
+    expect(recMetricLabels({ type: 'positioning', evidence: { competitor: 'SumUp' } }, 'Paylindo', 'en'))
+      .toEqual({ label: 'Paylindo named before SumUp', denLabel: 'answers that mention SumUp' });
+    expect(recMetricLabels({ type: 'content_gap', evidence: {} }, 'Paylindo', 'en')!.denLabel).toBe('answers to the affected questions');
+    expect(recMetricLabels({ type: 'sentiment', evidence: {} }, 'Paylindo')!.label).toBe('Negative Nennungen von Paylindo');
+    expect(recMetricLabels({ type: 'technical', evidence: {} }, 'Paylindo', 'en')).toBeNull();
   });
 });

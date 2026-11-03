@@ -9,7 +9,8 @@ export function monthStartBerlin() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
   const y = parts.find((p) => p.type === 'year')!.value;
   const m = parts.find((p) => p.type === 'month')!.value;
-  return { iso: `${y}-${m}-01`, label: new Intl.DateTimeFormat('de-DE', { month: 'long', year: 'numeric', timeZone: 'Europe/Berlin' }).format(new Date()) };
+  // Anzeige des Monats sprachabhängig in der Seite (f.dateWith)
+  return { iso: `${y}-${m}-01` };
 }
 
 /** Status der Abfragen je Messung (für Fortschritt und Verlauf). */

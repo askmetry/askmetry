@@ -1,15 +1,17 @@
 import type { ReactNode } from 'react';
+import { getT } from '@/lib/i18n/server';
 
 export const box = 'rounded-2xl bg-card p-5 shadow-card sm:p-6';
 export const MENU_DANGER = 'w-full rounded-lg px-3 py-2 text-left text-sm text-bad hover:bg-subtle';
 
 /** Kopf einer Einstellungs-Seite: Titel, eine Zeile Erklärung, Hauptaktion rechts. */
-export function SettingsHeader({ title, intro, action, ro }: { title: string; intro?: ReactNode; action?: ReactNode; ro?: boolean }) {
+export async function SettingsHeader({ title, intro, action, ro }: { title: string; intro?: ReactNode; action?: ReactNode; ro?: boolean }) {
+  const t = (await getT()).settings;
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
         <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-        {(intro || ro) && <p className="mt-1 text-sm text-muted">{ro ? 'Nur Leserechte – Änderungen sind nicht möglich.' : intro}</p>}
+        {(intro || ro) && <p className="mt-1 text-sm text-muted">{ro ? t.readOnly : intro}</p>}
       </div>
       {action}
     </div>

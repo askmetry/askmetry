@@ -1,15 +1,20 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { I18nProvider } from '@/lib/i18n/client';
+import { getI18n } from '@/lib/i18n/server';
 
-export const metadata: Metadata = {
-  title: { default: 'OpenGEO', template: '%s · OpenGEO' },
-  description: 'Sichtbarkeit deiner Marke in KI-Suchmaschinen messen',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getI18n();
+  return { title: { default: 'OpenGEO', template: '%s · OpenGEO' }, description: t.common.appDescription };
+}
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const { locale } = await getI18n();
   return (
-    <html lang="de">
-      <body className="min-h-screen font-sans text-[15px]">{children}</body>
+    <html lang={locale}>
+      <body className="min-h-screen font-sans text-[15px]">
+        <I18nProvider locale={locale}>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

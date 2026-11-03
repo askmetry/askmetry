@@ -2,21 +2,19 @@
 import { useActionState } from 'react';
 import { setRecommendationStatus } from '@/lib/actions/recommendations';
 import type { RecStatus } from '@/lib/recommendations';
+import { useT } from '@/lib/i18n/client';
 
-const OPTIONS: { to: RecStatus; label: string }[] = [
-  { to: 'open', label: 'Offen' },
-  { to: 'in_progress', label: 'In Arbeit' },
-  { to: 'done', label: 'Erledigt' },
-  { to: 'dismissed', label: 'Ausblenden' },
-];
+const OPTIONS: RecStatus[] = ['open', 'in_progress', 'done', 'dismissed'];
 
 /** Status-Menü als Segment-Schalter (nur für Editoren gerendert). */
 export function RecStatusMenu({ slug, id, status }: { slug: string; id: string; status: RecStatus }) {
   const [state, run, pending] = useActionState(setRecommendationStatus, null);
+  const t = useT().recs;
   return (
     <div className="flex flex-col items-start gap-1.5" data-rec-actions={id}>
-      <div role="group" aria-label="Status" className="inline-flex flex-wrap rounded-xl bg-subtle p-1">
-        {OPTIONS.map((o) => {
+      <div role="group" aria-label={t.statusMenuLabel} className="inline-flex flex-wrap rounded-xl bg-subtle p-1">
+        {OPTIONS.map((to) => {
+          const o = { to, label: t.statusMenu[to] };
           const on = o.to === status;
           return (
             <form key={o.to} action={run}>
@@ -31,7 +29,7 @@ export function RecStatusMenu({ slug, id, status }: { slug: string; id: string; 
           );
         })}
       </div>
-      {pending && <span className="text-xs text-muted">Speichern …</span>}
+      {pending && <span className="text-xs text-muted">{t.saving}</span>}
       {state?.error && <span role="alert" className="text-xs text-bad">{state.error}</span>}
     </div>
   );

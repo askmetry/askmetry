@@ -7,17 +7,19 @@ import { brand, db, workspace, workspaceMember } from '@opengeo/db';
 import { maxBudgetUsd } from '@/lib/limits';
 import { validateDomains } from '@/lib/domain-validation';
 import { requireUser } from '@/lib/session';
+import { getI18n } from '@/lib/i18n/server';
 import { slugify } from '@/lib/slug';
 
 export type FormState = { error?: string; ok?: string } | null;
 
 export async function createWorkspace(_prev: FormState, form: FormData): Promise<FormState> {
   const u = await requireUser();
+  const { t, locale } = await getI18n();
   const name = String(form.get('name') ?? '').trim();
   const brandName = String(form.get('brandName') ?? '').trim();
-  const dom = validateDomains(String(form.get('domains') ?? ''));
-  if (!name) return { error: 'Bitte gib einen Namen für den Workspace ein.' };
-  if (!brandName) return { error: 'Bitte gib den Namen deiner Marke ein.' };
+  const dom = validateDomains(String(form.get('domains') ?? ''), locale);
+  if (!name) return { error: t.workspaces.errors.name };
+  if (!brandName) return { error: t.workspaces.errors.brand };
   if ('error' in dom) return { error: dom.error };
   const domains = dom.domains;
 

@@ -10,6 +10,7 @@ import { estimatePhraseCost, llmAvailable, PHRASE_BATCH_SIZE, phraseVersion, phr
 import { buildCandidates, REC_TYPES, type Candidate, type RecType } from './rules.ts';
 import { robotsStatusUnknown, runSiteCheck, type FetchLike } from './site-check.ts';
 import { autofillBrandProfile } from './profile.ts';
+import { toLang } from '../i18n.ts';
 import { refreshLogos } from '../logo.ts';
 
 export * from './data.ts';
@@ -39,7 +40,10 @@ export async function finishedCollections(workspaceId: string, limit = 2) {
 /** Datenbasis einer Messung (gleiche Basis wie die Kennzahlen: Antworten mit Text, ausgewertet). */
 export async function loadRecData(workspaceId: string, collectionId: string): Promise<RecData> {
   const where = and(eq(response.workspaceId, workspaceId), eq(run.collectionId, collectionId), ne(response.answer, ''), eq(response.analyzed, true));
-  const [c] = await db.select().from(collection).where(eq(collection.id, collectionId));
+  const [[c], [ws]] = await Promise.all([
+    db.select().from(collection).where(eq(collection.id, collectionId)),
+    db.select({ language: workspace.language }).from(workspace).where(eq(workspace.id, workspaceId)),
+  ]);
   const [brands, prompts, resps, ments, cits] = await Promise.all([
     db.select({ id: brand.id, name: brand.name, aliases: brand.aliases, domains: brand.domains, isOwn: brand.isOwn, description: brand.description, kind: brand.kind })
       .from(brand).where(eq(brand.workspaceId, workspaceId)),
@@ -57,7 +61,7 @@ export async function loadRecData(workspaceId: string, collectionId: string): Pr
   ]);
   return {
     workspaceId, collectionId, at: c?.finishedAt ?? c?.createdAt ?? new Date(),
-    brands, prompts: new Map(prompts.map((p) => [p.id, p])), resps, ments, cits,
+    brands, prompts: new Map(prompts.map((p) => [p.id, p])), resps, ments, cits, lang: toLang(ws?.language),
   };
 }
 
@@ -169,7 +173,8 @@ export const MAX_PHRASE_ATTEMPTS = 2;
 /** Höchstens so viele KI-Aufrufe je Generierung (Rest beim nächsten Mal). */
 export const MAX_PHRASE_CALLS = 3;
 
-export const hashOf = (c: Candidate) => signatureHash({ key: c.key, signature: [c.signature, phraseVersion(c.type)] });
+// Sprache gehört zum Textstand (KI schreibt in der Workspace-Sprache); für de bleibt der Hash wie bisher (keine Neuformulierung).
+export const hashOf = (c: Candidate) => signatureHash({ key: c.key, signature: [c.signature, phraseVersion(c.type), ...(c.lang === 'en' ? ['en'] : [])] });
 /** exakte Kernzahlen – ändern sie sich ohne neue Formulierung, wird die Begründung (why) aus den Regeln genommen */
 const metricsKey = (c: Candidate) => JSON.stringify(c.evidence.metrics ?? {});
 
@@ -230,8 +235,10 @@ export async function upsertRecommendations(input: UpsertInput) {
         baseline: noMetric ? null : exEv.baseline ?? metric?.current ?? null,
         current: metric?.current ?? null,
         previous: metric?.previous ?? null,
-        // Standardtexte immer mitgeben (für Vergleich/Fallback in der UI)
+        // Standardtexte immer mitgeben (für Vergleich/Fallback in der UI): fallback = Workspace-Sprache,
+        // texts = alle Sprachen ({ de: {title, why, steps}, en: {…} }) – die UI zeigt Regeltexte in der Sprache des Nutzers
         fallback: { title: c.title, why: c.why, steps: c.steps },
+        texts: c.texts,
       };
       const costAdd = unitsFor(c.key) / 10000;
       const values = {
@@ -444,7 +451,7 @@ async function generateUnlocked(workspaceId: string, opts: GenerateOptions): Pro
     const spent = await monthToDateSpend(workspaceId);
     const res = await phraseInBatches(
       toPhrase,
-      { brandName: own.name, brandDescription: own.description, domains: own.domains, year: data.at.getFullYear() },
+      { brandName: own.name, brandDescription: own.description, domains: own.domains, year: data.at.getFullYear(), lang: data.lang ?? 'de' },
       {
         phraser: opts.phraser ?? phraseWithLlm,
         budgetLeft: budget - spent,

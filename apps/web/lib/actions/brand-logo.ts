@@ -4,15 +4,17 @@ import { and, eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { brand, db } from '@opengeo/db';
 import { LOGO_MAX_BYTES, sniffImage } from '@opengeo/core';
-import { requireEditor } from '@/lib/session';
+import { isNoPermission, requireEditor } from '@/lib/session';
+import { getT } from '@/lib/i18n/server';
 import type { FormState } from './workspaces';
 
 async function editor(f: FormData) {
   const slug = String(f.get('slug') ?? '');
+  const tt = await getT();
   try {
-    return { slug, ...(await requireEditor(slug)) };
+    return { slug, t: tt.settings, ...(await requireEditor(slug)) };
   } catch (e) {
-    if (e instanceof Error && e.message.startsWith('Keine Berechtigung')) return { slug, denied: e.message } as const;
+    if (isNoPermission(e)) return { slug, denied: tt.common.noPermission } as const;
     throw e;
   }
 }
@@ -21,17 +23,17 @@ export async function uploadBrandLogo(_p: FormState, f: FormData): Promise<FormS
   const g = await editor(f);
   if ('denied' in g) return { error: g.denied };
   const file = f.get('logo');
-  if (!(file instanceof File) || file.size === 0) return { error: 'Bitte wähle eine Bilddatei.' };
-  if (file.size > LOGO_MAX_BYTES) return { error: 'Die Datei ist zu groß (höchstens 200 KB).' };
+  if (!(file instanceof File) || file.size === 0) return { error: g.t.errors.pickImage };
+  if (file.size > LOGO_MAX_BYTES) return { error: g.t.brand.logoTooLarge };
   const bytes = new Uint8Array(await file.arrayBuffer());
   // Typ aus den Bytes, nicht aus dem Dateinamen; SVG nur ohne Skripte
   const type = sniffImage(bytes);
-  if (!type) return { error: 'Bitte ein PNG, JPG, WebP, GIF, ICO oder SVG ohne Skripte hochladen.' };
+  if (!type) return { error: g.t.errors.imageType };
   const r = await db.update(brand).set({ logoData: Buffer.from(bytes).toString('base64'), logoType: type, logoUpdatedAt: new Date() })
     .where(and(eq(brand.workspaceId, g.ws.id), eq(brand.isOwn, true))).returning({ id: brand.id });
-  if (!r.length) return { error: 'Keine eigene Marke gefunden.' };
+  if (!r.length) return { error: g.t.errors.noOwnFound };
   revalidatePath(`/w/${g.slug}`, 'layout');
-  return { ok: 'Logo gespeichert.' };
+  return { ok: g.t.ok.logoSaved };
 }
 
 export async function removeBrandLogo(_p: FormState, f: FormData): Promise<FormState> {
@@ -40,5 +42,5 @@ export async function removeBrandLogo(_p: FormState, f: FormData): Promise<FormS
   await db.update(brand).set({ logoData: null, logoType: null, logoUpdatedAt: null })
     .where(and(eq(brand.workspaceId, g.ws.id), eq(brand.isOwn, true)));
   revalidatePath(`/w/${g.slug}`, 'layout');
-  return { ok: 'Wieder das Logo der Website.' };
+  return { ok: g.t.ok.logoRemoved };
 }

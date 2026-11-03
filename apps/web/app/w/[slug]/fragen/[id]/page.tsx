@@ -8,19 +8,20 @@ import { OpenOnHash } from '@/components/open-on-hash';
 import { Badge, Back, Card, EmptyState } from '@/components/ui';
 import { Dot } from '@/components/viz';
 import { workspaceContext, type SP } from '@/lib/context';
-import { domainMatches, engineLabel, groupBy, loadBase, normName, sortEngines, type Term } from '@/lib/metrics';
+import { domainMatches, groupBy, loadBase, normName, sortEngines, type Term } from '@/lib/metrics';
 import { recTouchesPrompt, sortRecs } from '@/lib/recommendations';
-import { loadRecs, promptContext } from '@/lib/recs-data';
-import { buildClaudePrompt, isLikelyCompetitor } from '@opengeo/core/present';
+import { loadRecs, promptContext, recPrompt } from '@/lib/recs-data';
+import { engineName, isLikelyCompetitor } from '@opengeo/core/present';
+import { getI18n } from '@/lib/i18n/server';
 import { RecCard } from '@/components/rec-card';
 import { loadPrompt } from '@/lib/prompts';
-import { COMMUNITY_LABELS, communityKind, comparableUrl } from '@/lib/sources';
+import { communityKind, comparableUrl } from '@/lib/sources';
 import { safeUrl } from '@/lib/url';
-import { fillLevel, joinDe, recForDomain, recTargets, shapingSources } from '@/lib/view';
+import { fillLevel, recForDomain, recTargets, shapingSources } from '@/lib/view';
 
-export const metadata = { title: 'Frage' };
-
-const SENTIMENT: Record<string, string> = { positive: 'positiv', neutral: 'neutral', negative: 'negativ' };
+export async function generateMetadata() {
+  return { title: (await getI18n()).t.questions.detailTitle };
+}
 
 
 export default async function FrageDetail({ params, searchParams }: { params: Promise<{ slug: string; id: string }>; searchParams: SP }) {
@@ -29,20 +30,23 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
   const { ws, brands, own, selected } = ctx;
   const p = await loadPrompt(ws.id, id);
   if (!p) notFound();
+  const { locale, t: msg, f } = await getI18n();
+  const t = msg.questions.detail;
+  const SENTIMENT = t.sentiment;
 
   const header = (
     <>
-      <Back href={`/w/${slug}/fragen`} label="Alle Fragen" />
+      <Back href={`/w/${slug}/fragen`} label={t.back} />
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere]">„{p.p.text}“</h1>
-          <p className="mt-1 text-sm text-muted">{p.topicName ? `Thema: ${p.topicName}` : 'Ohne Thema'}{!p.p.active && ' · wird nicht mehr abgefragt'}</p>
+          <h1 className="text-2xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere]">{msg.recs.quote(p.p.text)}</h1>
+          <p className="mt-1 text-sm text-muted">{p.topicName ? t.topic(p.topicName) : t.noTopic}{!p.p.active && t.inactive}</p>
         </div>
-        {selected && ctx.collectionOptions.length > 1 && <ParamSelect param="c" label="Messung" value={selected.id} options={ctx.collectionOptions} />}
+        {selected && ctx.collectionOptions.length > 1 && <ParamSelect param="c" label={t.measurement} value={selected.id} options={ctx.collectionOptions} />}
       </div>
     </>
   );
-  if (!selected) return <>{header}<EmptyState title="Noch keine Messung">Starte die erste Messung in den Einstellungen.</EmptyState></>;
+  if (!selected) return <>{header}<EmptyState title={msg.questions.empty.noMeasurementTitle}>{t.noMeasurementText}</EmptyState></>;
 
   const [runs, base] = await Promise.all([
     db.select({
@@ -53,7 +57,7 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
       .orderBy(asc(run.engine), asc(run.repetition)),
     loadBase(ws.id, [selected.id], { promptId: p.p.id }),
   ]);
-  if (!runs.length) return <>{header}<EmptyState title="Diese Frage war in dieser Messung nicht enthalten">Wähle oben eine andere Messung.</EmptyState></>;
+  if (!runs.length) return <>{header}<EmptyState title={t.notIncludedTitle}>{t.notIncludedText}</EmptyState></>;
 
   const mentionsBy = groupBy(base.ments, (m) => m.responseId);
   const citesBy = groupBy(base.cits, (c) => c.responseId);
@@ -62,17 +66,17 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
   const baseTerms: Term[] = brands.flatMap((b) => [b.name, ...b.aliases].map((t) => ({ term: t, kind: b.isOwn ? 'own' as const : 'competitor' as const })));
   const byEngine = groupBy(runs, (r) => r.engine);
   const engines = sortEngines(byEngine.keys());
-  const ownName = own?.name ?? 'Deine Marke';
+  const ownName = own?.name ?? t.yourBrand;
   const engineStats = engines.map((e) => {
     const rs = byEngine.get(e)!.filter((r) => r.answer);
     return { e, n: rs.length, hit: rs.filter((r) => (mentionsBy.get(r.responseId!) ?? []).some((m) => own && m.brandId === own.id)).length };
   });
   const answered = engineStats.filter((x) => x.n > 0);
   const missing = answered.filter((x) => x.hit === 0).length;
-  const verdict = !answered.length ? 'Keine KI-Suche hat auf diese Frage geantwortet.'
-    : missing === 0 ? `${ownName} wird in allen ${answered.length} KI-Suchen genannt.`
-    : missing === answered.length ? `${ownName} fehlt in ${missing === 1 ? 'der einzigen KI-Suche' : `allen ${missing} KI-Suchen`}.`
-    : `${ownName} fehlt in ${missing} von ${answered.length} KI-Suchen.`;
+  const verdict = !answered.length ? t.verdictNone
+    : missing === 0 ? t.verdictAll(ownName, answered.length)
+    : missing === answered.length ? t.verdictMissingAll(ownName, missing)
+    : t.verdictMissingSome(ownName, missing, answered.length);
   // „Genannt wurden“: nur Wettbewerber (getrackt oder laut Analyse-Modell/Namensliste), gleiche Namen zusammengefasst
   const nameCount = new Map<string, { name: string; n: number }>();
   for (const m of base.ments) {
@@ -92,24 +96,24 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
   const targets = recTargets(recs);
   // „Was du tun kannst“: aktive Maßnahmen, deren Belege diese Frage betreffen
   const related = sortRecs(recs.filter((r) => r.active && (r.status === 'open' || r.status === 'in_progress') && recTouchesPrompt(r.key, r.evidence, p.p.id))).slice(0, 2);
-  const pctx = promptContext(ws, brands);
+  const pctx = promptContext(ws, brands, locale);
 
   return (
     <>
       {header}
       <section className="mb-10 rounded-3xl bg-card p-6 shadow-card sm:p-7" data-testid="fazit">
-        <h2 className="mb-3 text-sm font-medium text-muted">Fazit</h2>
+        <h2 className="mb-3 text-sm font-medium text-muted">{t.summary}</h2>
         <p className="text-lg font-semibold leading-snug">{verdict}</p>
-        {named.length > 0 && <p className="mt-2 text-sm">Genannt wurden {joinDe(named)}.</p>}
+        {named.length > 0 && <p className="mt-2 text-sm">{t.namedWere(f.list(named))}</p>}
         {shaping.length > 0 && (
           <p className="mt-1 text-sm text-muted">
-            Geprägt von:{' '}
+            {t.shapedBy}{' '}
             {shaping.map((x, i) => {
               const rid = recForDomain(targets, x.label);
               return (
                 <span key={x.label}>
                   {i > 0 && ', '}{x.label}
-                  {rid && <> <Link href={`/w/${slug}/massnahmen/${rid}`} data-rec-link className="whitespace-nowrap font-medium text-accent hover:underline">→ Maßnahme</Link></>}
+                  {rid && <> <Link href={`/w/${slug}/massnahmen/${rid}`} data-rec-link className="whitespace-nowrap font-medium text-accent hover:underline">{t.toRec}</Link></>}
                 </span>
               );
             })}
@@ -119,16 +123,16 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
 
       {related.length > 0 && (
         <section className="mb-12" aria-labelledby="h-tun">
-          <h2 id="h-tun" className="mb-4 text-lg font-semibold tracking-tight">Was du tun kannst</h2>
+          <h2 id="h-tun" className="mb-4 text-lg font-semibold tracking-tight">{t.whatToDo}</h2>
           <div className="grid gap-4 md:grid-cols-2">
-            {related.map((r) => <RecCard key={r.id} rec={r} slug={slug} prompt={buildClaudePrompt(r, pctx)} />)}
+            {related.map((r) => <RecCard key={r.id} rec={r} slug={slug} prompt={recPrompt(r, pctx, locale)} />)}
           </div>
         </section>
       )}
 
-      <h2 className="mb-1 text-lg font-semibold tracking-tight">Die Antworten</h2>
+      <h2 className="mb-1 text-lg font-semibold tracking-tight">{t.answers}</h2>
       <p className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted">
-        Markiert: <mark className="hl-own">du</mark><mark className="hl-competitor">Wettbewerber</mark><mark className="hl-untracked">weitere Marken</mark>
+        {t.highlighted} <mark className="hl-own">{t.hlOwn}</mark><mark className="hl-competitor">{t.hlCompetitor}</mark><mark className="hl-untracked">{t.hlOther}</mark>
       </p>
       <OpenOnHash />
       <div className="space-y-6">
@@ -137,8 +141,8 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
             <summary className="flex cursor-pointer select-none items-center gap-3 px-5 py-4">
               <Dot fill={(() => { const x = engineStats.find((s) => s.e === e)!; return x.n ? fillLevel(x.hit / x.n) : null; })()} />
               <span className="flex min-w-0 flex-col sm:flex-row sm:items-baseline sm:gap-3">
-              <span className="font-semibold">{engineLabel(e)}</span>
-              <span className="text-sm text-muted">{(() => { const x = engineStats.find((s) => s.e === e)!; return !x.n ? 'keine Antwort' : x.hit ? `${ownName} in ${x.hit} von ${x.n} Antworten genannt` : `${ownName} nicht genannt`; })()}</span>
+              <span className="font-semibold">{engineName(e, locale)}</span>
+              <span className="text-sm text-muted">{(() => { const x = engineStats.find((s) => s.e === e)!; return !x.n ? t.engineNoAnswer : x.hit ? t.engineNamed(ownName, x.hit, x.n) : t.engineNotNamed(ownName); })()}</span>
               </span>
               <span aria-hidden className="ml-auto text-muted transition-transform group-open:rotate-90">›</span>
             </summary>
@@ -159,18 +163,18 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
                 })];
                 const ownHit = own && ms.find((m) => m.brandId === own.id);
                 return (
-                  <Card key={r.runId} className="!shadow-none ring-1 ring-border" title={<span className="flex flex-wrap items-center gap-2">Antwort {r.repetition} {ownHit ? <Badge tone="own">{own!.name} auf Platz {ownHit.position}</Badge> : r.answer ? <span className="text-sm font-normal text-muted">{own?.name ?? 'Du'} nicht genannt</span> : null}</span>}
-                    subtitle={r.model ? `Modell: ${r.model}` : undefined} pad>
+                  <Card key={r.runId} className="!shadow-none ring-1 ring-border" title={<span className="flex flex-wrap items-center gap-2">{t.answerN(r.repetition)} {ownHit ? <Badge tone="own">{t.placeBadge(own!.name, ownHit.position)}</Badge> : r.answer ? <span className="text-sm font-normal text-muted">{t.engineNotNamed(own?.name ?? t.you)}</span> : null}</span>}
+                    subtitle={r.model ? t.model(r.model) : undefined} pad>
                     {!r.answer ? (
-                      <p className="text-sm text-muted">{r.noAiAnswer ? 'Keine KI-Antwort – die Suche hat für diese Anfrage keine KI-Antwort angezeigt.' : r.status === 'failed' ? `Abfrage fehlgeschlagen${r.error ? `: ${r.error}` : ''}.` : r.status === 'skipped' ? 'Übersprungen (Budget erreicht).' : 'Keine Antwort.'}</p>
+                      <p className="text-sm text-muted">{r.noAiAnswer ? t.noAiAnswer : r.status === 'failed' ? t.failed(r.error) : r.status === 'skipped' ? t.skipped : t.noAnswer}</p>
                     ) : (
                       <>
                         <div className="max-h-[28rem] overflow-y-auto text-sm leading-relaxed">
-                          <AnswerMarkdown text={r.answer} terms={terms} />
+                          <AnswerMarkdown text={r.answer} terms={terms} imageLabel={msg.questions.image} />
                         </div>
                         {ms.length > 0 && (
                           <div className="mt-4 border-t border-border pt-3">
-                            <h3 className="mb-2 text-xs font-medium text-muted">Genannte Marken</h3>
+                            <h3 className="mb-2 text-xs font-medium text-muted">{t.brandsNamed}</h3>
                             <ol className="flex flex-wrap gap-1.5">
                               {[...ms].sort((a, b) => a.position - b.position).map((m) => {
                                 const b = m.brandId ? brandById.get(m.brandId) : undefined;
@@ -183,12 +187,12 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
                                 );
                               })}
                             </ol>
-                            <p className="mt-1.5 text-xs text-muted">★ = empfohlen</p>
+                            <p className="mt-1.5 text-xs text-muted">{t.recommendedLegend}</p>
                           </div>
                         )}
                         <div className="mt-4 border-t border-border pt-3">
-                          <h3 className="mb-2 text-xs font-medium text-muted">Quellen ({cs.length})</h3>
-                          {cs.length === 0 ? <p className="text-xs text-muted">Keine Quellen angegeben.</p> : (
+                          <h3 className="mb-2 text-xs font-medium text-muted">{t.sources(cs.length)}</h3>
+                          {cs.length === 0 ? <p className="text-xs text-muted">{t.noSources}</p> : (
                             <ul className="space-y-1 text-xs">
                               {cs.map((c, i) => {
                                 const isOwn = own ? domainMatches(c.domain || c.url, own.domains) : false;
@@ -199,9 +203,9 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
                                     <a href={safeUrl(c.url) ?? undefined} target="_blank" rel="noreferrer noopener" className={`min-w-0 truncate hover:underline ${isOwn ? 'font-medium text-own' : ''}`} title={c.url}>
                                       {c.domain}<span className="text-muted">{safePath(c.url)}</span>
                                     </a>
-                                    {isOwn && <Badge tone="own">eigene</Badge>}
+                                    {isOwn && <Badge tone="own">{t.own}</Badge>}
                                     {comp && <Badge tone="competitor">{comp.name}</Badge>}
-                                    {c.kind === 'searched' && <Badge tone="warn" title="Die KI hat die Seite geöffnet, nennt sie aber nicht als Quelle.">gelesen</Badge>}
+                                    {c.kind === 'searched' && <Badge tone="warn" title={t.readHint}>{t.read}</Badge>}
                                   </li>
                                 );
                               })}
@@ -210,9 +214,9 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
                           {rd.length > 0 && (
                             <details className="group mt-3">
                               <summary className="cursor-pointer select-none text-xs text-muted hover:text-fg">
-                                Gelesen, aber nicht als Quelle genannt ({rd.length}) <span className="text-muted group-open:hidden">– anzeigen</span>
+                                {t.readNotCited(rd.length)} <span className="text-muted group-open:hidden">{t.show}</span>
                               </summary>
-                              <p className="mt-1.5 text-xs text-muted">Diese Seiten hat die KI bei der Recherche gelesen; sie prägen die Antwort, erscheinen aber nicht als Quelle und zählen nicht in die Kennzahlen.</p>
+                              <p className="mt-1.5 text-xs text-muted">{t.readExplain}</p>
                               <ul className="mt-1.5 space-y-1 text-xs">
                                 {rd.map((c, i) => {
                                   const isOwn = own ? domainMatches(c.domain || c.url, own.domains) : false;
@@ -222,8 +226,8 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
                                       <a href={safeUrl(c.url) ?? undefined} target="_blank" rel="noreferrer noopener" className={`min-w-0 truncate text-muted hover:underline ${isOwn ? 'font-medium text-own' : ''}`} title={c.url}>
                                         {c.domain}<span className="text-muted">{safePath(c.url)}</span>
                                       </a>
-                                      {isOwn && <Badge tone="own">eigene</Badge>}
-                                      {ck && <Badge tone="warn">{COMMUNITY_LABELS[ck]}</Badge>}
+                                      {isOwn && <Badge tone="own">{t.own}</Badge>}
+                                      {ck && <Badge tone="warn">{t.community[ck] ?? ck}</Badge>}
                                     </li>
                                   );
                                 })}

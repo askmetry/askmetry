@@ -23,10 +23,16 @@ export function uniqueBrandNames(names: readonly string[]): string[] {
   return [...by.values()];
 }
 
-/** Fachwort „Prompt(s)“ für Nutzer als „Frage(n)“ zeigen – „KI-Prompt“ und „Prompt kopieren“ bleiben. */
-export function plainTerms(s: string): string {
+/** Fachwort „Prompt(s)“ für Nutzer als „Frage(n)“ zeigen – „KI-Prompt“ und „Prompt kopieren“ bleiben (en: question(s), „Copy prompt“ bleibt). */
+export function plainTerms(s: string, locale: 'de' | 'en' = 'de'): string {
+  if (locale === 'en') {
+    return s.replace(/(?<![-\p{L}])(?<!(?:[Cc]opy|[Vv]iew|[Hh]ide|[Yy]our|AI|[Tt]his) )(prompts|prompt|Prompts|Prompt)(?![-\p{L}])(?! (for (your|an|the) AI|to your AI))/gu,
+      (m) => ({ prompts: 'questions', prompt: 'question', Prompts: 'Questions', Prompt: 'Question' } as Record<string, string>)[m] ?? m);
+  }
   return s.replace(/(?<![-\p{L}])(Prompts|Prompt)(?![-\p{L}])(?! (kopieren|ansehen|ausblenden|für (deine|eine|dein) KI))/gu, (m) => (m === 'Prompts' ? 'Fragen' : 'Frage'));
 }
 
-/** „1 von 45“ → „1 von 45 Antworten“ (Nenner erklären). */
-export const ofAnswers = (num: number, den: number) => `${num} von ${den} ${den === 1 ? 'Antwort' : 'Antworten'}`;
+/** „1 von 45“ → „1 von 45 Antworten“ bzw. „1 of 45 answers“ (Nenner erklären). */
+export const ofAnswers = (num: number, den: number, locale: 'de' | 'en' = 'de') => locale === 'en'
+  ? `${num} of ${den} ${den === 1 ? 'answer' : 'answers'}`
+  : `${num} von ${den} ${den === 1 ? 'Antwort' : 'Antworten'}`;

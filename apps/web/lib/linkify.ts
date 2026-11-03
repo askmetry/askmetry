@@ -25,7 +25,7 @@ export function linkTargets(urls: (string | { url: string; title?: string | null
 }
 export type LinkTargets = ReturnType<typeof linkTargets>;
 
-const TOKEN = /(https?:\/\/[^\s<>„“”"'»«…–—]+)|(?<![\w@./-])((?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>„“”"'»«,;…–—]*)?)|(?<![\w/])(r\/[A-Za-z0-9_]{2,21})(?![\w/])|„([^„“”]{3,160})[“”]/gi;
+const TOKEN = /(https?:\/\/[^\s<>„“”"'»«…–—]+)|(?<![\w@./-])((?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>„“”"'»«,;…–—]*)?)|(?<![\w/])(r\/[A-Za-z0-9_]{2,21})(?![\w/])|[„“]([^„“”]{3,160})[“”]/gi;
 const TRAIL = /[.,;:!?)\]]+$/;
 
 const knownHost = (h: string, t: LinkTargets) => t.hosts.has(h.replace(/^www\./, ''));
@@ -42,7 +42,7 @@ export function linkify(text: string, t: LinkTargets): LinkPart[] {
       const start = m.index!;
       if (start > last) out.push(text.slice(last, start));
       // kein Titel-Treffer: Pfade/Domains innerhalb der Anführungszeichen trotzdem verlinken
-      out.push('„', ...(href ? [{ href, label: m[4] }] : inner!), m[0].slice(-1));
+      out.push(m[0][0]!, ...(href ? [{ href, label: m[4] }] : inner!), m[0].slice(-1));
       last = start + m[0].length;
       continue;
     }

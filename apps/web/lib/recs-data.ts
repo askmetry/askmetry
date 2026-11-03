@@ -1,7 +1,8 @@
 import 'server-only';
 import { eq } from 'drizzle-orm';
 import { db, recommendation } from '@opengeo/db';
-import type { PromptContext } from '@opengeo/core/present';
+import { buildClaudePrompt, localizeRec, toLang, type PromptContext, type RecLike } from '@opengeo/core/present';
+import type { Locale } from './i18n/config';
 import { nextMeasurementText } from '@opengeo/core';
 import type { RecStatus } from './recommendations';
 
@@ -23,17 +24,23 @@ export async function loadRecs(workspaceId: string): Promise<RecRow[]> {
   return db.select(cols).from(recommendation).where(eq(recommendation.workspaceId, workspaceId));
 }
 
-type Ws = { name: string; scheduleEnabled: boolean; scheduleCron: string };
+type Ws = { name: string; scheduleEnabled: boolean; scheduleCron: string; language?: string | null };
 type BrandRow = { name: string; description: string | null; domains: string[]; isOwn: boolean; kind?: string | null };
 
-/** Kontext für die Claude-Prompts: Marke, Wettbewerber, nächste Messung. */
-export function promptContext(ws: Ws, brands: readonly BrandRow[]): PromptContext {
+/** Kontext für die Claude-Prompts: Marke, Wettbewerber, nächste Messung (in der UI-Sprache), Sprache der Inhalte (Workspace). */
+export function promptContext(ws: Ws, brands: readonly BrandRow[], locale: Locale = 'de'): PromptContext {
   const own = brands.find((b) => b.isOwn);
-  const next = nextMeasurementText(ws);
+  const next = nextMeasurementText(ws, new Date(), locale);
   return {
     brand: { name: own?.name ?? ws.name, description: own?.description ?? null, domains: own?.domains ?? [], kind: own?.kind ?? null },
     competitors: brands.filter((b) => !b.isOwn).map((b) => b.name),
     workspaceName: ws.name,
     nextMeasurement: next,
+    contentLanguage: toLang(ws.language),
   };
+}
+
+/** KI-Prompt einer Maßnahme in der UI-Sprache (Texte der Maßnahme vorher über localizeRec). */
+export function recPrompt(rec: RecLike, ctx: PromptContext, locale: Locale): string {
+  return buildClaudePrompt(localizeRec(rec, locale), ctx, locale);
 }

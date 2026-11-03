@@ -6,10 +6,12 @@ import { BrandMark } from '@/components/brand-mark';
 import { UserMenu } from '@/components/user-menu';
 import { logoMap } from '@/lib/logos';
 import { loadBrands } from '@/lib/metrics';
+import { getT } from '@/lib/i18n/server';
 
 export default async function WorkspaceLayout({ children, params }: { children: React.ReactNode; params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const { ws, user, role } = await requireWorkspace(slug);
+  const t = (await getT()).common;
   const own = (await loadBrands(ws.id)).find((b) => b.isOwn);
   const ownLogo = own ? (await logoMap(slug, [own])).get(own.name.toLowerCase()) : null;
   return (
@@ -20,11 +22,11 @@ export default async function WorkspaceLayout({ children, params }: { children: 
             <div className="flex min-w-0 items-center gap-3">
               <Link href="/w"><Logo small /></Link>
               <span className="text-muted">/</span>
-              <Link href="/w" className="flex min-w-0 items-center gap-2 text-sm font-medium hover:underline" title="Workspace wechseln">
+              <Link href="/w" className="flex min-w-0 items-center gap-2 text-sm font-medium hover:underline" title={t.account.switchWorkspace}>
                 <BrandMark name={own?.name ?? ws.name} src={ownLogo} own />
                 <span className="truncate">{ws.name}</span>
               </Link>
-              {role === 'viewer' && <span className="rounded bg-subtle px-1.5 py-0.5 text-xs text-muted">Nur lesen</span>}
+              {role === 'viewer' && <span className="rounded bg-subtle px-1.5 py-0.5 text-xs text-muted">{t.account.readOnly}</span>}
             </div>
             <UserMenu email={user.email} name={user.name} />
           </div>

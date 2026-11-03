@@ -39,12 +39,6 @@ export function shapingSources(cits: readonly Cit[], n = 3, exclude: readonly st
     .sort((a, b) => b.responses - a.responses || a.label.localeCompare(b.label)).slice(0, n);
 }
 
-/** Aufzählung auf Deutsch: „A, B und C“. */
-export function joinDe(xs: readonly string[]): string {
-  if (xs.length <= 1) return xs[0] ?? '';
-  return `${xs.slice(0, -1).join(', ')} und ${xs[xs.length - 1]}`;
-}
-
 export { parseSimpleCron, scheduleText, toCron, WEEKDAYS, type Schedule } from './schedule';
 
 // ---------------------------------------------------------------------------

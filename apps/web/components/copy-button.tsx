@@ -1,10 +1,12 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { useT } from '@/lib/i18n/client';
 
 /** Kopiert Text in die Zwischenablage und zeigt kurz „Kopiert ✓“. Fallback über ein verstecktes Textfeld. */
-export function CopyButton({ text, label, className = 'btn btn-sm', done = 'Kopiert ✓', testId }: {
+export function CopyButton({ text, label, className = 'btn btn-sm', done, testId }: {
   text: string; label: string; className?: string; done?: string; testId?: string;
 }) {
+  const t = useT().recs.copy;
   const [state, setState] = useState<'idle' | 'ok' | 'err'>('idle');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
@@ -38,7 +40,7 @@ export function CopyButton({ text, label, className = 'btn btn-sm', done = 'Kopi
 
   return (
     <button type="button" onClick={copy} className={className} data-testid={testId} aria-live="polite">
-      {state === 'ok' ? done : state === 'err' ? 'Kopieren nicht möglich' : label}
+      {state === 'ok' ? done ?? t.done : state === 'err' ? t.failed : label}
     </button>
   );
 }

@@ -1,14 +1,16 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useT } from '@/lib/i18n/client';
 
 export function WorkspaceNav({ slug }: { slug: string }) {
   const path = usePathname();
+  const t = useT().common.nav;
   const base = `/w/${slug}`;
   const items = [
-    { href: base, label: 'Übersicht', exact: true },
-    { href: `${base}/massnahmen`, label: 'Maßnahmen' },
-    { href: `${base}/fragen`, label: 'Fragen' },
+    { href: base, label: t.overview, exact: true },
+    { href: `${base}/massnahmen`, label: t.recs },
+    { href: `${base}/fragen`, label: t.questions },
   ];
   const settingsActive = path.startsWith(`${base}/settings`);
   return (
@@ -22,7 +24,7 @@ export function WorkspaceNav({ slug }: { slug: string }) {
           </Link>
         );
       })}
-      <Link href={`${base}/settings/marke`} aria-label="Einstellungen" title="Einstellungen" aria-current={settingsActive ? 'page' : undefined}
+      <Link href={`${base}/settings/marke`} aria-label={t.settings} title={t.settings} aria-current={settingsActive ? 'page' : undefined}
         className={`ml-auto border-b-2 px-2 py-2.5 ${settingsActive ? 'border-accent text-fg' : 'border-transparent text-muted hover:text-fg'}`}>
         <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3" />

@@ -1,11 +1,15 @@
 import { safeUrl } from './url';
+import { messages } from './i18n/messages';
+import type { Locale } from './i18n/config';
 // Maßnahmen: reine Helfer (Labels, Normalisierung der Belege, Sortierung/Gruppierung) – ohne DB, testbar.
 
 export const REC_STATUSES = ['open', 'in_progress', 'done', 'dismissed'] as const;
 export type RecStatus = (typeof REC_STATUSES)[number];
 export const isRecStatus = (s: unknown): s is RecStatus => typeof s === 'string' && (REC_STATUSES as readonly string[]).includes(s);
 
+/** Deutsche Status-Bezeichnungen (Altbestand); sprachabhängig: `statusLabel(s, locale)`. */
 export const STATUS_LABEL: Record<RecStatus, string> = { open: 'Offen', in_progress: 'In Arbeit', done: 'Erledigt', dismissed: 'Verworfen' };
+export const statusLabel = (s: RecStatus, locale: Locale = 'de') => messages[locale].recs.status[s] ?? s;
 
 export const REC_TYPES = ['outreach', 'name_on_own_page', 'content_gap', 'technical', 'community', 'positioning', 'sentiment'] as const;
 export const TYPE_LABEL: Record<string, string> = {
@@ -17,12 +21,13 @@ export const TYPE_LABEL: Record<string, string> = {
   positioning: 'Positionierung',
   sentiment: 'Tonalität',
 };
-export const typeLabel = (t: string) => TYPE_LABEL[t] ?? t;
+export const typeLabel = (t: string, locale: Locale = 'de') => messages[locale].recs.types[t] ?? t;
 
 /** 1 gering · 2 mittel · 3 hoch (Werte außerhalb werden begrenzt). */
-export function levelLabel(n: number | null | undefined): 'gering' | 'mittel' | 'hoch' {
+export function levelLabel(n: number | null | undefined, locale: Locale = 'de'): string {
   const v = Math.round(Number(n) || 2);
-  return v <= 1 ? 'gering' : v >= 3 ? 'hoch' : 'mittel';
+  const l = messages[locale].recs.levels;
+  return v <= 1 ? l.low : v >= 3 ? l.high : l.medium;
 }
 
 export type RecExample = { prompt: string | null; promptId: string | null; engine: string | null; url: string | null; title: string | null; snippet: string | null };
@@ -117,7 +122,7 @@ export type RecLike = { id: string; status: string; priority: string | number; a
 /** Nach Priorität absteigend; bei Gleichstand höhere Wirkung, geringerer Aufwand, dann Titel. */
 export function sortRecs<T extends RecLike>(xs: readonly T[]): T[] {
   return [...xs].sort((a, b) =>
-    Number(b.priority) - Number(a.priority) || b.impact - a.impact || a.effort - b.effort || a.title.localeCompare(b.title, 'de'));
+    Number(b.priority) - Number(a.priority) || b.impact - a.impact || a.effort - b.effort || a.title.localeCompare(b.title));
 }
 
 /** Die nächsten Schritte: Top-n offene, aktive Maßnahmen. */
@@ -126,22 +131,23 @@ export function nextUp<T extends RecLike>(xs: readonly T[], n = 3): T[] {
 }
 
 /** Aktive Maßnahmen nach Status gruppieren (feste Reihenfolge), optional nach Typ/Status gefiltert. */
-export function groupRecs<T extends RecLike>(xs: readonly T[], f: { status?: string | null; type?: string | null } = {}) {
+export function groupRecs<T extends RecLike>(xs: readonly T[], f: { status?: string | null; type?: string | null } = {}, locale: Locale = 'de') {
   const active = sortRecs(xs.filter((r) => r.active));
   const filtered = active.filter((r) => (!f.type || r.type === f.type) && (!f.status || r.status === f.status));
   const counts = Object.fromEntries(REC_STATUSES.map((s) => [s, active.filter((r) => (!f.type || r.type === f.type) && r.status === s).length])) as Record<RecStatus, number>;
-  const groups = REC_STATUSES.map((s) => ({ status: s, label: STATUS_LABEL[s], items: filtered.filter((r) => r.status === s) })).filter((g) => g.items.length);
-  const types = [...new Set(active.map((r) => r.type))].sort((a, b) => typeLabel(a).localeCompare(typeLabel(b), 'de'));
+  const groups = REC_STATUSES.map((s) => ({ status: s, label: statusLabel(s, locale), items: filtered.filter((r) => r.status === s) })).filter((g) => g.items.length);
+  const types = [...new Set(active.map((r) => r.type))].sort((a, b) => typeLabel(a, locale).localeCompare(typeLabel(b, locale), locale));
   return { groups, counts, total: filtered.length, types, inactive: sortRecs(xs.filter((r) => !r.active)) };
 }
 
 /** Erlaubte Statuswechsel je Ausgangsstatus (für die Buttons). */
-export function statusActions(s: string): { to: RecStatus; label: string; primary?: boolean }[] {
+export function statusActions(s: string, locale: Locale = 'de'): { to: RecStatus; label: string; primary?: boolean }[] {
+  const a = messages[locale].recs.actions;
   switch (s) {
-    case 'open': return [{ to: 'in_progress', label: 'Starten', primary: true }, { to: 'done', label: 'Erledigt' }, { to: 'dismissed', label: 'Verwerfen' }];
-    case 'in_progress': return [{ to: 'done', label: 'Erledigt', primary: true }, { to: 'dismissed', label: 'Verwerfen' }, { to: 'open', label: 'Wieder öffnen' }];
+    case 'open': return [{ to: 'in_progress', label: a.start, primary: true }, { to: 'done', label: a.done }, { to: 'dismissed', label: a.dismiss }];
+    case 'in_progress': return [{ to: 'done', label: a.done, primary: true }, { to: 'dismissed', label: a.dismiss }, { to: 'open', label: a.reopen }];
     case 'done':
-    case 'dismissed': return [{ to: 'open', label: 'Wieder öffnen' }];
+    case 'dismissed': return [{ to: 'open', label: a.reopen }];
     default: return [];
   }
 }
@@ -170,23 +176,29 @@ export function recTouchesPrompt(key: string, evidence: unknown, promptId: strin
   return Array.isArray(ev.prompts) && ev.prompts.some((p) => p && typeof p === 'object' && (p as { id?: unknown }).id === promptId);
 }
 
-/** „17 von 50 Antworten (34 %)“ – Nenner mit Bezeichnung aus dem Core (denLabel), sonst „Antworten“. */
-export function metricText(m: Pick<MetricSnap, 'num' | 'den' | 'value' | 'denLabel'>): string | null {
+/** „17 von 50 Antworten (34 %)“ bzw. „17 of 50 answers (34%)“ – Nenner mit Bezeichnung (denLabel), sonst „Antworten“. */
+export function metricText(m: Pick<MetricSnap, 'num' | 'den' | 'value' | 'denLabel'>, locale: Locale = 'de'): string | null {
   if (m.num === null || m.den === null) return null;
-  const unit = m.denLabel ?? (m.den === 1 ? 'Antwort' : 'Antworten');
-  const pct = m.value === null ? '' : ` (${Math.round(m.value * 100)} %)`;
-  return `${m.num} von ${m.den} ${unit}${pct}`;
+  const t = messages[locale].recs.metric;
+  const unit = m.denLabel ?? (m.den === 1 ? t.answer : t.answers);
+  const pct = m.value === null ? '' : ` (${Math.round(m.value * 100)}${locale === 'de' ? ' ' : ''}%)`;
+  return `${t.of(m.num, m.den, unit)}${pct}`;
+}
+
+/** Beschriftung der Kennzahl in der UI-Sprache übernehmen (`recMetricLabels` aus dem Core); ohne Labels unverändert. */
+export function withLabels<M extends MetricSnap | null>(m: M, labels: { label: string; denLabel: string } | null): M {
+  return m && labels ? { ...m, ...labels } : m;
 }
 
 /** Ganze Zeile „Paylindo genannt: 2 von 17 Antworten mit deiner Website als Quelle (12 %)“ – ohne die Basis doppelt zu nennen. */
-export function metricLine(m: Pick<MetricSnap, 'label' | 'num' | 'den' | 'value' | 'denLabel'>): string {
-  const t = metricText(m);
+export function metricLine(m: Pick<MetricSnap, 'label' | 'num' | 'den' | 'value' | 'denLabel'>, locale: Locale = 'de'): string {
+  const t = metricText(m, locale);
   if (!t) return m.label;
   let label = m.label;
+  // „X genannt in Antworten mit …“ + Nenner „Antworten mit …“ → „X genannt: 2 von 17 Antworten mit …“ (ebenso „… in answers that …“)
   if (m.denLabel) {
-    const tail = m.denLabel.replace(/^Antworten\s*/, '');
-    const i = tail ? label.indexOf(` in Antworten ${tail}`) : -1;
-    if (i > 0) label = label.slice(0, i);
+    const i = label.toLowerCase().lastIndexOf(` in ${m.denLabel.toLowerCase()}`);
+    if (i > 0 && i + 4 + m.denLabel.length === label.length) label = label.slice(0, i);
   }
   return `${label}: ${t}`;
 }

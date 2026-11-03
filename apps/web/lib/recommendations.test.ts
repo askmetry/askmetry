@@ -68,7 +68,7 @@ describe('Belege robust lesen (Format laut CONTRACT „Maßnahmen“)', () => {
     expect(trend(parseMetric(snap(null)), parseMetric(snap(0.2)))).toBeNull();
   });
   it('Labels für Wirkung/Aufwand', () => {
-    expect([1, 2, 3, 0, 5].map(levelLabel)).toEqual(['gering', 'mittel', 'hoch', 'mittel', 'hoch']);
+    expect([1, 2, 3, 0, 5].map((n) => levelLabel(n))).toEqual(['gering', 'mittel', 'hoch', 'mittel', 'hoch']);
   });
 });
 
@@ -116,5 +116,18 @@ describe('metricLine', () => {
       .toBe('Paylindo genannt: 2 von 17 Antworten mit deiner Website als Quelle (12 %)');
     expect(metricLine({ label: 'KI-Sichtbarkeit', denLabel: null, num: 1, den: 45, value: 1 / 45 })).toBe('KI-Sichtbarkeit: 1 von 45 Antworten (2 %)');
     expect(metricLine({ label: 'Technik', denLabel: null, num: null, den: null, value: null })).toBe('Technik');
+  });
+});
+
+describe('English labels', () => {
+  it('metricText/metricLine/statusActions in English', async () => {
+    const { metricText: mt, metricLine: ml, statusActions: sa, levelLabel: ll, statusLabel: sl } = await import('./recommendations');
+    expect(mt({ num: 17, den: 50, value: 0.34, denLabel: null }, 'en')).toBe('17 of 50 answers (34%)');
+    expect(mt({ num: 1, den: 1, value: 1, denLabel: null }, 'en')).toBe('1 of 1 answer (100%)');
+    expect(ml({ label: 'Paylindo named in answers that use your website as a source', denLabel: 'answers that use your website as a source', num: 2, den: 17, value: 2 / 17 }, 'en'))
+      .toBe('Paylindo named: 2 of 17 answers that use your website as a source (12%)');
+    expect(sa('open', 'en').map((a) => a.label)).toEqual(['Start', 'Done', 'Dismiss']);
+    expect(ll(3, 'en')).toBe('high');
+    expect(sl('in_progress', 'en')).toBe('In progress');
   });
 });

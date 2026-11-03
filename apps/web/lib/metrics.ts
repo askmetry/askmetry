@@ -6,7 +6,7 @@ import { cache } from 'react';
 
 import { and, eq, inArray, ne, sql, type SQL, getTableColumns } from 'drizzle-orm';
 import { brand, citation, collection, db, mention, prompt, response, run } from '@opengeo/db';
-import { ENGINE_NAMES, engineName, isLikelyCompetitor } from '@opengeo/core/present';
+import { ENGINE_NAMES, engineName, isLikelyCompetitor, type Lang } from '@opengeo/core/present';
 
 // ---------------------------------------------------------------------------
 // Engines
@@ -15,7 +15,8 @@ import { ENGINE_NAMES, engineName, isLikelyCompetitor } from '@opengeo/core/pres
 // Anzeigenamen der KI-Suchen kommen aus @opengeo/core (DESIGN.md, „Begriffe“)
 export const ENGINE_LABELS = ENGINE_NAMES;
 export const SELECTABLE_ENGINES = ['chatgpt', 'gemini', 'claude', 'perplexity', 'google_aio', 'google_ai_mode'] as const;
-export const engineLabel = engineName;
+/** Anzeigename einer KI-Suche in der UI-Sprache (Standard Deutsch). */
+export const engineLabel = (k: string, lang: Lang = 'de') => engineName(k, lang);
 const ENGINE_ORDER = ['chatgpt', 'gemini', 'claude', 'perplexity', 'google_aio', 'google_ai_mode', 'mock'];
 export const sortEngines = (keys: Iterable<string>) =>
   [...new Set(keys)].sort((a, b) => (ENGINE_ORDER.indexOf(a) + 1 || 99) - (ENGINE_ORDER.indexOf(b) + 1 || 99) || a.localeCompare(b));

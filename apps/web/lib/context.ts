@@ -1,5 +1,5 @@
 import 'server-only';
-import { fmtDate, STATUS_LABELS } from './format';
+import { getI18n } from './i18n/server';
 import { loadBrands, resolveCollection } from './metrics';
 import { requireWorkspace } from './session';
 
@@ -11,9 +11,10 @@ export async function workspaceContext(slug: string, searchParams: Awaited<SP>) 
   const ctx = await requireWorkspace(slug);
   const [brands, cols] = await Promise.all([loadBrands(ctx.ws.id), resolveCollection(ctx.ws.id, one(searchParams.c))]);
   const own = brands.find((b) => b.isOwn);
+  const { t, f } = await getI18n();
   const collectionOptions = cols.finished.map((c, i) => ({
     value: c.id,
-    label: `${fmtDate(c.finishedAt ?? c.createdAt)}${i === 0 ? ' (neueste)' : ''}${c.status !== 'done' ? ` – ${STATUS_LABELS[c.status]}` : ''}`,
+    label: `${f.date(c.finishedAt ?? c.createdAt)}${i === 0 ? t.overview.collection.latest : ''}${c.status !== 'done' ? ` – ${t.common.collectionStatus[c.status] ?? c.status}` : ''}`,
   }));
   const prev = cols.selected ? cols.finished[cols.finished.findIndex((c) => c.id === cols.selected!.id) + 1] ?? null : null;
   return { ...ctx, brands, own, ...cols, previous: prev, collectionOptions };

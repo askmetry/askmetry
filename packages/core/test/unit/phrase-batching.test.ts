@@ -5,9 +5,10 @@ import { priorityOf, type Candidate } from '../../src/recommend/rules.ts';
 
 const cand = (i: number): Candidate => ({
   key: `outreach:d${i}.de`, type: 'outreach', title: `T${i}`, why: 'W', steps: ['a', 'b'], impact: 2, effort: 2, reach: 0.5,
+  texts: { de: { title: `T${i}`, why: 'W', steps: ['a', 'b'] }, en: { title: `T${i}`, why: 'W', steps: ['a', 'b'] } },
   priority: priorityOf(2, 0.5, 2), evidence: { metrics: { n: i }, examples: [] }, signature: { i },
 });
-const ctx = { brandName: 'X', domains: ['x.de'], year: 2026 };
+const ctx = { brandName: 'X', domains: ['x.de'], year: 2026, lang: 'de' as const };
 
 function fakePhraser(behave: (batch: Candidate[], call: number) => Partial<PhraseResult>) {
   const calls: string[][] = [];

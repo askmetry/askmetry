@@ -7,7 +7,8 @@ import { after } from 'next/server';
 import { brand, collection, db, prompt, topic, workspace } from '@opengeo/db';
 import { normName, parseList, SELECTABLE_ENGINES } from '@/lib/metrics';
 import { maxBudgetUsd } from '@/lib/limits';
-import { requireEditor } from '@/lib/session';
+import { isNoPermission, requireEditor } from '@/lib/session';
+import { getI18n } from '@/lib/i18n/server';
 import { validateDomains } from '@/lib/domain-validation';
 import { isValidCron } from '@opengeo/core/schedule';
 import { autofillBrandProfile, refreshLogos } from '@opengeo/core';
@@ -27,10 +28,11 @@ const done = (slug: string, ok: string): FormState => {
 };
 async function guard(f: FormData) {
   const slug = str(f, 'slug');
+  const { t, f: fmt, locale } = await getI18n();
   try {
-    return { slug, ...(await requireEditor(slug)) };
+    return { slug, t: t.settings, fmt, locale, ...(await requireEditor(slug)) };
   } catch (e) {
-    if (e instanceof Error && e.message.startsWith('Keine Berechtigung')) return { slug, denied: e.message } as const;
+    if (isNoPermission(e)) return { slug, denied: t.common.noPermission } as const;
     throw e;
   }
 }
@@ -54,12 +56,12 @@ export async function addCompetitor(_p: FormState, f: FormData): Promise<FormSta
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
   const name = str(f, 'name');
-  if (!name) return { error: 'Name fehlt.' };
+  if (!name) return { error: g.t.errors.nameMissing };
   const existing = await db.select({ id: brand.id }).from(brand)
     .where(and(eq(brand.workspaceId, g.ws.id), sql`lower(${brand.name}) = ${name.toLowerCase()}`));
   const id = existing[0]?.id ?? (await db.insert(brand).values({ workspaceId: g.ws.id, name, isOwn: false }).returning({ id: brand.id }))[0]!.id;
   await backfillMentions(g.ws.id, id, [name]);
-  return done(g.slug, `„${name}“ wird jetzt als Wettbewerber getrackt.`);
+  return done(g.slug, g.t.ok.tracked(name));
 }
 
 /** Mehrere Namen auf einmal (Analyse: „Alle hinzufügen“). Höchstens 10, ohne Website. */
@@ -67,7 +69,7 @@ export async function addCompetitors(_p: FormState, f: FormData): Promise<FormSt
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
   const names = f.getAll('name').map((n) => String(n).replace(/\s+/g, ' ').trim()).filter((n) => n && n.length <= 80).slice(0, 10);
-  if (!names.length) return { error: 'Name fehlt.' };
+  if (!names.length) return { error: g.t.errors.nameMissing };
   const existing = await db.select({ name: brand.name, aliases: brand.aliases }).from(brand).where(eq(brand.workspaceId, g.ws.id));
   const have = new Set(existing.flatMap((b) => [b.name, ...b.aliases]).map(normName));
   let n = 0;
@@ -78,7 +80,7 @@ export async function addCompetitors(_p: FormState, f: FormData): Promise<FormSt
     await backfillMentions(g.ws.id, id, [name]);
     n++;
   }
-  return done(g.slug, n ? `${n} Wettbewerber hinzugefügt. Website kannst du in den Einstellungen ergänzen.` : 'Schon alle verglichen.');
+  return done(g.slug, n ? g.t.ok.addedMany(n) : g.t.ok.allTracked);
 }
 
 export async function saveBrand(_p: FormState, f: FormData): Promise<FormState> {
@@ -86,8 +88,8 @@ export async function saveBrand(_p: FormState, f: FormData): Promise<FormState> 
   if ('denied' in g) return { error: g.denied };
   const id = str(f, 'id');
   const name = str(f, 'name');
-  if (!name) return { error: 'Bitte gib einen Namen ein.' };
-  const dom = validateDomains(str(f, 'domains'));
+  if (!name) return { error: g.t.errors.enterName };
+  const dom = validateDomains(str(f, 'domains'), g.locale);
   if ('error' in dom) return { error: dom.error };
   // Beschreibung/Typ pflegt nur saveBrandProfile (bzw. die automatische Erkennung) – hier nie überschreiben
   const values = {
@@ -99,14 +101,14 @@ export async function saveBrand(_p: FormState, f: FormData): Promise<FormState> 
   if (id) {
     const [before] = await db.select({ domains: brand.domains, isOwn: brand.isOwn, profileSource: brand.profileSource }).from(brand)
       .where(and(eq(brand.id, id), eq(brand.workspaceId, g.ws.id)));
-    if (!before) return { error: 'Marke nicht gefunden.' };
+    if (!before) return { error: g.t.errors.brandNotFound };
     // Neue Website der eigenen Marke → automatisch erkanntes Profil verwerfen und neu erkennen lassen (von Hand gesetztes bleibt)
     const sameDomains = [...before.domains].sort().join() === [...dom.domains].sort().join();
     const reprofile = before.isOwn && !sameDomains && before.profileSource !== 'user'
       ? { profileCheckedAt: null, ...(before.profileSource === 'auto' ? { description: null, kind: null, profileSource: null } : {}) }
       : {};
     const r = await db.update(brand).set({ ...values, ...reprofile }).where(and(eq(brand.id, id), eq(brand.workspaceId, g.ws.id))).returning({ id: brand.id });
-    if (!r.length) return { error: 'Marke nicht gefunden.' };
+    if (!r.length) return { error: g.t.errors.brandNotFound };
     if (before.isOwn && !sameDomains && before.profileSource !== 'user') after(() => autofillBrandProfile(g.ws.id).then(() => {}, () => {}));
     if (!sameDomains) logosLater(g.ws.id);
   } else {
@@ -114,15 +116,15 @@ export async function saveBrand(_p: FormState, f: FormData): Promise<FormState> 
     if (dom.domains.length) logosLater(g.ws.id);
   }
   await backfillMentions(g.ws.id, brandId, [values.name, ...values.aliases]);
-  return done(g.slug, id ? 'Gespeichert.' : `Wettbewerber „${name}“ angelegt.`);
+  return done(g.slug, id ? g.t.ok.saved : g.t.ok.competitorCreated(name));
 }
 
 export async function deleteBrand(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
   const r = await db.delete(brand).where(and(eq(brand.id, str(f, 'id')), eq(brand.workspaceId, g.ws.id), eq(brand.isOwn, false))).returning({ id: brand.id });
-  if (!r.length) return { error: 'Die eigene Marke kann nicht gelöscht werden.' };
-  return done(g.slug, 'Wettbewerber entfernt.');
+  if (!r.length) return { error: g.t.errors.cannotDeleteOwn };
+  return done(g.slug, g.t.ok.competitorRemoved);
 }
 
 async function validTopic(workspaceId: string, topicId: string) {
@@ -136,22 +138,22 @@ export async function savePrompt(_p: FormState, f: FormData): Promise<FormState>
   if ('denied' in g) return { error: g.denied };
   const id = str(f, 'id');
   const text = str(f, 'text');
-  if (text.length < 5) return { error: 'Bitte formuliere den Prompt als vollständige Frage.' };
+  if (text.length < 5) return { error: g.t.errors.fullQuestion };
   const values = { text, topicId: await validTopic(g.ws.id, str(f, 'topicId')), active: f.get('active') === 'on' };
   if (id) {
     const r = await db.update(prompt).set(values).where(and(eq(prompt.id, id), eq(prompt.workspaceId, g.ws.id))).returning({ id: prompt.id });
-    if (!r.length) return { error: 'Prompt nicht gefunden.' };
+    if (!r.length) return { error: g.t.errors.promptNotFound };
   } else {
     await db.insert(prompt).values({ ...values, workspaceId: g.ws.id, language: g.ws.language, country: g.ws.country });
   }
-  return done(g.slug, id ? 'Gespeichert.' : 'Prompt hinzugefügt.');
+  return done(g.slug, id ? g.t.ok.saved : g.t.ok.promptAdded);
 }
 
 export async function deletePrompt(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
   await db.delete(prompt).where(and(eq(prompt.id, str(f, 'id')), eq(prompt.workspaceId, g.ws.id)));
-  return done(g.slug, 'Prompt gelöscht.');
+  return done(g.slug, g.t.ok.promptDeleted);
 }
 
 export async function saveTopic(_p: FormState, f: FormData): Promise<FormState> {
@@ -159,17 +161,17 @@ export async function saveTopic(_p: FormState, f: FormData): Promise<FormState> 
   if ('denied' in g) return { error: g.denied };
   const id = str(f, 'id');
   const name = str(f, 'name');
-  if (!name) return { error: 'Bitte gib einen Namen ein.' };
+  if (!name) return { error: g.t.errors.enterName };
   if (id) await db.update(topic).set({ name }).where(and(eq(topic.id, id), eq(topic.workspaceId, g.ws.id)));
   else await db.insert(topic).values({ workspaceId: g.ws.id, name });
-  return done(g.slug, id ? 'Gespeichert.' : `Thema „${name}“ angelegt.`);
+  return done(g.slug, id ? g.t.ok.saved : g.t.ok.topicCreated(name));
 }
 
 export async function deleteTopic(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
   await db.delete(topic).where(and(eq(topic.id, str(f, 'id')), eq(topic.workspaceId, g.ws.id)));
-  return done(g.slug, 'Thema gelöscht. Zugehörige Prompts bleiben ohne Thema erhalten.');
+  return done(g.slug, g.t.ok.topicDeleted);
 }
 
 /**
@@ -187,9 +189,9 @@ export async function saveWorkspaceSettings(_p: FormState, f: FormData): Promise
     const engines = f.getAll('engines').map(String).filter((e) => (SELECTABLE_ENGINES as readonly string[]).includes(e));
     const repetitions = Number(str(f, 'repetitions'));
     const cron = str(f, 'scheduleCron').replace(/\s+/g, ' ');
-    if (!engines.length) return { error: 'Bitte wähle mindestens eine KI-Suche.' };
-    if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 10) return { error: 'Durchgänge: ganze Zahl zwischen 1 und 10.' };
-    if (!/^(\S+ ){4}\S+$/.test(cron) || !/^[\d*/,\- ]+$/.test(cron) || !isValidCron(cron)) return { error: 'Der Zeitplan muss ein gültiger Cron-Ausdruck mit 5 Feldern sein, z. B. „17 3 * * 1“.' };
+    if (!engines.length) return { error: g.t.errors.pickEngine };
+    if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 10) return { error: g.t.errors.reps };
+    if (!/^(\S+ ){4}\S+$/.test(cron) || !/^[\d*/,\- ]+$/.test(cron) || !isValidCron(cron)) return { error: g.t.errors.cron };
     const scheduleEnabled = f.get('scheduleEnabled') === 'on';
     // Messplan geändert oder eingeschaltet → Änderungszeitpunkt merken, damit nicht sofort gemessen wird
     // (der Scheduler wartet auf den nächsten Cron-Zeitpunkt nach dieser Änderung).
@@ -198,37 +200,37 @@ export async function saveWorkspaceSettings(_p: FormState, f: FormData): Promise
   }
   if (has('kosten')) {
     const budget = Number(str(f, 'monthlyBudgetUsd').replace(',', '.'));
-    if (!Number.isFinite(budget) || budget < 0) return { error: 'Bitte gib ein gültiges Budget in USD ein.' };
+    if (!Number.isFinite(budget) || budget < 0) return { error: g.t.errors.budget };
     const maxBudget = maxBudgetUsd();
-    if (budget > maxBudget) return { error: `Das Budget darf höchstens ${maxBudget.toFixed(2).replace('.', ',')} USD pro Monat betragen.` };
+    if (budget > maxBudget) return { error: g.t.errors.budgetMax(g.fmt.usd(maxBudget)) };
     set.monthlyBudgetUsd = budget.toFixed(2);
   }
   if (has('workspace')) {
-    if (!str(f, 'name')) return { error: 'Bitte gib einen Namen ein.' };
+    if (!str(f, 'name')) return { error: g.t.errors.enterName };
     const country = (str(f, 'country') || 'DE').toUpperCase();
     const language = (str(f, 'language') || 'de').toLowerCase();
-    if (!['DE', 'AT', 'CH'].includes(country) || !['de', 'en'].includes(language)) return { error: 'Bitte Land und Sprache aus der Liste wählen.' };
+    if (!['DE', 'AT', 'CH'].includes(country) || !['de', 'en'].includes(language)) return { error: g.t.errors.countryLanguage };
     Object.assign(set, { name: str(f, 'name'), country, language });
   }
-  if (!Object.keys(set).length) return { error: 'Nichts zu speichern.' };
+  if (!Object.keys(set).length) return { error: g.t.errors.nothing };
   await db.update(workspace).set(set).where(eq(workspace.id, g.ws.id));
-  return done(g.slug, 'Gespeichert.');
+  return done(g.slug, g.t.ok.saved);
 }
 
 export async function startCollection(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
   const activePrompts = await db.select({ id: prompt.id }).from(prompt).where(and(eq(prompt.workspaceId, g.ws.id), eq(prompt.active, true))).limit(1);
-  if (!activePrompts.length) return { error: 'Es gibt keine aktiven Prompts. Lege zuerst Prompts an.' };
+  if (!activePrompts.length) return { error: g.t.errors.noActivePrompts };
   const running = await db.select({ id: collection.id }).from(collection)
     .where(and(eq(collection.workspaceId, g.ws.id), inArray(collection.status, ['queued', 'running']))).limit(1);
-  if (running.length) return { error: 'Es läuft bereits eine Messung oder sie wartet auf den Start.' };
+  if (running.length) return { error: g.t.errors.alreadyRunning };
   try {
     await db.insert(collection).values({ workspaceId: g.ws.id, status: 'queued', trigger: 'manual' });
   } catch (e) {
     // Unique-Index collection_one_active_idx: parallel wurde schon eine Messung eingereiht
-    if (isUniqueViolation(e)) return { error: 'Es läuft bereits eine Messung oder sie wartet auf den Start.' };
+    if (isUniqueViolation(e)) return { error: g.t.errors.alreadyRunning };
     throw e;
   }
-  return done(g.slug, 'Messung eingereiht. Der Worker startet sie in Kürze.');
+  return done(g.slug, g.t.ok.queued);
 }

@@ -1,10 +1,12 @@
-// Regelbasierte Maßnahmen-Kandidaten: jede mit stabilem key, Evidenz (Zahlen + 1–5 Beispiele) und deutschen Standardtexten.
-// Die Texte funktionieren ohne KI; phrase.ts kann sie optional verbessern.
+// Regelbasierte Maßnahmen-Kandidaten: jede mit stabilem key, Evidenz (Zahlen + 1–5 Beispiele) und Standardtexten
+// auf Deutsch und Englisch (`texts`; title/why/steps = Workspace-Sprache). Die Texte funktionieren ohne KI; phrase.ts kann sie
+// optional verbessern. Deutsch und Englisch haben je Maßnahme gleich viele Schritte (done_steps beziehen sich auf die Indizes).
 import {
-  cleanUrl, communityGroup, domainMatches, engineLabel, groupBy, hostOf, indexData, normName, pct, shortPath, titleFromUrl,
+  cleanUrl, communityGroup, domainMatches, groupBy, hostOf, indexData, normName, pct, shortPath, titleFromUrl,
   type Indexed, type RecData, type SiteCheckResult,
 } from './data.ts';
 import { isLikelyCompetitor } from './present.ts';
+import { listJoin, type Lang } from '../i18n.ts';
 
 export type RecType = 'name_on_own_page' | 'outreach' | 'content_gap' | 'community' | 'technical' | 'positioning' | 'sentiment';
 export const REC_TYPES: RecType[] = ['name_on_own_page', 'outreach', 'content_gap', 'community', 'technical', 'positioning', 'sentiment'];
@@ -32,12 +34,20 @@ export interface Evidence {
   [k: string]: unknown;
 }
 
+/** Standardtexte einer Maßnahme in einer Sprache. */
+export interface RuleText { title: string; why: string; steps: string[] }
+
 export interface Candidate {
   key: string;
   type: RecType;
+  /** Texte in der Workspace-Sprache (= texts[lang]) */
   title: string;
   why: string;
   steps: string[];
+  /** Standardtexte in allen Sprachen (gespeichert als evidence.texts, Anzeige in der UI-Sprache) */
+  texts: Record<Lang, RuleText>;
+  /** Workspace-Sprache, in der title/why/steps stehen (fehlt = de) */
+  lang?: Lang;
   impact: 1 | 2 | 3;
   effort: 1 | 2 | 3;
   /** Anteil betroffener Antworten bzw. Prompts (0..1) */
@@ -59,12 +69,10 @@ const quote = (s: string, n = 160) => {
   const t = s.replace(/\s+/g, ' ').replace(/\*\*/g, '').trim();
   return t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t;
 };
-const listDe = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} und ${xs[xs.length - 1]}`);
 const uniq = <T>(xs: T[]) => [...new Set(xs)];
 const enginesOf = (ix: Indexed, rids: Iterable<string>) => uniq([...rids].map((r) => ix.respById.get(r)?.engine ?? '')).filter(Boolean);
 const ENGINE_ORDER = ['chatgpt', 'gemini', 'claude', 'perplexity', 'google_aio', 'google_ai_mode', 'mock'];
 const sortEngines = (es: string[]) => [...es].sort((a, b) => (ENGINE_ORDER.indexOf(a) + 1 || 99) - (ENGINE_ORDER.indexOf(b) + 1 || 99));
-const engineNames = (es: string[]) => listDe(sortEngines(es).map(engineLabel));
 
 /** Markenname → Vergleichsschlüssel (nur Buchstaben/Ziffern, klein) */
 const brandKey = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '');
@@ -81,9 +89,16 @@ const clipText = (s: string, n: number) => {
   const cut = t.slice(0, n - 1);
   return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), n - 20)).replace(/[\s,;:–-]+$/, '')}…`;
 };
-function make(c: Omit<Candidate, 'priority'>): Candidate {
-  return { ...c, title: clipText(c.title, TITLE_MAX), why: clipText(c.why, WHY_MAX), priority: priorityOf(c.impact, c.reach, c.effort) };
+type Draft = Omit<Candidate, 'priority' | 'title' | 'why' | 'steps' | 'texts'> & { text: (l: Lang) => RuleText };
+/** Kandidat fertigstellen: Texte für alle Sprachen erzeugen und kürzen; title/why/steps in der Workspace-Sprache `lang`. */
+function make(lang: Lang, c: Draft): Candidate {
+  const { text, ...rest } = c;
+  const fin = (t: RuleText): RuleText => ({ title: clipText(t.title, TITLE_MAX), why: clipText(t.why, WHY_MAX), steps: t.steps });
+  const texts: Record<Lang, RuleText> = { de: fin(text('de')), en: fin(text('en')) };
+  return { ...rest, ...texts[lang], texts, lang, priority: priorityOf(c.impact, c.reach, c.effort) };
 }
+const listL = (xs: string[], l: Lang) => listJoin(xs, l);
+
 /** Frage für Titel kürzen */
 const q = (text: string, n: number) => clipText(text.replace(/\?$/, ''), n);
 
@@ -123,20 +138,33 @@ export function ruleNameOnOwnPage(ix: Indexed, d: { at: Date } = { at: new Date(
     return { prompt: ix.promptText(r.promptId), engine: r.engine, url, title: titleFromUrl(url, e.title), snippet: top?.snippet ? quote(top.snippet) : undefined };
   });
   const domain = own.domains[0];
-  return [make({
+  const pageList = pages.slice(0, 5).map(([u]) => shortPath(u)).join(', ');
+  return [make(ix.lang, {
     key: 'name_on_own_page',
     type: 'name_on_own_page',
-    title: `${own.name} auf den Seiten nennen, die KIs schon nutzen`,
-    why: `KIs nutzen ${domain} in ${usedTotal} von ${ix.N} Antworten als Quelle – in ${affected.length} davon fehlt der Name ${own.name}.`,
     // Belegt ist: KIs übernehmen Fakten, Zahlen und Zitate aus einer Seite. Den Markennamen nennen sie vor allem, wenn er an
     // eigene Daten/Werkzeuge gebunden ist oder die Seite die Marke klar als Kategorie-Akteur ausweist – nicht durch Namen in jedem Titel.
-    steps: [
-      `Diese Seiten zuerst überarbeiten: ${pages.slice(0, 5).map(([u]) => shortPath(u)).join(', ')}.`,
-      `Im ersten Absatz einmal sagen, wer hier informiert – Marke plus Kategorie, z. B. „${own.name}, ${own.kind === 'portal' ? 'das Vergleichsportal für …' : 'die Lösung für …'}“. Überschriften bleiben sachlich, kein Markenname in jedem Titel.`,
-      `Eigene Daten, Tabellen und Rechner als Werk von ${own.name} benennen (z. B. „${own.name}-Kostenvergleich ${d.at.getFullYear()}“) – zitierfähige Zahlen werden mit Quelle übernommen.`,
-      `Title-Tag mit Marken-Suffix prüfen („… | ${own.name}“), wie im SEO üblich – nur ergänzen, wenn es fehlt.`,
-      `Autorenkasten bzw. „Über ${own.name}“-Absatz mit einem gleichlautenden Satz zur Positionierung auf allen diesen Seiten.`,
-    ],
+    text: (l) => l === 'en' ? {
+      title: `Name ${own.name} on the pages AI already uses`,
+      why: `AI uses ${domain} as a source in ${usedTotal} of ${ix.N} answers – ${affected.length} of them don’t mention ${own.name}.`,
+      steps: [
+        `Revise these pages first: ${pageList}.`,
+        `In the first paragraph, say once who is behind the information – brand plus category, e.g. “${own.name}, ${own.kind === 'portal' ? 'the comparison site for …' : 'the solution for …'}”. Keep headings factual; no brand name in every title.`,
+        `Label your own data, tables and calculators as ${own.name}’s work (e.g. “${own.name} cost comparison ${d.at.getFullYear()}”) – AI picks up quotable numbers together with their source.`,
+        `Check that the title tag has a brand suffix (“… | ${own.name}”), as usual in SEO – only add it if it’s missing.`,
+        `Add an author box or an “About ${own.name}” paragraph with the same positioning sentence on all of these pages.`,
+      ],
+    } : {
+      title: `${own.name} auf den Seiten nennen, die KIs schon nutzen`,
+      why: `KIs nutzen ${domain} in ${usedTotal} von ${ix.N} Antworten als Quelle – in ${affected.length} davon fehlt der Name ${own.name}.`,
+      steps: [
+        `Diese Seiten zuerst überarbeiten: ${pageList}.`,
+        `Im ersten Absatz einmal sagen, wer hier informiert – Marke plus Kategorie, z. B. „${own.name}, ${own.kind === 'portal' ? 'das Vergleichsportal für …' : 'die Lösung für …'}“. Überschriften bleiben sachlich, kein Markenname in jedem Titel.`,
+        `Eigene Daten, Tabellen und Rechner als Werk von ${own.name} benennen (z. B. „${own.name}-Kostenvergleich ${d.at.getFullYear()}“) – zitierfähige Zahlen werden mit Quelle übernommen.`,
+        `Title-Tag mit Marken-Suffix prüfen („… | ${own.name}“), wie im SEO üblich – nur ergänzen, wenn es fehlt.`,
+        `Autorenkasten bzw. „Über ${own.name}“-Absatz mit einem gleichlautenden Satz zur Positionierung auf allen diesen Seiten.`,
+      ],
+    },
     // Wirkung belegt nur indirekt (Entitäts-Klarheit, zitierfähige eigene Daten) → höchstens mittel
     impact: 2,
     // vorhandene Seiten nachschärfen (die Schritte fokussieren auf die Top-5) – geringer Aufwand, hohe Wirkung
@@ -182,7 +210,7 @@ export const OUTREACH_MAX = 5;
 const EDITORIAL_NAME = /(vergleich|kompass|ratgeber|magazin|journal|blog|news|portal|testsieger)/i;
 
 /** Alle Quellen-Domains aus Antworten mit Wettbewerber (ohne eigene Marke) – mit Grund, warum es (k)eine Outreach-Maßnahme gibt. */
-export function outreachExclusionsFrom(ix: Indexed, opts: { max?: number; minResponses?: number } = {}): OutreachExclusion[] {
+export function outreachExclusionsFrom(ix: Indexed, opts: { max?: number; minResponses?: number; lang?: Lang } = {}): OutreachExclusion[] {
   return outreachScan(ix, opts).excluded;
 }
 
@@ -190,7 +218,7 @@ export function ruleOutreach(ix: Indexed, opts: { max?: number; minResponses?: n
   return outreachScan(ix, opts).candidates;
 }
 
-function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number } = {}): { candidates: Candidate[]; excluded: OutreachExclusion[] } {
+function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number; lang?: Lang } = {}): { candidates: Candidate[]; excluded: OutreachExclusion[] } {
   const own = ix.own;
   if (!own) return { candidates: [], excluded: [] };
   const max = opts.max ?? OUTREACH_MAX;
@@ -252,7 +280,15 @@ function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number }
   const sorted = [...by.entries()]
     .sort((a, b) => b[1].resps.size - a[1].resps.size || b[1].prompts.size - a[1].prompts.size || a[0].localeCompare(b[0]));
   const rows = sorted.filter(([, e]) => e.resps.size >= minN).slice(0, max);
-  const reasonText = (r: OutreachExclusionReason, d: string | null) => ({
+  const reasonText = (r: OutreachExclusionReason, d: string | null) => (opts.lang === 'en' ? {
+    competitor: `website of competitor ${d}`,
+    vendor: `a vendor’s site (${d} is itself named as a vendor in the answers)`,
+    rival_portal: 'another comparison site – a direct competitor, no realistic outreach',
+    community: 'community/forum – see the Community actions',
+    not_editorial: 'search engine, encyclopedia or authority – no editorial team to contact',
+    below_threshold: `too rare (threshold: ${minN} answers)`,
+    beyond_max: `not among the ${max} most important sources`,
+  } : {
     competitor: `Website des Wettbewerbers ${d}`,
     vendor: `Seite eines Anbieters (${d} wird in den Antworten selbst als Anbieter genannt)`,
     rival_portal: 'anderes Vergleichsportal – direkter Wettbewerber, keine realistische Ansprache',
@@ -282,17 +318,21 @@ function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number }
     const compNames = comps.slice(0, 3).map(([n]) => n);
     const sk = sourceKindOf(host);
     const pages = urls.slice(0, 3).map(([u]) => shortPath(u)).join(', ');
-    const why = `${host} ist in ${e.resps.size} von ${ix.N} Antworten Quelle, die ${compNames[0] ?? 'Wettbewerber'} nennen, ${own.name} aber nicht.`;
-    const t = outreachText(sk, host, own.name, portal, pages, compNames);
-    return make({
+    return make(ix.lang, {
       key: `outreach:${host}`,
       type: 'outreach',
-      title: t.title,
-      why,
-      steps: [
-        ...t.steps,
-        `Nach der Veröffentlichung die nächste Messung abwarten: Taucht ${own.name} in Antworten mit ${host} als Quelle auf?`,
-      ],
+      text: (l) => {
+        const t = outreachText(sk, host, own.name, portal, pages, compNames, l);
+        return l === 'en' ? {
+          title: t.title,
+          why: `${host} is a source in ${e.resps.size} of ${ix.N} answers that mention ${compNames[0] ?? 'competitors'} but not ${own.name}.`,
+          steps: [...t.steps, `After it’s published, wait for the next measurement: does ${own.name} show up in answers that use ${host} as a source?`],
+        } : {
+          title: t.title,
+          why: `${host} ist in ${e.resps.size} von ${ix.N} Antworten Quelle, die ${compNames[0] ?? 'Wettbewerber'} nennen, ${own.name} aber nicht.`,
+          steps: [...t.steps, `Nach der Veröffentlichung die nächste Messung abwarten: Taucht ${own.name} in Antworten mit ${host} als Quelle auf?`],
+        };
+      },
       // Erfolg hängt von Dritten ab → hohe Wirkung erst ab großer Reichweite
       // Medien hängen von Journalisten ab → höchstens mittel; Bewertungsportale und Listungen liegen in eigener Hand
       impact: (sk === 'media' ? Math.min(2, share >= 0.1 ? 2 : 1) : share >= 0.3 ? 3 : share >= 0.1 ? 2 : 1) as 1 | 2 | 3,
@@ -315,8 +355,9 @@ function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number }
 }
 
 /** Realistische Ansprache je Quellenart und Markentyp (Titel + Schritte ohne den Mess-Schritt). */
-function outreachText(sk: SourceKind, host: string, brand: string, portal: boolean, pages: string, comps: string[]): { title: string; steps: string[] } {
-  const cmp = comps.length ? ` (dort genannt: ${listDe(comps.slice(0, 3))})` : '';
+function outreachText(sk: SourceKind, host: string, brand: string, portal: boolean, pages: string, comps: string[], lang: Lang): { title: string; steps: string[] } {
+  if (lang === 'en') return outreachTextEn(sk, host, brand, portal, pages, comps);
+  const cmp = comps.length ? ` (dort genannt: ${listL(comps.slice(0, 3), 'de')})` : '';
   switch (sk) {
     case 'reviews':
       return {
@@ -361,6 +402,56 @@ function outreachText(sk: SourceKind, host: string, brand: string, portal: boole
             : `Dem Autor kurz und sachlich schreiben, was ${brand} bietet und für wen – mit Testzugang und belegten Fakten, ohne Werbesprache.`,
           `Falls die Seite veraltet ist: auf neue Fakten hinweisen und eine Aktualisierung anregen.`,
           `Prüfen, ob die Seite Affiliate-Links nutzt – dann gibt es oft ein Partnerprogramm, über das eine Aufnahme realistischer ist.`,
+        ],
+      };
+  }
+}
+
+function outreachTextEn(sk: SourceKind, host: string, brand: string, portal: boolean, pages: string, comps: string[]): { title: string; steps: string[] } {
+  const cmp = comps.length ? ` (including ${listL(comps.slice(0, 3), 'en')})` : '';
+  switch (sk) {
+    case 'reviews':
+      return {
+        title: `Create a profile on ${host} and collect reviews`,
+        steps: [
+          `Check whether ${brand} already has a profile on ${host}; if not, create one for free and fill it in completely (description, category, pricing, screenshots).`,
+          `Ask happy customers for an honest review – e.g. 10 emails after a successful project. Never buy or script reviews.`,
+          `Reply to reviews in a factual tone, including critical ones.`,
+          `Link the profile from your website and in your Organization schema (sameAs).`,
+        ],
+      };
+    case 'comparison':
+      return {
+        title: `Get listed as a provider on ${host}`,
+        steps: [
+          `Read these pages: ${pages} – which providers are listed${cmp}, and what criteria are they compared on?`,
+          `Find out how providers get added: a provider or partner form, an affiliate program or a paid listing (imprint, “for providers”, footer).`,
+          `Send a data sheet covering exactly these criteria (pricing, terms, target group, special features) – comparison sites need facts, not marketing copy.`,
+          `Weigh the cost of a paid listing against its reach: ${host} is a frequent source in AI answers.`,
+        ],
+      };
+    case 'media':
+      return {
+        title: portal ? `Pitch your own analysis to ${host} as a story` : `Offer ${host} data or an expert quote`,
+        steps: [
+          `Read these articles: ${pages} – what topic, which author, how recent?`,
+          portal
+            ? `Pull a newsworthy number from your comparison data (e.g. “What small shops pay for card payments in 2026”) and package it as a short analysis with methodology.`
+            : `Offer something the newsroom doesn’t have: your own numbers (e.g. anonymized customer data), a real-world example or an expert quote.`,
+          `Contact the author or desk directly (byline, LinkedIn) – briefly, referring to a specific article, without marketing speak.`,
+          `Keep expectations realistic: editors decide for themselves; better to approach 5 relevant newsrooms than one.`,
+        ],
+      };
+    default:
+      return {
+        title: portal ? `Offer ${host} your comparison data as a source` : `${host}: offer the author facts and a test account`,
+        steps: [
+          `Read these pages: ${pages} – who writes there, and which providers are named${cmp}?`,
+          portal
+            ? `Offer the author a concrete addition: an up-to-date fee or cost table from the ${brand} comparison, free to use with attribution.`
+            : `Write to the author briefly and factually about what ${brand} offers and for whom – with a test account and verifiable facts, no marketing speak.`,
+          `If the page is outdated: point out the new facts and suggest an update.`,
+          `Check whether the page uses affiliate links – then there’s often a partner program that makes being included more realistic.`,
         ],
       };
   }
@@ -411,7 +502,7 @@ export function promptStats(ix: Indexed): PromptStat[] {
 /** Titelvorschlag ohne KI: Frage als H1, ergänzt um Jahr bzw. Vergleich. */
 export function suggestTitle(promptText: string, year: number): string {
   const t = promptText.trim().replace(/\s+/g, ' ');
-  const q = t.endsWith('?') ? t : /^(welche|wie|was|wo|wann|warum|wer|lohnt|ist|sind|kann)\b/i.test(t) ? `${t}?` : t;
+  const q = t.endsWith('?') ? t : /^(welche|wie|was|wo|wann|warum|wer|lohnt|ist|sind|kann|what|which|how|where|when|why|who|is|are|can|should|does|do)\b/i.test(t) ? `${t}?` : t;
   return /\b20\d\d\b/.test(q) ? q : `${q} (${year})`;
 }
 
@@ -455,18 +546,31 @@ export function ruleContentGap(ix: Indexed, d: RecData): Candidate[] {
       const src = (ix.metricCits.get(r.id) ?? [])[0];
       return { prompt: text, engine: r.engine, snippet: m?.snippet ? quote(m.snippet) : undefined, url: src ? cleanUrl(src.url) : undefined };
     });
-    out.push(make({
+    const alts = comps.length ? comps : others;
+    out.push(make(ix.lang, {
       key: `content_gap:${st.pid}`,
       type: 'content_gap',
-      title: `Seite zu „${q(text, 44)}“ ${basePage ? 'ausbauen' : 'erstellen'}`,
-      why: `Bei dieser Frage nennen ${st.withComp} von ${st.n} Antworten ${listDe((comps.length ? comps : others).slice(0, 2))}, ${own.name} ${st.own === 1 ? 'nur einmal' : st.own ? `nur ${st.own}-mal` : 'nie'}.`,
-      steps: [
-        `${basePage ? `Bestehende Seite ${shortPath(basePage)} gezielt auf diese Frage ausrichten` : `Eine eigene Seite anlegen, die genau diese Frage beantwortet${ownPages.length ? ` (und von ${shortPath(ownPages[0])} aus verlinken)` : ''}`} – Titelvorschlag: „${title}“.`,
-        'Gleich am Anfang eine klare Antwort in zwei bis drei Sätzen geben, danach Details, eine Vergleichstabelle und häufige Fragen.',
-        `${own.name} ausdrücklich in die Antwort einbinden – mit überprüfbaren Fakten (z. B. Preise, Leistungen, Zielgruppe) und einer klaren Aussage, wann ${own.name} weiterhilft.`,
-        `Die genannten Alternativen (${listDe((comps.length ? comps : others).slice(0, 3))}) fair einbeziehen – KIs bevorzugen ausgewogene Quellen.`,
-        'Die Seite von passenden bestehenden Seiten aus verlinken.',
-      ],
+      text: (l) => l === 'en' ? {
+        title: `${basePage ? 'Expand' : 'Create'} a page on “${q(text, 44)}”`,
+        why: `For this question, ${st.withComp} of ${st.n} answers name ${listL(alts.slice(0, 2), 'en')} – ${own.name} ${st.own === 1 ? 'only once' : st.own ? `only ${st.own} times` : 'never'}.`,
+        steps: [
+          `${basePage ? `Align the existing page ${shortPath(basePage)} with this question` : `Create a dedicated page that answers exactly this question${ownPages.length ? ` (and link to it from ${shortPath(ownPages[0])})` : ''}`} – suggested title: “${title}”.`,
+          'Open with a clear answer in two or three sentences, then add details, a comparison table and FAQs.',
+          `Work ${own.name} explicitly into the answer – with verifiable facts (e.g. pricing, features, target group) and a clear statement of when ${own.name} is the right choice.`,
+          `Include the alternatives that get named (${listL(alts.slice(0, 3), 'en')}) fairly – AI prefers balanced sources.`,
+          'Link to the page from relevant existing pages.',
+        ],
+      } : {
+        title: `Seite zu „${q(text, 44)}“ ${basePage ? 'ausbauen' : 'erstellen'}`,
+        why: `Bei dieser Frage nennen ${st.withComp} von ${st.n} Antworten ${listL(alts.slice(0, 2), 'de')}, ${own.name} ${st.own === 1 ? 'nur einmal' : st.own ? `nur ${st.own}-mal` : 'nie'}.`,
+        steps: [
+          `${basePage ? `Bestehende Seite ${shortPath(basePage)} gezielt auf diese Frage ausrichten` : `Eine eigene Seite anlegen, die genau diese Frage beantwortet${ownPages.length ? ` (und von ${shortPath(ownPages[0])} aus verlinken)` : ''}`} – Titelvorschlag: „${title}“.`,
+          'Gleich am Anfang eine klare Antwort in zwei bis drei Sätzen geben, danach Details, eine Vergleichstabelle und häufige Fragen.',
+          `${own.name} ausdrücklich in die Antwort einbinden – mit überprüfbaren Fakten (z. B. Preise, Leistungen, Zielgruppe) und einer klaren Aussage, wann ${own.name} weiterhilft.`,
+          `Die genannten Alternativen (${listL(alts.slice(0, 3), 'de')}) fair einbeziehen – KIs bevorzugen ausgewogene Quellen.`,
+          'Die Seite von passenden bestehenden Seiten aus verlinken.',
+        ],
+      },
       impact: ownRate === 0 && st.withComp / st.n >= 0.6 ? 3 : 2,
       effort: basePage ? 2 : 3,
       // Reichweite: Anteil aller Antworten, die diese Lücke betrifft (ein Prompt von vielen)
@@ -546,41 +650,75 @@ export function ruleCommunity(ix: Indexed, opts: { max?: number } = {}): Candida
       signature: { n: Math.min(e.resps.size, 10), t: threads.slice(0, 2).map(([u]) => u) },
     };
     const threadList = threads.slice(0, 3).map(([u, t]) => `„${titleFromUrl(u, t.title)}“`).join(', ');
+    const threadListEn = threads.slice(0, 3)
+      .map(([u, t]) => `“${titleFromUrl(u, t.title).replace(/^YouTube-Video /, 'YouTube video ').replace(/^YouTube-Kanal /, 'YouTube channel ')}”`).join(', ');
     if (e.g.kind === 'reddit') {
-      return make({
+      return make(ix.lang, {
         ...base,
-        title: e.g.id === 'reddit' ? 'Auf Reddit hilfreich mitdiskutieren' : `In ${e.g.label} hilfreich mitdiskutieren`,
-        why: `Die KIs lesen ${e.g.label} in ${e.resps.size} von ${ix.N} Antworten mit – bei Fragen, in denen ${own.name} kaum vorkommt.`,
-        steps: [
-          `Diese Threads lesen: ${threadList}. Welche Fragen, Einwände und Empfehlungen tauchen auf?`,
-          `Mit einem persönlichen Konto sachlich antworten und offenlegen, dass du für ${own.name} arbeitest – erst helfen, nur verlinken, wenn der Link die Frage wirklich beantwortet.`,
-          `Vorher die Regeln von ${e.g.label} lesen; keine Fake-Konten, gekauften Upvotes oder Werbeposts – Astroturfing verstößt gegen die Reddit-Regeln und schadet der Marke.`,
-          'Wiederkehrende Fragen aus den Threads zusätzlich auf der eigenen Website beantworten (FAQ oder Ratgeber).',
-        ],
+        text: (l) => l === 'en' ? {
+          title: e.g.id === 'reddit' ? 'Join the conversation on Reddit – helpfully' : `Join the conversation in ${e.g.label} – helpfully`,
+          why: `AI reads ${e.g.label} in ${e.resps.size} of ${ix.N} answers – for questions where ${own.name} barely appears.`,
+          steps: [
+            `Read these threads: ${threadListEn}. Which questions, objections and recommendations come up?`,
+            `Reply factually from a personal account and disclose that you work for ${own.name} – help first, and only link when the link truly answers the question.`,
+            `Read the rules of ${e.g.label} first; no fake accounts, bought upvotes or promotional posts – astroturfing breaks Reddit’s rules and hurts the brand.`,
+            'Also answer recurring questions from the threads on your own website (FAQ or guide).',
+          ],
+        } : {
+          title: e.g.id === 'reddit' ? 'Auf Reddit hilfreich mitdiskutieren' : `In ${e.g.label} hilfreich mitdiskutieren`,
+          why: `Die KIs lesen ${e.g.label} in ${e.resps.size} von ${ix.N} Antworten mit – bei Fragen, in denen ${own.name} kaum vorkommt.`,
+          steps: [
+            `Diese Threads lesen: ${threadList}. Welche Fragen, Einwände und Empfehlungen tauchen auf?`,
+            `Mit einem persönlichen Konto sachlich antworten und offenlegen, dass du für ${own.name} arbeitest – erst helfen, nur verlinken, wenn der Link die Frage wirklich beantwortet.`,
+            `Vorher die Regeln von ${e.g.label} lesen; keine Fake-Konten, gekauften Upvotes oder Werbeposts – Astroturfing verstößt gegen die Reddit-Regeln und schadet der Marke.`,
+            'Wiederkehrende Fragen aus den Threads zusätzlich auf der eigenen Website beantworten (FAQ oder Ratgeber).',
+          ],
+        },
       });
     }
     if (e.g.kind === 'youtube') {
-      return make({
+      return make(ix.lang, {
         ...base,
-        title: 'Erklärvideos auf YouTube zu diesen Fragen veröffentlichen',
-        why: `YouTube-Videos fließen in ${e.resps.size} von ${ix.N} Antworten ein – bei Fragen, in denen ${own.name} kaum vorkommt.`,
-        steps: [
-          `Diese Videos ansehen: ${threadList} – was wird gezeigt, was fehlt?`,
-          `Ein kurzes Erklärvideo zur Frage „${prompts[0]}“ produzieren, mit klarer Antwort in den ersten 30 Sekunden.`,
-          'Titel und Beschreibung wie die Frage formulieren, Kapitelmarken setzen und ein vollständiges Transkript bzw. Untertitel hochladen – KIs werten den Text aus.',
-          'Das Video auf der passenden Seite der eigenen Website einbetten.',
-        ],
+        text: (l) => l === 'en' ? {
+          title: 'Publish YouTube explainer videos on these questions',
+          why: `YouTube videos feed into ${e.resps.size} of ${ix.N} answers – for questions where ${own.name} barely appears.`,
+          steps: [
+            `Watch these videos: ${threadListEn} – what do they show, what’s missing?`,
+            `Produce a short explainer video on the question “${prompts[0]}”, with a clear answer in the first 30 seconds.`,
+            'Phrase the title and description like the question, add chapters and upload a full transcript or subtitles – AI evaluates the text.',
+            'Embed the video on the matching page of your website.',
+          ],
+        } : {
+          title: 'Erklärvideos auf YouTube zu diesen Fragen veröffentlichen',
+          why: `YouTube-Videos fließen in ${e.resps.size} von ${ix.N} Antworten ein – bei Fragen, in denen ${own.name} kaum vorkommt.`,
+          steps: [
+            `Diese Videos ansehen: ${threadList} – was wird gezeigt, was fehlt?`,
+            `Ein kurzes Erklärvideo zur Frage „${prompts[0]}“ produzieren, mit klarer Antwort in den ersten 30 Sekunden.`,
+            'Titel und Beschreibung wie die Frage formulieren, Kapitelmarken setzen und ein vollständiges Transkript bzw. Untertitel hochladen – KIs werten den Text aus.',
+            'Das Video auf der passenden Seite der eigenen Website einbetten.',
+          ],
+        },
       });
     }
-    return make({
+    return make(ix.lang, {
       ...base,
-      title: `Im Forum ${e.g.label} Fragen beantworten`,
-      why: `Beiträge aus ${e.g.label} fließen in ${e.resps.size} von ${ix.N} Antworten ein – bei Fragen, in denen ${own.name} kaum vorkommt.`,
-      steps: [
-        `Diese Beiträge lesen: ${threadList}.`,
-        `Mit einem Konto, das ${own.name} offen als Arbeitgeber nennt, fachlich antworten – ohne Werbesprache und gemäß Forenregeln.`,
-        'Häufige Fragen aus dem Forum auf der eigenen Website ausführlich beantworten.',
-      ],
+      text: (l) => l === 'en' ? {
+        title: `Answer questions in the ${e.g.label} forum`,
+        why: `Posts from ${e.g.label} feed into ${e.resps.size} of ${ix.N} answers – for questions where ${own.name} barely appears.`,
+        steps: [
+          `Read these posts: ${threadListEn}.`,
+          `Reply with expertise from an account that openly names ${own.name} as your employer – no marketing speak, following the forum rules.`,
+          'Answer frequent questions from the forum in depth on your own website.',
+        ],
+      } : {
+        title: `Im Forum ${e.g.label} Fragen beantworten`,
+        why: `Beiträge aus ${e.g.label} fließen in ${e.resps.size} von ${ix.N} Antworten ein – bei Fragen, in denen ${own.name} kaum vorkommt.`,
+        steps: [
+          `Diese Beiträge lesen: ${threadList}.`,
+          `Mit einem Konto, das ${own.name} offen als Arbeitgeber nennt, fachlich antworten – ohne Werbesprache und gemäß Forenregeln.`,
+          'Häufige Fragen aus dem Forum auf der eigenen Website ausführlich beantworten.',
+        ],
+      },
     });
   });
 }
@@ -619,46 +757,75 @@ export function ruleTechnical(ix: Indexed, checks: SiteCheckResult[] | undefined
     const training = bots.filter((b) => TRAINING_BOTS.includes(b));
     // Domain leitet auf eine andere eigene Domain weiter, deren robots.txt die Bots erlaubt → Sperre wirkt nur auf Links zur alten Domain
     const redirectNotes: string[] = [];
+    const redirectNotesEn: string[] = [];
     let allRedirected = true;
     for (const c of blocked) {
       const target = c.home.finalUrl ? hostOf({ url: c.home.finalUrl, domain: '' }) : '';
       const tc = checks.find((x) => x !== c && target && domainMatches(target, [x.domain]));
       if (target && !domainMatches(target, [c.domain]) && tc && !tc.robots.blocked.some((b) => c.robots.blocked.includes(b))) {
         redirectNotes.push(`${c.domain} leitet auf ${target} weiter, wo diese Crawler erlaubt sind – die Sperre betrifft nur Links, die noch auf ${c.domain} zeigen.`);
+        redirectNotesEn.push(`${c.domain} redirects to ${target}, where these crawlers are allowed – the block only affects links that still point to ${c.domain}.`);
       } else allRedirected = false;
     }
     const level = answerBots.length ? 3 : gemini ? 2 : 1;
     const impact = Math.max(1, level - (allRedirected ? 1 : 0)) as 1 | 2 | 3;
     const cloudflare = blocked.some((c) => c.robots.managedBy === 'cloudflare');
-    const consequence = answerBots.length
-      ? `Damit können ${listDe(answerBots)} die Seiten nicht abrufen – sie fehlen als Quelle in den Antworten.`
-      : gemini
-        ? `Die Such-Crawler von ChatGPT, Claude und Perplexity dürfen zugreifen. Google-Extended steuert aber, ob Gemini die Inhalte für Antworten (Grounding) nutzen darf${training.length ? `; ${listDe(training)} betreffen nur das Training der Modelle` : ''}.`
-        : `Die Such-Crawler dürfen zugreifen; gesperrt sind nur Trainings-Crawler. Das beeinflusst nicht die Websuche, aber langfristig, was die Modelle ohne Suche über ${own.name} wissen.`;
-    out.push(make({
+    const consequenceOf = (l: Lang) => (l === 'en'
+      ? answerBots.length
+        ? `This means ${listL(answerBots, 'en')} can’t fetch the pages – they’re missing as a source in the answers.`
+        : gemini
+          ? `The search crawlers of ChatGPT, Claude and Perplexity are allowed. Google-Extended, however, controls whether Gemini may use the content for answers (grounding)${training.length ? `; ${listL(training, 'en')} only affect model training` : ''}.`
+          : `The search crawlers are allowed; only training crawlers are blocked. That doesn’t affect web search, but in the long run it affects what the models know about ${own.name} without searching.`
+      : answerBots.length
+        ? `Damit können ${listL(answerBots, 'de')} die Seiten nicht abrufen – sie fehlen als Quelle in den Antworten.`
+        : gemini
+          ? `Die Such-Crawler von ChatGPT, Claude und Perplexity dürfen zugreifen. Google-Extended steuert aber, ob Gemini die Inhalte für Antworten (Grounding) nutzen darf${training.length ? `; ${listL(training, 'de')} betreffen nur das Training der Modelle` : ''}.`
+          : `Die Such-Crawler dürfen zugreifen; gesperrt sind nur Trainings-Crawler. Das beeinflusst nicht die Websuche, aber langfristig, was die Modelle ohne Suche über ${own.name} wissen.`);
+    const robotsUrls = blocked.map((c) => `https://${c.domain}/robots.txt`).join(', ');
+    out.push(make(ix.lang, {
       key: 'technical:robots', type: 'technical',
-      title: answerBots.length
-        ? 'KI-Such-Crawler in der robots.txt freigeben'
-        : `robots.txt-Sperre für ${gemini ? 'Gemini und Trainings-Crawler' : 'Trainings-Crawler'} prüfen`,
-      why: answerBots.length
-        ? `Die robots.txt sperrt ${listDe(answerBots.slice(0, 2))}${answerBots.length > 2 ? ' u. a.' : ''} – deren KI-Suchen können die Seiten nicht abrufen.`
-        : `Die robots.txt sperrt ${listDe(bots.slice(0, 3))}; die Such-Crawler dürfen zugreifen.`,
-      // ausführliche Einordnung für Detailansicht und Claude-Prompt
-
-      steps: [
-        `robots.txt ansehen: ${blocked.map((c) => `https://${c.domain}/robots.txt`).join(', ')}.`,
-        cloudflare
-          ? 'Die Datei wird von Cloudflare verwaltet („Managed robots.txt“ bzw. AI Crawl Control) – die Einstellung im Cloudflare-Dashboard anpassen, nicht die Datei selbst.'
-          : `Für die gewünschten Bots die Disallow-Regel entfernen oder „Allow: /“ setzen.`,
-        answerBots.length
-          ? 'Mindestens die Such-Bots OAI-SearchBot, ChatGPT-User, Claude-SearchBot, Claude-User, PerplexityBot und Googlebot zulassen – sie entscheiden über die Sichtbarkeit in Antworten.'
-          : `Bewusst entscheiden: ${[gemini ? 'Google-Extended freigeben, wenn Gemini die Inhalte für Antworten nutzen soll' : '', training.length ? `Trainings-Crawler (${training.join(', ')}) dürfen gesperrt bleiben, wenn das gewollt ist` : ''].filter(Boolean).join('; ')}.`,
-        'Hinweis: Google AI Overviews und AI Mode richten sich nach Googlebot, nicht nach Google-Extended.',
-      ],
+      text: (l) => l === 'en' ? {
+        title: answerBots.length
+          ? 'Allow AI search crawlers in robots.txt'
+          : `Review the robots.txt block for ${gemini ? 'Gemini and training crawlers' : 'training crawlers'}`,
+        why: answerBots.length
+          ? `robots.txt blocks ${listL(answerBots.slice(0, 2), 'en')}${answerBots.length > 2 ? ' and others' : ''} – their AI search can’t fetch the pages.`
+          : `robots.txt blocks ${listL(bots.slice(0, 3), 'en')}; the search crawlers are allowed.`,
+        steps: [
+          `Look at robots.txt: ${robotsUrls}.`,
+          cloudflare
+            ? 'The file is managed by Cloudflare (“Managed robots.txt” or AI Crawl Control) – change the setting in the Cloudflare dashboard, not the file itself.'
+            : `Remove the Disallow rule for the bots you want, or set “Allow: /”.`,
+          answerBots.length
+            ? 'Allow at least the search bots OAI-SearchBot, ChatGPT-User, Claude-SearchBot, Claude-User, PerplexityBot and Googlebot – they decide visibility in answers.'
+            : `Decide deliberately: ${[gemini ? 'allow Google-Extended if Gemini should use the content for answers' : '', training.length ? `training crawlers (${training.join(', ')}) can stay blocked if that’s intended` : ''].filter(Boolean).join('; ')}.`,
+          'Note: Google AI Overviews and AI Mode follow Googlebot, not Google-Extended.',
+        ],
+      } : {
+        title: answerBots.length
+          ? 'KI-Such-Crawler in der robots.txt freigeben'
+          : `robots.txt-Sperre für ${gemini ? 'Gemini und Trainings-Crawler' : 'Trainings-Crawler'} prüfen`,
+        why: answerBots.length
+          ? `Die robots.txt sperrt ${listL(answerBots.slice(0, 2), 'de')}${answerBots.length > 2 ? ' u. a.' : ''} – deren KI-Suchen können die Seiten nicht abrufen.`
+          : `Die robots.txt sperrt ${listL(bots.slice(0, 3), 'de')}; die Such-Crawler dürfen zugreifen.`,
+        steps: [
+          `robots.txt ansehen: ${robotsUrls}.`,
+          cloudflare
+            ? 'Die Datei wird von Cloudflare verwaltet („Managed robots.txt“ bzw. AI Crawl Control) – die Einstellung im Cloudflare-Dashboard anpassen, nicht die Datei selbst.'
+            : `Für die gewünschten Bots die Disallow-Regel entfernen oder „Allow: /“ setzen.`,
+          answerBots.length
+            ? 'Mindestens die Such-Bots OAI-SearchBot, ChatGPT-User, Claude-SearchBot, Claude-User, PerplexityBot und Googlebot zulassen – sie entscheiden über die Sichtbarkeit in Antworten.'
+            : `Bewusst entscheiden: ${[gemini ? 'Google-Extended freigeben, wenn Gemini die Inhalte für Antworten nutzen soll' : '', training.length ? `Trainings-Crawler (${training.join(', ')}) dürfen gesperrt bleiben, wenn das gewollt ist` : ''].filter(Boolean).join('; ')}.`,
+          'Hinweis: Google AI Overviews und AI Mode richten sich nach Googlebot, nicht nach Google-Extended.',
+        ],
+      },
       impact, effort: 1, reach: allRedirected ? 0.1 : level === 3 ? 1 : level === 2 ? 0.4 : 0.2,
       evidence: {
         metrics: { ...metricsBase, blockedBots: bots.length, blockedAnswerBots: answerBots.length },
-        examples: [], domains: domainsOf(blocked), blockedBots: bots, answerBots, redirects: redirectNotes, managedBy: cloudflare ? 'cloudflare' : null, consequence,
+        // ausführliche Einordnung für Detailansicht und Claude-Prompt: redirects/consequence in der Workspace-Sprache, *ByLang in allen
+        examples: [], domains: domainsOf(blocked), blockedBots: bots, answerBots, managedBy: cloudflare ? 'cloudflare' : null,
+        redirects: ix.lang === 'en' ? redirectNotesEn : redirectNotes, redirectsByLang: { de: redirectNotes, en: redirectNotesEn },
+        consequence: consequenceOf(ix.lang), consequenceByLang: { de: consequenceOf('de'), en: consequenceOf('en') },
       },
       signature: { bots: [...bots].sort(), r: allRedirected },
     }));
@@ -666,15 +833,26 @@ export function ruleTechnical(ix: Indexed, checks: SiteCheckResult[] | undefined
 
   const lowText = ok.filter((c) => (c.home.textChars ?? 0) < 500);
   if (lowText.length) {
-    out.push(make({
+    const minChars = Math.min(...lowText.map((c) => c.home.textChars ?? 0));
+    out.push(make(ix.lang, {
       key: 'technical:js_text', type: 'technical',
-      title: 'Inhalte ohne JavaScript auslieferbar machen',
-      why: `Ohne JavaScript zeigt die Startseite nur ${Math.min(...lowText.map((c) => c.home.textChars ?? 0))} Zeichen Text – viele KI-Crawler sehen die Inhalte nicht.`,
-      steps: [
-        'Mit der Entwicklung klären, ob die Seiten serverseitig gerendert oder vorgerendert werden können (SSR/SSG).',
-        'Prüfen: Seite mit deaktiviertem JavaScript im Browser öffnen – Überschriften, Texte und Preise müssen sichtbar sein.',
-        'Mindestens die wichtigsten Seiten (Startseite, Produkt, Preise, Ratgeber) als HTML mit Text ausliefern.',
-      ],
+      text: (l) => l === 'en' ? {
+        title: 'Make your content available without JavaScript',
+        why: `Without JavaScript, the home page shows only ${minChars} characters of text – many AI crawlers can’t see the content.`,
+        steps: [
+          'Check with your developers whether the pages can be rendered on the server or pre-rendered (SSR/SSG).',
+          'Test it: open the page in a browser with JavaScript disabled – headings, text and prices must be visible.',
+          'Serve at least the most important pages (home, product, pricing, guides) as HTML with text.',
+        ],
+      } : {
+        title: 'Inhalte ohne JavaScript auslieferbar machen',
+        why: `Ohne JavaScript zeigt die Startseite nur ${minChars} Zeichen Text – viele KI-Crawler sehen die Inhalte nicht.`,
+        steps: [
+          'Mit der Entwicklung klären, ob die Seiten serverseitig gerendert oder vorgerendert werden können (SSR/SSG).',
+          'Prüfen: Seite mit deaktiviertem JavaScript im Browser öffnen – Überschriften, Texte und Preise müssen sichtbar sein.',
+          'Mindestens die wichtigsten Seiten (Startseite, Produkt, Preise, Ratgeber) als HTML mit Text ausliefern.',
+        ],
+      },
       impact: 3, effort: 3, reach: 1,
       evidence: { metrics: { ...metricsBase, minTextChars: Math.min(...lowText.map((c) => c.home.textChars ?? 0)) }, examples: [], domains: domainsOf(lowText) },
       signature: { d: domainsOf(lowText) },
@@ -683,16 +861,27 @@ export function ruleTechnical(ix: Indexed, checks: SiteCheckResult[] | undefined
 
   const noSchema = ok.filter((c) => !c.home.jsonLd.some(isEntitySchema));
   if (noSchema.length) {
-    out.push(make({
+    out.push(make(ix.lang, {
       key: 'technical:structured_data', type: 'technical',
-      title: 'Unternehmensdaten als Organization-Schema hinterlegen',
-      why: 'Der Startseite fehlt ein Organization-Schema – kein direkter Hebel für Zitate, hilft KIs aber, die Marke eindeutig zuzuordnen.',
-      steps: [
-        `Organization-Schema (JSON-LD) auf der Startseite: Name „${own.name}“, Logo, URL, Kontakt, sameAs (LinkedIn, Bewertungsprofile, Wikidata falls vorhanden).`,
-        'Die Beschreibung im Schema gleichlautend zur Über-uns-Seite und zu den Profilen halten.',
-        'Mit validator.schema.org prüfen.',
-        'Erwartung realistisch halten: Tests zeigen keinen messbaren Zitations-Effekt durch nachträgliches Schema – das ist Grundpflege, kein Hebel.',
-      ],
+      text: (l) => l === 'en' ? {
+        title: 'Add your company details as Organization schema',
+        why: 'The home page has no Organization schema – not a direct lever for citations, but it helps AI identify the brand unambiguously.',
+        steps: [
+          `Organization schema (JSON-LD) on the home page: name “${own.name}”, logo, URL, contact, sameAs (LinkedIn, review profiles, Wikidata if available).`,
+          'Keep the description in the schema identical to your About page and profiles.',
+          'Validate it with validator.schema.org.',
+          'Keep expectations realistic: tests show no measurable citation effect from adding schema later – it’s basic hygiene, not a lever.',
+        ],
+      } : {
+        title: 'Unternehmensdaten als Organization-Schema hinterlegen',
+        why: 'Der Startseite fehlt ein Organization-Schema – kein direkter Hebel für Zitate, hilft KIs aber, die Marke eindeutig zuzuordnen.',
+        steps: [
+          `Organization-Schema (JSON-LD) auf der Startseite: Name „${own.name}“, Logo, URL, Kontakt, sameAs (LinkedIn, Bewertungsprofile, Wikidata falls vorhanden).`,
+          'Die Beschreibung im Schema gleichlautend zur Über-uns-Seite und zu den Profilen halten.',
+          'Mit validator.schema.org prüfen.',
+          'Erwartung realistisch halten: Tests zeigen keinen messbaren Zitations-Effekt durch nachträgliches Schema – das ist Grundpflege, kein Hebel.',
+        ],
+      },
       impact: 1, effort: 1, reach: 0.2,
       evidence: { metrics: metricsBase, examples: [], domains: domainsOf(noSchema), jsonLdFound: uniq(noSchema.flatMap((c) => c.home.jsonLd)) },
       signature: { d: domainsOf(noSchema) },
@@ -703,14 +892,24 @@ export function ruleTechnical(ix: Indexed, checks: SiteCheckResult[] | undefined
 
   const blockedHome = checks.filter((c) => c.home.status !== null && [401, 403, 429, 503].includes(c.home.status));
   if (blockedHome.length) {
-    out.push(make({
+    const statuses = blockedHome.map((c) => c.home.status).join('/');
+    out.push(make(ix.lang, {
       key: 'technical:bot_protection', type: 'technical',
-      title: 'Bot-Schutz auf Sperren für KI-Crawler prüfen',
-      why: `Die Startseite weist automatische Abrufe ab (HTTP ${blockedHome.map((c) => c.home.status).join('/')}) – womöglich auch KI-Crawler.`,
-      steps: [
-        'In Firewall/CDN (z. B. Cloudflare „AI Scrapers and Crawlers“) prüfen, ob KI-Bots blockiert werden.',
-        'Die Such-Bots OAI-SearchBot, ChatGPT-User, Claude-SearchBot, Claude-User und PerplexityBot gezielt zulassen.',
-      ],
+      text: (l) => l === 'en' ? {
+        title: 'Check your bot protection for blocks on AI crawlers',
+        why: `The home page rejects automated requests (HTTP ${statuses}) – possibly AI crawlers too.`,
+        steps: [
+          'Check your firewall/CDN (e.g. Cloudflare “AI Scrapers and Crawlers”) for rules that block AI bots.',
+          'Explicitly allow the search bots OAI-SearchBot, ChatGPT-User, Claude-SearchBot, Claude-User and PerplexityBot.',
+        ],
+      } : {
+        title: 'Bot-Schutz auf Sperren für KI-Crawler prüfen',
+        why: `Die Startseite weist automatische Abrufe ab (HTTP ${statuses}) – womöglich auch KI-Crawler.`,
+        steps: [
+          'In Firewall/CDN (z. B. Cloudflare „AI Scrapers and Crawlers“) prüfen, ob KI-Bots blockiert werden.',
+          'Die Such-Bots OAI-SearchBot, ChatGPT-User, Claude-SearchBot, Claude-User und PerplexityBot gezielt zulassen.',
+        ],
+      },
       impact: 2, effort: 1, reach: 0.5,
       evidence: { metrics: metricsBase, examples: [], domains: domainsOf(blockedHome), statuses: blockedHome.map((c) => c.home.status) },
       signature: { d: domainsOf(blockedHome) },
@@ -770,17 +969,28 @@ export function rulePositioning(ix: Indexed, opts: { minResponses?: number } = {
     return { prompt: ix.promptText(r.promptId), engine: r.engine, snippet: quote(m.snippet!, 200) };
   });
   const promptIds = uniq([...s.ahead].map((rid) => ix.respById.get(rid)!.promptId));
-  return [make({
+  return [make(ix.lang, {
     key: `positioning:${normName(comp.name)}`,
     type: 'positioning',
-    title: `${own.name} klar gegen ${comp.name} positionieren`,
-    why: `${comp.name} steht in ${s.ahead.size} von ${s.both} gemeinsamen Antworten vor ${own.name}${s.recAhead.size ? ` und wird ${s.recAhead.size === 1 ? 'einmal' : `${s.recAhead.size}-mal`} empfohlen` : ''}.`,
-    steps: [
-      `Die Gründe sammeln, die die KIs für ${comp.name} nennen (siehe Belege), und ehrlich prüfen, wo ${own.name} gleichwertig oder besser ist.`,
-      `Eine faire Vergleichsseite „${own.name} vs. ${comp.name}“ veröffentlichen: Tabelle mit Preisen, Funktionen und Zielgruppe, klare Aussage, für wen ${own.name} die bessere Wahl ist.`,
-      `Die eigenen Stärken als kurze, zitierfähige Sätze formulieren und auf Startseite, Preisseite und FAQ einheitlich verwenden.`,
-      `Kundenstimmen und Bewertungen auf den Portalen sammeln, auf denen ${comp.name} gelobt wird.`,
-    ],
+    text: (l) => l === 'en' ? {
+      title: `Position ${own.name} clearly against ${comp.name}`,
+      why: `${comp.name} comes before ${own.name} in ${s.ahead.size} of ${s.both} shared answers${s.recAhead.size ? ` and is recommended ${s.recAhead.size === 1 ? 'once' : `${s.recAhead.size} times`}` : ''}.`,
+      steps: [
+        `Collect the reasons AI gives for ${comp.name} (see evidence) and honestly check where ${own.name} is as good or better.`,
+        `Publish a fair comparison page “${own.name} vs. ${comp.name}”: a table with pricing, features and target group, and a clear statement of who ${own.name} is the better choice for.`,
+        `Phrase your strengths as short, quotable sentences and use them consistently on your home page, pricing page and FAQ.`,
+        `Collect testimonials and reviews on the sites where ${comp.name} gets praised.`,
+      ],
+    } : {
+      title: `${own.name} klar gegen ${comp.name} positionieren`,
+      why: `${comp.name} steht in ${s.ahead.size} von ${s.both} gemeinsamen Antworten vor ${own.name}${s.recAhead.size ? ` und wird ${s.recAhead.size === 1 ? 'einmal' : `${s.recAhead.size}-mal`} empfohlen` : ''}.`,
+      steps: [
+        `Die Gründe sammeln, die die KIs für ${comp.name} nennen (siehe Belege), und ehrlich prüfen, wo ${own.name} gleichwertig oder besser ist.`,
+        `Eine faire Vergleichsseite „${own.name} vs. ${comp.name}“ veröffentlichen: Tabelle mit Preisen, Funktionen und Zielgruppe, klare Aussage, für wen ${own.name} die bessere Wahl ist.`,
+        `Die eigenen Stärken als kurze, zitierfähige Sätze formulieren und auf Startseite, Preisseite und FAQ einheitlich verwenden.`,
+        `Kundenstimmen und Bewertungen auf den Portalen sammeln, auf denen ${comp.name} gelobt wird.`,
+      ],
+    },
     impact: 2,
     effort: 2,
     reach: share,
@@ -814,17 +1024,29 @@ export function ruleSentiment(ix: Indexed): Candidate[] {
   const sources = groupBy(neg.flatMap((m) => (ix.metricCits.get(m.responseId) ?? []).map((c) => hostOf(c))), (h) => h);
   const topSources = [...sources.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 5).map(([h, xs]) => ({ domain: h, count: xs.length }));
   const share = neg.length / Math.max(1, ownMs.length);
-  return [make({
+  const srcList = topSources.slice(0, 3).map((s) => s.domain).join(', ');
+  return [make(ix.lang, {
     key: 'sentiment:negative',
     type: 'sentiment',
-    title: `Negative Aussagen über ${own.name} prüfen und richtigstellen`,
-    why: `${neg.length} von ${ownMs.length} Nennungen von ${own.name} ${neg.length === 1 ? 'ist' : 'sind'} negativ.`,
-    steps: [
-      'Jede negative Aussage prüfen: Stimmt sie (noch)? Woher stammt sie (siehe Quellen)?',
-      `Veraltete oder falsche Angaben auf der eigenen Website klar und aktuell richtigstellen (z. B. FAQ „Stimmt es, dass …?“).${topSources.length ? ` Häufigste Quellen: ${topSources.slice(0, 3).map((s) => s.domain).join(', ')}.` : ''}`,
-      'Bei Drittseiten die Redaktion mit Belegen um Korrektur bitten; auf Bewertungsportalen sachlich antworten.',
-      'Berechtigte Kritik intern weitergeben – und kommunizieren, wenn sie behoben ist.',
-    ],
+    text: (l) => l === 'en' ? {
+      title: `Review and correct negative statements about ${own.name}`,
+      why: `${neg.length} of ${ownMs.length} mentions of ${own.name} ${neg.length === 1 ? 'is' : 'are'} negative.`,
+      steps: [
+        'Check every negative statement: is it (still) true? Where does it come from (see sources)?',
+        `Correct outdated or wrong information on your own website, clearly and up to date (e.g. an FAQ “Is it true that …?”).${topSources.length ? ` Most frequent sources: ${srcList}.` : ''}`,
+        'For third-party sites, ask the editors for a correction with evidence; reply factually on review sites.',
+        'Pass legitimate criticism on internally – and communicate once it’s fixed.',
+      ],
+    } : {
+      title: `Negative Aussagen über ${own.name} prüfen und richtigstellen`,
+      why: `${neg.length} von ${ownMs.length} Nennungen von ${own.name} ${neg.length === 1 ? 'ist' : 'sind'} negativ.`,
+      steps: [
+        'Jede negative Aussage prüfen: Stimmt sie (noch)? Woher stammt sie (siehe Quellen)?',
+        `Veraltete oder falsche Angaben auf der eigenen Website klar und aktuell richtigstellen (z. B. FAQ „Stimmt es, dass …?“).${topSources.length ? ` Häufigste Quellen: ${srcList}.` : ''}`,
+        'Bei Drittseiten die Redaktion mit Belegen um Korrektur bitten; auf Bewertungsportalen sachlich antworten.',
+        'Berechtigte Kritik intern weitergeben – und kommunizieren, wenn sie behoben ist.',
+      ],
+    },
     impact: neg.length >= 3 ? 3 : 2,
     effort: 2,
     reach: Math.min(1, neg.length / Math.max(1, ix.N) * 3),

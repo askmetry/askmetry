@@ -39,6 +39,13 @@ describe('linkify', () => {
   it('fremde Hosts nur mit exakter Beleg-URL, keine Subdomains', () => {
     expect(links('reddit.com/user/spam und https://www.reddit.com/r/scam/wiki und news.handelsblatt.com')).toEqual([]);
   });
+  it('verlinkt zitierte Titel auch mit englischen Anführungszeichen', () => {
+    const tt = linkTargets([{ url: 'https://www.reddit.com/r/Kartenzahlung/comments/1/a/', title: 'Eure meinung' }], []);
+    const s = 'Read these threads: “Eure meinung”, “Made up”.';
+    const parts = linkify(s, tt);
+    expect(parts.filter((p) => typeof p !== 'string')).toEqual([{ href: 'https://www.reddit.com/r/Kartenzahlung/comments/1/a/', label: 'Eure meinung' }]);
+    expect(parts.map((p) => (typeof p === 'string' ? p : p.label)).join('')).toBe(s);
+  });
   it('Text bleibt vollständig erhalten', () => {
     const s = 'Lies paylindo.de/ratgeber/kosten und r/Kartenzahlung, dann handelsblatt.com.';
     expect(linkify(s, t).map((p) => (typeof p === 'string' ? p : p.label)).join('')).toBe(s);

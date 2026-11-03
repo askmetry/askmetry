@@ -1,5 +1,8 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { getI18n } from '@/lib/i18n/server';
+
+// Server-Komponenten (Texte über getI18n). Nicht aus Client-Komponenten importieren.
 
 export function Card({ title, subtitle, actions, children, className = '', pad = true }: {
   title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; pad?: boolean;
@@ -32,13 +35,15 @@ export function PageHeader({ title, description, children }: { title: string; de
   );
 }
 
-export function Delta({ value, unit = 'pp', invert = false, digits = 0 }: { value: number | null; unit?: string; invert?: boolean; digits?: number }) {
+export async function Delta({ value, unit, invert = false, digits = 0 }: { value: number | null; unit?: string; invert?: boolean; digits?: number }) {
   if (value === null || Number.isNaN(value)) return null;
+  const { t, f } = await getI18n();
+  unit ??= t.overview.ui.pp;
   const rounded = Number(value.toFixed(digits));
   if (rounded === 0) return <span className="text-xs text-muted">± 0</span>;
   const good = invert ? rounded < 0 : rounded > 0;
-  const txt = `${rounded > 0 ? '+' : '−'}${new Intl.NumberFormat('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Math.abs(rounded))}${unit ? ' ' + unit : ''}`;
-  return <span className={`text-xs font-medium ${good ? 'text-good' : 'text-bad'}`} title="Veränderung zur vorherigen Messung">{rounded > 0 ? '▲' : '▼'} {txt}</span>;
+  const txt = `${rounded > 0 ? '+' : '−'}${f.num(Math.abs(rounded), digits)}${unit ? ' ' + unit : ''}`;
+  return <span className={`text-xs font-medium ${good ? 'text-good' : 'text-bad'}`} title={t.overview.ui.deltaTitle}>{rounded > 0 ? '▲' : '▼'} {txt}</span>;
 }
 
 export function EmptyState({ title, children, action }: { title: string; children?: ReactNode; action?: { href: string; label: string } }) {
@@ -74,7 +79,8 @@ export function Bar({ value, tone = 'accent' }: { value: number | null; tone?: '
 }
 
 /** Fachbegriff mit Ein-Satz-Erklärung („?“-Tooltip, per Hover und Tastatur). */
-export function Hint({ children, label = 'Erklärung' }: { children: ReactNode; label?: string }) {
+export async function Hint({ children, label }: { children: ReactNode; label?: string }) {
+  label ??= (await getI18n()).t.overview.ui.hint;
   return (
     <span className="tip align-middle">
       <span tabIndex={0} role="button" aria-label={label}
@@ -90,7 +96,8 @@ export function Back({ href, label }: { href: string; label: string }) {
 }
 
 /** Zeilenmenü „⋯“ (z. B. für Löschen) – native <details>, ohne JS. */
-export function RowMenu({ label = 'Weitere Aktionen', children }: { label?: string; children: ReactNode }) {
+export async function RowMenu({ label, children }: { label?: string; children: ReactNode }) {
+  label ??= (await getI18n()).t.overview.ui.moreActions;
   return (
     <details className="relative" data-row-menu>
       <summary aria-label={label} title={label}

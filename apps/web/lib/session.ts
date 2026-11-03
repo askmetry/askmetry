@@ -8,6 +8,14 @@ import { auth } from './auth';
 
 export type Role = 'owner' | 'admin' | 'viewer';
 
+/** Viewer versucht etwas zu ändern. Die Meldung bleibt (für Logs) deutsch; die UI zeigt `t.common.noPermission`. */
+export class NoPermissionError extends Error {
+  readonly code = 'NO_PERMISSION';
+  constructor() { super('Keine Berechtigung: Leserechte erlauben keine Änderungen.'); this.name = 'NoPermissionError'; }
+}
+export const isNoPermission = (e: unknown): e is NoPermissionError =>
+  e instanceof NoPermissionError || (e instanceof Error && (e as { code?: string }).code === 'NO_PERMISSION');
+
 export const getSession = cache(async () => {
   return auth.api.getSession({ headers: await headers() });
 });
@@ -39,6 +47,6 @@ export const requireWorkspace = cache(async (slug: string) => {
 /** Für Server Actions, die etwas ändern: Viewer dürfen nichts ändern. */
 export async function requireEditor(slug: string) {
   const ctx = await requireWorkspace(slug);
-  if (!ctx.canEdit) throw new Error('Keine Berechtigung: Leserechte erlauben keine Änderungen.');
+  if (!ctx.canEdit) throw new NoPermissionError();
   return ctx;
 }

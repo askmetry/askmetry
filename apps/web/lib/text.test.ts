@@ -26,3 +26,13 @@ describe('plainTerms', () => {
     expect(plainTerms('Prompt für deine KI')).toBe('Prompt für deine KI');
   });
 });
+
+describe('plainTerms (en)', () => {
+  it('replaces prompt(s) with question(s), except for AI prompts', () => {
+    expect(plainTerms('Visibility for the affected prompts', 'en')).toBe('Visibility for the affected questions');
+    expect(plainTerms('Prompts about payments', 'en')).toBe('Questions about payments');
+    expect(plainTerms('Copy prompt', 'en')).toBe('Copy prompt');
+    expect(plainTerms('the prompt for your AI', 'en')).toBe('the prompt for your AI');
+    expect(plainTerms('Claude-prompts stay', 'en')).toBe('Claude-prompts stay');
+  });
+});
