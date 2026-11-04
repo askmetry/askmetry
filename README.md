@@ -26,7 +26,7 @@ Self-hosted, multi-tenant, AGPL-3.0. You bring your own API keys and pay the pro
 Requirements: Docker with Compose v2.
 
 ```bash
-git clone https://github.com/mafauth2/askmetry.git askmetry && cd askmetry
+git clone https://github.com/askmetry/askmetry.git askmetry && cd askmetry
 cp .env.example .env
 # Edit .env – at least:
 #   POSTGRES_PASSWORD   e.g. openssl rand -hex 24
