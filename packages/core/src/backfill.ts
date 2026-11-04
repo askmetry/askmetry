@@ -1,5 +1,5 @@
 // Nachträge für bestehende Daten (ohne API-Aufrufe)
-import { citation, db, response, run } from '@opengeo/db';
+import { citation, db, response, run } from '@askmetry/db';
 import { and, asc, eq, gt, inArray } from 'drizzle-orm';
 import { normalizeDomain, safeHttpUrl } from './domains.ts';
 import { claudeSearchedSources, openAiSearchedSources, urlKey } from './util.ts';

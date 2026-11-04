@@ -1,4 +1,4 @@
-import { brand, citation, closeDb, collection, db, mention, prompt, response, run, topic, workspace } from '@opengeo/db';
+import { brand, citation, closeDb, collection, db, mention, prompt, response, run, topic, workspace } from '@askmetry/db';
 import { and, eq, inArray, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { analyzeLocally } from '../../src/analyze.ts';
@@ -49,7 +49,7 @@ afterAll(async () => { await cleanup(); await closeDb(); });
 
 describe('Collection-Runner (Mock-Engines)', () => {
   it('legt Runs an, verarbeitet sie und speichert Antworten, Nennungen, Quellen', async () => {
-    expect(process.env.DATABASE_URL).toMatch(/opengeo_test$/);
+    expect(process.env.DATABASE_URL).toMatch(/askmetry_test$/);
     const ws = await seedWorkspace(`${PREFIX}main`);
     const c = await createCollection(ws.id, 'manual');
     const runs = await db.select().from(run).where(eq(run.collectionId, c.id));
@@ -117,8 +117,8 @@ describe('Collection-Runner (Mock-Engines)', () => {
     const ws = await seedWorkspace(`${PREFIX}budget`, { budget: '1.00', engines: ['chatgpt', 'claude'], repetitions: 2 });
     const c = await createCollection(ws.id, 'manual');
     // Schätzung 0,30 $ je Run, tatsächliche Kosten 0,25 $ je Run → nach 3 Runs (0,75 $) passt kein weiterer (0,75 + 0,30 > 1)
-    const prevCost = process.env.OPENGEO_MOCK_COST_USD;
-    process.env.OPENGEO_MOCK_COST_USD = '0.25';
+    const prevCost = process.env.ASKMETRY_MOCK_COST_USD;
+    process.env.ASKMETRY_MOCK_COST_USD = '0.25';
     try {
       const s = await processCollection(c.id, { estimates: { mock: 0.3 }, concurrency: 1, retryDelayMs: 1 });
       expect(s.status).toBe('budget_exceeded');
@@ -126,7 +126,7 @@ describe('Collection-Runner (Mock-Engines)', () => {
       expect(s.skipped).toBe(12 - 3);
       expect(s.costUsd).toBeCloseTo(0.75, 4);
     } finally {
-      if (prevCost === undefined) delete process.env.OPENGEO_MOCK_COST_USD; else process.env.OPENGEO_MOCK_COST_USD = prevCost;
+      if (prevCost === undefined) delete process.env.ASKMETRY_MOCK_COST_USD; else process.env.ASKMETRY_MOCK_COST_USD = prevCost;
     }
     const runs = await db.select().from(run).where(eq(run.collectionId, c.id));
     expect(runs.filter((r) => r.status === 'skipped').every((r) => r.error === 'Monatsbudget erreicht')).toBe(true);
@@ -290,14 +290,14 @@ describe('Fehlerbehandlung, Kosten und Auswertung (injizierte Engines)', () => {
     let calls = 0;
     const engine = testEngine(async () => { calls++; return answer(0.1); });
     const c = await createCollection(ws.id);
-    const prev = process.env.OPENGEO_MOCK_ENGINES;
-    process.env.OPENGEO_MOCK_ENGINES = '0';
+    const prev = process.env.ASKMETRY_MOCK_ENGINES;
+    process.env.ASKMETRY_MOCK_ENGINES = '0';
     try {
       expect(process.env.ANTHROPIC_API_KEY ?? '').toBe('');
       const s = await processCollection(c.id, { ...fast, engineFor: () => engine });
       expect(s.status).toBe('failed');
     } finally {
-      process.env.OPENGEO_MOCK_ENGINES = prev;
+      process.env.ASKMETRY_MOCK_ENGINES = prev;
     }
     expect(calls).toBe(0);
     const [col] = await db.select().from(collection).where(eq(collection.id, c.id));

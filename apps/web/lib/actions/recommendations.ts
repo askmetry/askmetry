@@ -2,7 +2,7 @@
 // Statuswechsel einer Maßnahme. Nur Editoren; Update strikt auf workspace_id des geprüften Workspaces eingeschränkt.
 import { and, eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
-import { db, recommendation } from '@opengeo/db';
+import { db, recommendation } from '@askmetry/db';
 import { isRecStatus, isUuid, nextBaseline, statusLabel } from '@/lib/recommendations';
 import { getI18n } from '@/lib/i18n/server';
 import { isNoPermission, requireEditor } from '@/lib/session';

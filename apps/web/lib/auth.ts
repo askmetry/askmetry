@@ -2,7 +2,7 @@ import 'server-only';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { nextCookies } from 'better-auth/next-js';
-import { account, db, session, user, verification } from '@opengeo/db';
+import { account, db, session, user, verification } from '@askmetry/db';
 import { signupAllowed } from './limits';
 
 export const auth = betterAuth({
@@ -12,7 +12,7 @@ export const auth = betterAuth({
     provider: 'pg',
     schema: { user, session, account, verification },
   }),
-  // OPENGEO_ALLOW_SIGNUP=false: keine Selbstregistrierung (auch nicht direkt über die API)
+  // ASKMETRY_ALLOW_SIGNUP=false: keine Selbstregistrierung (auch nicht direkt über die API)
   emailAndPassword: { enabled: true, minPasswordLength: 8, autoSignIn: true, disableSignUp: !signupAllowed() },
   session: { expiresIn: 60 * 60 * 24 * 30 },
   telemetry: { enabled: false },

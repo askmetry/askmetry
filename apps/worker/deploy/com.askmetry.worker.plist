@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- OpenGEO-Worker: Scheduler-Schleife (fällige Messungen anlegen, Warteschlange abarbeiten) -->
+<!-- Askmetry-Worker: Scheduler-Schleife (fällige Messungen anlegen, Warteschlange abarbeiten) -->
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.opengeo.worker</string>
-  <key>WorkingDirectory</key><string>__OPENGEO_DIR__/apps/worker</string>
+  <key>Label</key><string>com.askmetry.worker</string>
+  <key>WorkingDirectory</key><string>__ASKMETRY_DIR__/apps/worker</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__OPENGEO_DIR__/apps/worker/node_modules/.bin/tsx</string>
+    <string>__ASKMETRY_DIR__/apps/worker/node_modules/.bin/tsx</string>
     <string>src/cli.ts</string>
     <string>start</string>
   </array>
@@ -21,7 +21,7 @@
   <key>ThrottleInterval</key><integer>30</integer>
   <!-- SIGTERM: laufende Abfragen werden beendet, offene Runs beim nächsten Start fortgesetzt -->
   <key>ExitTimeOut</key><integer>300</integer>
-  <key>StandardOutPath</key><string>__HOME__/Library/Logs/opengeo-worker.log</string>
-  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/opengeo-worker.log</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/askmetry-worker.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/askmetry-worker.log</string>
 </dict>
 </plist>

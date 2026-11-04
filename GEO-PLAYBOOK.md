@@ -5,7 +5,7 @@ Stand: November 2026. Recherche-Grundlage: Studien von Ahrefs, Semrush, Peec AI,
 **Vorbehalte:**
 - Fast alle Zahlen stammen von Tool-Anbietern, betreffen englischsprachige Fragen und zeigen Zusammenhänge, keine bewiesenen Ursachen.
 - Für deutschsprachige Fragen gibt es keine unabhängige Studie.
-- OpenGEO misst deshalb selbst und leitet Maßnahmen nur aus den eigenen Daten ab.
+- Askmetry misst deshalb selbst und leitet Maßnahmen nur aus den eigenen Daten ab.
 
 **Bewertung:** Wirkung ●●● hoch · ●● mittel · ● gering. Realismus für ein kleines Team: ✅ realistisch · ⚠️ bedingt · ❌ unrealistisch.
 
@@ -52,10 +52,10 @@ Beleg für den ganzen Bereich: Ahrefs 2025 (75.000 Marken). Erwähnungen auf fre
 | ✓ | Maßnahme | Wirkung | Realismus | Hinweis |
 |---|---|---|---|---|
 | ☐ | **LinkedIn:** Gründer und Experten posten fachlich | ●● | ✅ | Semrush 2026: rund 13 % der Zitate in ChatGPT und Google AI Mode |
-| ☐ | **Reddit / Fachforen:** offen als Anbieter antworten, wo die KIs nachweislich mitlesen | ●● | ⚠️ | Nur dort, wo OpenGEO die Threads als Quelle misst. Im DACH-Nischen-B2B ist auf Reddit oft wenig los |
+| ☐ | **Reddit / Fachforen:** offen als Anbieter antworten, wo die KIs nachweislich mitlesen | ●● | ⚠️ | Nur dort, wo Askmetry die Threads als Quelle misst. Im DACH-Nischen-B2B ist auf Reddit oft wenig los |
 | ☐ | YouTube: Demos, Unboxings, Erklärvideos | ●● | ⚠️ | Google AIO und AI Mode zitieren YouTube häufig |
 
-## 4. Mythen und unrealistische Maßnahmen (macht OpenGEO bewusst nicht)
+## 4. Mythen und unrealistische Maßnahmen (macht Askmetry bewusst nicht)
 
 | Maßnahme | Warum nicht |
 |---|---|
@@ -67,7 +67,7 @@ Beleg für den ganzen Bereich: Ahrefs 2025 (75.000 Marken). Erwähnungen auf fre
 | ❌ **„Google-Top-10 reicht“** | Der Anteil der AIO-Zitate aus den Top 10 fiel laut Ahrefs von ca. 76 % auf ca. 38 % |
 | ❌ **Gekaufte Reddit-Posts, Zweitkonten** | Werden gelöscht und schaden der Marke |
 
-## 5. Wie OpenGEO priorisiert
+## 5. Wie Askmetry priorisiert
 
 1. **Voraussetzungen** (Abschnitt 0) prüft der Website-Check automatisch.
 2. **Eigene Inhalte** für die Fragen, bei denen Wettbewerber genannt werden, du aber nicht.

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
-import { db, prompt } from '@opengeo/db';
-import { claudeBatchWaiting, nextMeasurementText } from '@opengeo/core';
+import { db, prompt } from '@askmetry/db';
+import { claudeBatchWaiting, nextMeasurementText } from '@askmetry/core';
 import { ActionForm } from '@/components/action-form';
 import { AutoRefresh } from '@/components/auto-refresh';
 import { SchedulePicker } from '@/components/schedule-picker';
@@ -9,7 +9,7 @@ import { Badge, Bar, Hint } from '@/components/ui';
 import { saveWorkspaceSettings, startCollection } from '@/lib/actions/settings';
 import { workspaceContext } from '@/lib/context';
 import { SELECTABLE_ENGINES } from '@/lib/metrics';
-import { engineName } from '@opengeo/core/present';
+import { engineName } from '@askmetry/core/present';
 import { getI18n, getT } from '@/lib/i18n/server';
 import { scheduleText } from '@/lib/schedule';
 import { loadCosts, runStatsByCollection } from '@/lib/settings-data';

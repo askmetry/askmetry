@@ -1,4 +1,4 @@
-// OpenGEO – Datenbankschema (Domänen-Tabellen).
+// Askmetry – Datenbankschema (Domänen-Tabellen).
 // Auth-Tabellen (better-auth) liegen in ./auth-schema.ts und werden hier re-exportiert.
 import { sql } from 'drizzle-orm';
 import {

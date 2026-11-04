@@ -1,5 +1,5 @@
 {
-  "name": "@opengeo/web",
+  "name": "@askmetry/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
     "fixture": "tsx scripts/dev-fixture.ts"
   },
   "dependencies": {
-    "@opengeo/core": "workspace:*",
-    "@opengeo/db": "workspace:*",
+    "@askmetry/core": "workspace:*",
+    "@askmetry/db": "workspace:*",
     "better-auth": "1.7.14",
     "dotenv": "^18.0.9",
     "drizzle-orm": "^0.45.4",

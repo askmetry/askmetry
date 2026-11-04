@@ -1,4 +1,4 @@
-# @opengeo/worker
+# @askmetry/worker
 
 Scheduler-Schleife und CLI für die Messläufe. Liest die Root-`.env` (`DATABASE_URL`, API-Schlüssel).
 
@@ -14,7 +14,7 @@ pnpm recommend --workspace paylindo [--no-llm]  # Maßnahmen neu berechnen (KI-F
 pnpm backfill-searched [--workspace paylindo]   # gelesene Quellen (searched) aus gespeicherten ChatGPT-/Claude-Rohdaten nachtragen (kostenlos, idempotent)
 ```
 
-`OPENGEO_MOCK_ENGINES=1` (oder `--mock`) ersetzt alle Engines und die Auswertung durch lokale Mocks – keine API-Aufrufe.
+`ASKMETRY_MOCK_ENGINES=1` (oder `--mock`) ersetzt alle Engines und die Auswertung durch lokale Mocks – keine API-Aufrufe.
 
 Geplante Messungen: Cron `workspace.schedule_cron` in Europe/Berlin. Fällig, wenn der letzte Cron-Zeitpunkt nach der letzten geplanten Messung liegt (ohne bisherige geplante Messung: nach dem Anlegen des Workspace – ein neuer Workspace misst also erst beim nächsten Termin).
 
@@ -23,14 +23,14 @@ Geplante Messungen: Cron `workspace.schedule_cron` in Europe/Berlin. Fällig, we
 Vorlagen in `deploy/`. Installation (einmalig, von Hand):
 
 ```bash
-cd /pfad/zu/opengeo
-pnpm --filter @opengeo/web build                     # Web-App bauen (vor dem ersten Start und nach Updates)
-for f in worker web; do sed -e "s#__OPENGEO_DIR__#$PWD#g" -e "s#__HOME__#$HOME#g" apps/worker/deploy/com.opengeo.$f.plist > ~/Library/LaunchAgents/com.opengeo.$f.plist; done   # Platzhalter ersetzen
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.opengeo.worker.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.opengeo.web.plist
+cd /pfad/zu/askmetry
+pnpm --filter @askmetry/web build                     # Web-App bauen (vor dem ersten Start und nach Updates)
+for f in worker web; do sed -e "s#__ASKMETRY_DIR__#$PWD#g" -e "s#__HOME__#$HOME#g" apps/worker/deploy/com.askmetry.$f.plist > ~/Library/LaunchAgents/com.askmetry.$f.plist; done   # Platzhalter ersetzen
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.askmetry.worker.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.askmetry.web.plist
 ```
 
-- Status: `launchctl print gui/$(id -u)/com.opengeo.worker` · Logs: `~/Library/Logs/opengeo-worker.log`, `~/Library/Logs/opengeo-web.log`
-- Neustart nach Code-Änderung: `launchctl kickstart -k gui/$(id -u)/com.opengeo.worker`
-- Entfernen: `launchctl bootout gui/$(id -u)/com.opengeo.worker` (bzw. `com.opengeo.web`)
+- Status: `launchctl print gui/$(id -u)/com.askmetry.worker` · Logs: `~/Library/Logs/askmetry-worker.log`, `~/Library/Logs/askmetry-web.log`
+- Neustart nach Code-Änderung: `launchctl kickstart -k gui/$(id -u)/com.askmetry.worker`
+- Entfernen: `launchctl bootout gui/$(id -u)/com.askmetry.worker` (bzw. `com.askmetry.web`)
 - Voraussetzung: Postgres läuft (`pnpm db:up`, colima gestartet). Alternativ ohne launchd: `docker compose up -d` im Repo-Wurzelverzeichnis (siehe README.md).

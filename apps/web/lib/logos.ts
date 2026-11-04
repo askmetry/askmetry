@@ -1,5 +1,5 @@
 import 'server-only';
-import { domainsWithLogo } from '@opengeo/core';
+import { domainsWithLogo } from '@askmetry/core';
 
 type B = { id?: string; name: string; domains: string[]; logoType?: string | null; logoUpdatedAt?: Date | null };
 

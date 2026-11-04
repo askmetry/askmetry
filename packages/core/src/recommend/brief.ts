@@ -1,5 +1,5 @@
 // Lagebericht (Markdown) und wichtigste Erkenntnis für die Übersicht. Liest aus der DB.
-import { db, recommendation, workspace } from '@opengeo/db';
+import { db, recommendation, workspace } from '@askmetry/db';
 import { and, desc, eq } from 'drizzle-orm';
 import { nextCronTick } from '../schedule.ts';
 import { indexData, normName, type RecData } from './data.ts';

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { CATEGORIES, categoryOf, categoryText, type RecCategory } from '@opengeo/core/present';
+import { CATEGORIES, categoryOf, categoryText, type RecCategory } from '@askmetry/core/present';
 import { RecCard } from '@/components/rec-card';
 import { EmptyState } from '@/components/ui';
 import { CategoryIcon } from '@/components/viz';

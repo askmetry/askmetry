@@ -1,5 +1,5 @@
 // Ergebnis eines Runs speichern: response, citations, mentions + Kosten (eine Transaktion)
-import { brand, citation, collection, db, mention, response, run, type DB } from '@opengeo/db';
+import { brand, citation, collection, db, mention, response, run, type DB } from '@askmetry/db';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Analysis } from './analyze.ts';
 import { canonicalizeMentions, type WorkspaceBrand } from './canonicalize.ts';

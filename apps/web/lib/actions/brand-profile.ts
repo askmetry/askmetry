@@ -2,8 +2,8 @@
 // Beschreibung und Typ der eigenen Marke (Hinweisbanner + Einstellungen). Nur Editoren; strikt auf workspace_id eingeschränkt.
 import { and, eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
-import { brand, db } from '@opengeo/db';
-import { autofillBrandProfile } from '@opengeo/core';
+import { brand, db } from '@askmetry/db';
+import { autofillBrandProfile } from '@askmetry/core';
 import { cleanDescription, parseBrandKind } from '@/lib/brand-kind';
 import { isNoPermission, requireEditor } from '@/lib/session';
 import { getT } from '@/lib/i18n/server';

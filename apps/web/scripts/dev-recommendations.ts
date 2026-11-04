@@ -1,5 +1,5 @@
 // Entwicklungsdaten für die Maßnahmen-Seite und „Von KI gelesen“ – NUR für Test-Workspaces.
-// Aufruf: pnpm --filter @opengeo/web exec tsx scripts/dev-recommendations.ts [slug=e2e-test] [--remove]
+// Aufruf: pnpm --filter @askmetry/web exec tsx scripts/dev-recommendations.ts [slug=e2e-test] [--remove]
 // Legt Maßnahmen mit key-Präfix „fixture:“ an (idempotent) und ergänzt bei einer ChatGPT-Antwort mit Zitaten
 // einige gelesene, nicht zitierte Seiten (title-Präfix „[fixture]“). --remove entfernt beides wieder.
 import { config } from 'dotenv';
@@ -10,7 +10,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(here, '../../../.env'), quiet: true });
 
 const { and, eq, like, sql } = await import('drizzle-orm');
-const S = await import('@opengeo/db');
+const S = await import('@askmetry/db');
 const { db, closeDb } = S;
 
 const args = process.argv.slice(2);

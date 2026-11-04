@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { brand, db, workspace, workspaceMember } from '@opengeo/db';
+import { brand, db, workspace, workspaceMember } from '@askmetry/db';
 import { getSession } from '@/lib/session';
 
 /** Selbst hochgeladenes Logo einer Marke – nur für Mitglieder des Workspaces. */

@@ -1,6 +1,6 @@
 import {
   brand, citation, closeDb, collection, db, mention, prompt, recommendation, recommendationGeneration, response, run, siteCheck, topic, workspace,
-} from '@opengeo/db';
+} from '@askmetry/db';
 import { and, eq, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { backfillSearchedCitations } from '../../src/backfill.ts';
@@ -67,7 +67,7 @@ afterAll(async () => { await db.delete(workspace).where(like(workspace.slug, `${
 
 describe('Maßnahmen (Test-DB)', () => {
   it('werden nach einer Messung automatisch erzeugt (ohne KI, ohne Netzwerk im Mock-Modus)', async () => {
-    expect(process.env.DATABASE_URL).toMatch(/opengeo_test$/);
+    expect(process.env.DATABASE_URL).toMatch(/askmetry_test$/);
     const ws = await seed(`${PREFIX}auto`);
     const { s } = await measure(ws.id);
     expect(s.status).toBe('done');

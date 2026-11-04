@@ -7,8 +7,8 @@ import { pathToFileURL } from 'node:url';
 import {
   analyzeWithLlm, costFromUsage, loadWorkspaceBrands, storeRunResult,
   type Analysis, type EngineCitation, type EngineResult,
-} from '@opengeo/core';
-import { brand, collection, db, prompt, run, topic, user, workspace, workspaceMember } from '@opengeo/db';
+} from '@askmetry/core';
+import { brand, collection, db, prompt, run, topic, user, workspace, workspaceMember } from '@askmetry/db';
 import { and, eq } from 'drizzle-orm';
 import { repoRoot } from './env.ts';
 

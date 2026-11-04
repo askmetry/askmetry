@@ -1,6 +1,6 @@
 // Claude-Batch im Runner: Einreichen, kein doppeltes Einreichen, Abholen über mehrere Durchgänge (= Worker-Neustarts),
 // Fehlerzustände, pause_turn-Nachgang, Budget mit Batch-Preisen. Batches API als In-Memory-Attrappe.
-import { brand, citation, closeDb, collection, db, mention, prompt, response, run, topic, workspace } from '@opengeo/db';
+import { brand, citation, closeDb, collection, db, mention, prompt, response, run, topic, workspace } from '@askmetry/db';
 import { and, eq, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { BatchRequest, BatchResultLine, BatchTransport } from '../../src/claude-batch.ts';
@@ -97,7 +97,7 @@ afterAll(async () => { await cleanup(); await closeDb(); });
 
 describe('Claude über die Message Batches API (Runner)', () => {
   it('nur geplante Messungen nutzen standardmäßig den Batch-Weg; nie im Mock-Modus ohne ausdrückliche Option', () => {
-    expect(process.env.OPENGEO_MOCK_ENGINES).toBe('1');
+    expect(process.env.ASKMETRY_MOCK_ENGINES).toBe('1');
     expect(useClaudeBatch('scheduled')).toBe(false); // Mock-Modus
     expect(useClaudeBatch('manual', { batch: true })).toBe(true);
     expect(useClaudeBatch('scheduled', { batch: false })).toBe(false);

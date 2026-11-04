@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
-# OpenGEO production images. One Dockerfile, two targets:
-#   docker build --target web    -t opengeo-web    .
-#   docker build --target worker -t opengeo-worker .
+# Askmetry production images. One Dockerfile, two targets:
+#   docker build --target web    -t askmetry-web    .
+#   docker build --target worker -t askmetry-worker .
 # The worker image also runs the schema migrations (packages/db/src/migrate.ts), see docker-compose.yml.
 
 ARG NODE_IMAGE=node:24-alpine
@@ -31,13 +31,13 @@ COPY packages/db/package.json packages/db/
 # web-build: install web deps and build the Next.js standalone bundle
 FROM manifests AS web-build
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --filter "@opengeo/web..." --store-dir /pnpm/store
+    pnpm install --frozen-lockfile --filter "@askmetry/web..." --store-dir /pnpm/store
 COPY packages/db packages/db
 COPY packages/core packages/core
 COPY apps/web apps/web
-ENV OPENGEO_STANDALONE=1 NODE_ENV=production
+ENV ASKMETRY_STANDALONE=1 NODE_ENV=production
 # Placeholder secret only silences better-auth during prerendering; the runtime image gets the real one from the environment
-RUN BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime pnpm --filter @opengeo/web build
+RUN BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime pnpm --filter @askmetry/web build
 
 # ---------------------------------------------------------------------------
 # web: minimal runtime, only the traced standalone output
@@ -59,7 +59,7 @@ CMD ["node", "apps/web/server.js"]
 # worker-deps: worker + db (incl. tsx, a devDependency the worker runs with)
 FROM manifests AS worker-deps
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --filter "@opengeo/worker..." --store-dir /pnpm/store \
+    pnpm install --frozen-lockfile --filter "@askmetry/worker..." --store-dir /pnpm/store \
  # drop build/test tooling the worker never loads at runtime. Migrations run with drizzle-orm's migrator
  # (src/migrate.ts), so drizzle-kit and its esbuild-kit loaders go too.
  && rm -rf node_modules/.pnpm/typescript@* node_modules/.pnpm/@typescript+* node_modules/.pnpm/playwright-core@* \

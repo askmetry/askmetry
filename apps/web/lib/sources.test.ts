@@ -23,7 +23,7 @@ describe('Quellenregel: cited, falls vorhanden, sonst searched', () => {
     expect(effectiveSources(effectiveSources(cits))).toHaveLength(2); // idempotent
     expect(readNotCited(cits).map((c) => c.url)).toEqual(['https://paylindo.de/blog', 'https://www.reddit.com/r/de/comments/1']);
   });
-  it('ist gleichwertig zu metricCitations aus @opengeo/core', () => {
+  it('ist gleichwertig zu metricCitations aus @askmetry/core', () => {
     const mixed = [...cits, C('c', 'https://x.de/1', 'searched'), C('c', 'https://y.de/2', 'searched'), C('d', 'https://z.de/', 'cited'), C('d', 'https://z.de/s', 'searched')];
     const core = [...metricCitations(mixed).values()].flat();
     const key = (c: Cit) => `${c.responseId}|${c.url}|${c.kind}`;

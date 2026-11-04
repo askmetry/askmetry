@@ -1,11 +1,11 @@
 // Sprachauswahl der Oberfläche (rein, ohne Next-Imports – testbar und im Client nutzbar).
 // Reihenfolge: Cookie (vom Umschalter gesetzt) → Accept-Language → Deutsch. Keine Sprach-Präfixe in URLs.
-import type { Lang } from '@opengeo/core/present';
+import type { Lang } from '@askmetry/core/present';
 
 export const LOCALES = ['de', 'en'] as const satisfies readonly Lang[];
 export type Locale = (typeof LOCALES)[number];
 export const DEFAULT_LOCALE: Locale = 'de';
-export const LOCALE_COOKIE = 'opengeo_locale';
+export const LOCALE_COOKIE = 'askmetry_locale';
 /** Cookie hält ein Jahr */
 export const LOCALE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 /** Namen der Sprachen in der eigenen Sprache (für den Umschalter) */

@@ -2,7 +2,7 @@
 // Abgehakte Schritte einer Maßnahme (recommendation.done_steps). Nur Editoren; strikt auf workspace_id eingeschränkt.
 import { and, eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
-import { db, recommendation } from '@opengeo/db';
+import { db, recommendation } from '@askmetry/db';
 import { isUuid } from '@/lib/recommendations';
 import { toggleStep } from '@/lib/steps';
 import { isNoPermission, requireEditor } from '@/lib/session';

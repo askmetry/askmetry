@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { EmptyState, Hint } from '@/components/ui';
 import { Dot } from '@/components/viz';
 import { one, workspaceContext, type SP } from '@/lib/context';
-import { engineName } from '@opengeo/core/present';
+import { engineName } from '@askmetry/core/present';
 import { findGaps, loadBase, promptEngineMatrix, sortEngines } from '@/lib/metrics';
 import { getI18n } from '@/lib/i18n/server';
 import { loadPromptsAndTopics } from '@/lib/prompts';

@@ -1,4 +1,4 @@
-// OpenGEO-Spike: Prompts an alle Engines schicken, Antworten auswerten, Bericht schreiben.
+// Askmetry-Spike: Prompts an alle Engines schicken, Antworten auswerten, Bericht schreiben.
 // Aufruf: npm run spike -- [--limit 2] [--engines chatgpt,claude] [--project paylindo] [--report-only]
 // Ergebnisse werden zwischengespeichert; ein zweiter Lauf fragt nur Fehlendes neu ab.
 import fs from 'node:fs/promises';
@@ -136,7 +136,7 @@ await pool(tasks, settings.concurrency);
 
 // --- 2) Bericht ---
 const pct = (a, b) => (b ? `${Math.round((100 * a) / b)} %` : '–');
-let md = `# OpenGEO-Spike – Ergebnis\n\nStand: ${new Date().toLocaleString('de-DE')}\n\n`;
+let md = `# Askmetry-Spike – Ergebnis\n\nStand: ${new Date().toLocaleString('de-DE')}\n\n`;
 md += `Engines: ${engineKeys.join(', ')} · Modelle: ${Object.entries(settings.models).map(([k, v]) => `${k}=${v}`).join(', ')}\n\n`;
 md += `Hinweis: Wo eine Engine keine Zitate im Text liefert (bisher Claude), zählen die durchsuchten Seiten als Quellen – markiert mit ¹.\n\n`;
 

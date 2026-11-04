@@ -2,7 +2,7 @@
 // Phasen:
 //   node e2e/full-flow.mjs login     – Testkonto anlegen bzw. anmelden
 //   node e2e/full-flow.mjs check     – alle Seiten der Workspaces paylindo + medishift prüfen (+ Statuswechsel/„gelesen“ in e2e-test,
-//                                      Fixture: pnpm --filter @opengeo/web exec tsx scripts/dev-recommendations.ts e2e-test)
+//                                      Fixture: pnpm --filter @askmetry/web exec tsx scripts/dev-recommendations.ts e2e-test)
 //   node e2e/full-flow.mjs create    – Workspace „E2E Test“ anlegen, Marke/Prompt/Einstellungen, „Jetzt messen“
 //   node e2e/full-flow.mjs verify    – Ergebnis der Messung im E2E-Workspace prüfen
 //   node e2e/full-flow.mjs i18n      – Sprachumschalter: Oberfläche auf Englisch (paylindo), danach zurück auf Deutsch
@@ -25,7 +25,7 @@ const phase = process.argv[2];
 const envUrl = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf8').match(/^DATABASE_URL=(.*)$/m)?.[1]?.trim().replace(/^["']|["']$/g, '') : undefined;
 const pg = createRequire(path.resolve('packages/db/package.json'))('pg');
 async function sql(text, params = []) {
-  const c = new pg.Client({ connectionString: process.env.DATABASE_URL ?? envUrl ?? 'postgres://opengeo:opengeo@localhost:5433/opengeo' });
+  const c = new pg.Client({ connectionString: process.env.DATABASE_URL ?? envUrl ?? 'postgres://askmetry:askmetry@localhost:5433/askmetry' });
   await c.connect();
   try { return (await c.query(text, params)).rows; } finally { await c.end(); }
 }
@@ -37,7 +37,7 @@ const context = await browser.newContext({
   ...(phase !== 'login' && fs.existsSync(STATE) && { storageState: STATE }),
 });
 // Oberfläche fest auf Deutsch (Cookie hat Vorrang vor Accept-Language; ein im Auth-State gespeichertes Cookie wird überschrieben)
-await context.addCookies([{ name: 'opengeo_locale', value: 'de', url: BASE }]);
+await context.addCookies([{ name: 'askmetry_locale', value: 'de', url: BASE }]);
 await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
 const page = await context.newPage();
 const errors = [];
@@ -406,7 +406,7 @@ try {
     const nav = await page.innerText('header nav');
     check(['Overview', 'Actions', 'Questions'].every((x) => nav.includes(x)), 'Navigation auf Englisch');
     await page.screenshot({ path: path.join(SHOTS, `${ws}-uebersicht-en.png`), fullPage: true });
-    const cookie = (await context.cookies(BASE)).find((c) => c.name === 'opengeo_locale');
+    const cookie = (await context.cookies(BASE)).find((c) => c.name === 'askmetry_locale');
     check(cookie?.value === 'en', 'Sprach-Cookie gesetzt');
     for (const [url, expect] of [
       [`/w/${ws}/settings/marke`, ['Brand', 'What you offer']],
@@ -422,7 +422,7 @@ try {
     }
     // Login-Seite (ohne Anmeldung) folgt dem Cookie
     const anon = await browser.newContext({ locale: 'de-DE' });
-    await anon.addCookies([{ name: 'opengeo_locale', value: 'en', url: BASE }]);
+    await anon.addCookies([{ name: 'askmetry_locale', value: 'en', url: BASE }]);
     const p2 = await anon.newPage();
     await p2.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
     check((await p2.innerText('body')).includes('Sign in'), 'Login auf Englisch per Cookie (trotz Accept-Language de)');

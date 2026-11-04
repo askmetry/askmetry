@@ -3,7 +3,7 @@
 // Ohne KI (Mock-Modus, kein Schlüssel) dient die Meta-Beschreibung der Seite als Vorschlag, der Typ bleibt offen.
 import Anthropic from '@anthropic-ai/sdk';
 import { and, eq, isNull, lt, or } from 'drizzle-orm';
-import { brand, db, recommendationGeneration, workspace } from '@opengeo/db';
+import { brand, db, recommendationGeneration, workspace } from '@askmetry/db';
 import { maxBudgetUsd } from '../budget.ts';
 import { monthToDateSpend } from '../runner.ts';
 import { engineDefaults } from '../engine-config.ts';

@@ -1,6 +1,6 @@
 import 'server-only';
 import { and, eq, gte, sql } from 'drizzle-orm';
-import { db, recommendationGeneration, run } from '@opengeo/db';
+import { db, recommendationGeneration, run } from '@askmetry/db';
 import { sortEngines } from './metrics';
 
 type Ws = { id: string; engines: string[]; repetitions: number };

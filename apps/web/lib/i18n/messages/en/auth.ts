@@ -23,7 +23,7 @@ const auth: typeof de = {
   },
   closed: {
     title: 'Sign-up is closed',
-    text: 'New accounts can’t be created on this instance. Please contact the person who runs OpenGEO here.',
+    text: 'New accounts can’t be created on this instance. Please contact the person who runs Askmetry here.',
     toLogin: 'Go to sign in',
   },
 };

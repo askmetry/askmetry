@@ -14,10 +14,10 @@ importers:
 
   apps/web:
     dependencies:
-      '@opengeo/core':
+      '@askmetry/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@opengeo/db':
+      '@askmetry/db':
         specifier: workspace:*
         version: link:../../packages/db
       better-auth:
@@ -81,10 +81,10 @@ importers:
 
   apps/worker:
     dependencies:
-      '@opengeo/core':
+      '@askmetry/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@opengeo/db':
+      '@askmetry/db':
         specifier: workspace:*
         version: link:../../packages/db
       dotenv:
@@ -112,7 +112,7 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^1.3.0
         version: 1.3.0(zod@4.6.7)
-      '@opengeo/db':
+      '@askmetry/db':
         specifier: workspace:*
         version: link:../db
       cron-parser:

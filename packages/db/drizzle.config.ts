@@ -7,5 +7,5 @@ export default defineConfig({
   schema: './src/schema.ts',
   out: './drizzle',
   dialect: 'postgresql',
-  dbCredentials: { url: process.env.DATABASE_URL ?? 'postgres://opengeo:opengeo@localhost:5433/opengeo' },
+  dbCredentials: { url: process.env.DATABASE_URL ?? 'postgres://askmetry:askmetry@localhost:5433/askmetry' },
 });

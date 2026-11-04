@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { engineName } from '@opengeo/core/present';
+import { engineName } from '@askmetry/core/present';
 import { useI18n } from '@/lib/i18n/client';
 import { plainTerms } from '@/lib/text';
 import { metricText, trend, type MetricSnap, type RecEvidence } from '@/lib/recommendations';

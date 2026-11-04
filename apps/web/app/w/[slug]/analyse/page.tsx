@@ -8,7 +8,7 @@ import { BrandMark } from '@/components/brand-mark';
 import { logoMap } from '@/lib/logos';
 import { getI18n, getT } from '@/lib/i18n/server';
 import { brandMetrics, engineLabel, groupBy, loadBase, loadTrend, normName, sortEngines, untrackedBrands } from '@/lib/metrics';
-import { claudeBatchWaiting, loadRecData, rankingFrom } from '@opengeo/core';
+import { claudeBatchWaiting, loadRecData, rankingFrom } from '@askmetry/core';
 
 /** „Platz in der Antwort“ erst ab 5 Nennungen zeigen – darunter ist der Mittelwert nicht aussagekräftig. */
 const MIN_POS = 5;

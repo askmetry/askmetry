@@ -1,5 +1,5 @@
 // Collection-Runner: Runs anlegen und abarbeiten (Parallelität, Wiederholungen, Budget, Wiederaufnahme)
-import { collection, db, prompt, recommendationGeneration, response, run, workspace } from '@opengeo/db';
+import { collection, db, prompt, recommendationGeneration, response, run, workspace } from '@askmetry/db';
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { analyzeLocally, analyzeWithLlm, type AnalysisResult } from './analyze.ts';
 import { anthropicBatchTransport, batchRequestTotal, classifyBatchResult, type BatchRequest, type BatchTransport } from './claude-batch.ts';
@@ -301,7 +301,7 @@ export async function processCollection(collectionId: string, opts: ProcessOptio
     const brands = await loadWorkspaceBrands(ws.id);
     const batchMode = useClaudeBatch(c.trigger, opts);
     const transport = opts.batchTransport ?? anthropicBatchTransport();
-    // Budget serverseitig gedeckelt (OPENGEO_MAX_BUDGET_USD)
+    // Budget serverseitig gedeckelt (ASKMETRY_MAX_BUDGET_USD)
     const budget = Math.min(Number(ws.monthlyBudgetUsd), maxBudgetUsd());
     // 1. Ergebnisse bereits eingereichter Claude-Batches abholen (auch nach einem Worker-Neustart)
     await collectClaudeBatches(c.id, ws.id, brands, transport, opts, budget);

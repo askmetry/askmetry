@@ -1,8 +1,8 @@
 'use client';
 // Kleine visuelle Bausteine (SVG): Score-Ring, Füllpunkte, Kategorie-Icons.
 // Client-Komponenten (Texte über useI18n), damit sie auch in Client-Komponenten wie RecCard nutzbar sind.
-import type { RecCategory } from '@opengeo/core/present';
-import { categoryText } from '@opengeo/core/present';
+import type { RecCategory } from '@askmetry/core/present';
+import { categoryText } from '@askmetry/core/present';
 import { useI18n } from '@/lib/i18n/client';
 import type { Fill } from '@/lib/view';
 import { CAT_STYLE, TONE } from '@/components/viz-style';

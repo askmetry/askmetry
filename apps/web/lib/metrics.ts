@@ -5,14 +5,14 @@ import { cache } from 'react';
 // Antworten mit nicht-leerem Text, gefiltert nach Workspace, Collection(s), Engine, Topic.
 
 import { and, eq, inArray, ne, sql, type SQL, getTableColumns } from 'drizzle-orm';
-import { brand, citation, collection, db, mention, prompt, response, run } from '@opengeo/db';
-import { ENGINE_NAMES, engineName, isLikelyCompetitor, type Lang } from '@opengeo/core/present';
+import { brand, citation, collection, db, mention, prompt, response, run } from '@askmetry/db';
+import { ENGINE_NAMES, engineName, isLikelyCompetitor, type Lang } from '@askmetry/core/present';
 
 // ---------------------------------------------------------------------------
 // Engines
 // ---------------------------------------------------------------------------
 
-// Anzeigenamen der KI-Suchen kommen aus @opengeo/core (DESIGN.md, „Begriffe“)
+// Anzeigenamen der KI-Suchen kommen aus @askmetry/core (DESIGN.md, „Begriffe“)
 export const ENGINE_LABELS = ENGINE_NAMES;
 export const SELECTABLE_ENGINES = ['chatgpt', 'gemini', 'claude', 'perplexity', 'google_aio', 'google_ai_mode'] as const;
 /** Anzeigename einer KI-Suche in der UI-Sprache (Standard Deutsch). */

@@ -21,7 +21,7 @@ const auth = {
   },
   closed: {
     title: 'Registrierung geschlossen',
-    text: 'Neue Konten können auf dieser Instanz nicht selbst angelegt werden. Bitte wende dich an die Person, die OpenGEO hier betreibt.',
+    text: 'Neue Konten können auf dieser Instanz nicht selbst angelegt werden. Bitte wende dich an die Person, die Askmetry hier betreibt.',
     toLogin: 'Zur Anmeldung',
   },
 };

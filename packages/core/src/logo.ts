@@ -1,7 +1,7 @@
 // Logos der Marken: Website-Icon der Domain (apple-touch-icon, <link rel=icon>, /favicon.ico) über safeFetch holen,
 // Bildtyp an den Bytes prüfen und in domain_logo speichern. Kein Drittdienst (kein Google-Favicon-Service).
 import { and, eq, inArray } from 'drizzle-orm';
-import { brand, db, domainLogo } from '@opengeo/db';
+import { brand, db, domainLogo } from '@askmetry/db';
 import { validateBrandDomain } from './domains.ts';
 import { safeFetch, type Resolver, type Transport } from './recommend/safe-fetch.ts';
 import { SITE_CHECK_UA } from './recommend/site-check.ts';

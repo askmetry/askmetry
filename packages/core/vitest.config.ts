@@ -4,6 +4,6 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['test/unit/**/*.test.ts'],
-    env: { OPENGEO_MOCK_ENGINES: '1', ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', GEMINI_API_KEY: '', PERPLEXITY_API_KEY: '', DATAFORSEO_LOGIN: '', DATAFORSEO_PASSWORD: '' },
+    env: { ASKMETRY_MOCK_ENGINES: '1', ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', GEMINI_API_KEY: '', PERPLEXITY_API_KEY: '', DATAFORSEO_LOGIN: '', DATAFORSEO_PASSWORD: '' },
   },
 });

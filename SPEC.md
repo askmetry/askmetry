@@ -1,6 +1,6 @@
-# OpenGEO – Spezifikation & Konzept (v0.1, Entwurf)
+# Askmetry – Spezifikation & Konzept (v0.1, Entwurf)
 
-> Arbeitstitel. Open-Source-Alternative zu Peec AI: misst, wie sichtbar Marken in KI-Suchmaschinen sind, welche Quellen diese nutzen, und leitet konkrete Maßnahmen ab.
+> Open-Source-Alternative zu Peec AI: misst, wie sichtbar Marken in KI-Suchmaschinen sind, welche Quellen diese nutzen, und leitet konkrete Maßnahmen ab.
 > Stand: 31.10.2026 · Status: Konzept, Grundsatzentscheidungen in Kapitel 13, offene Fragen in Kapitel 14
 
 ---
@@ -237,7 +237,7 @@ Antwort, Quellen (`searched`), Analyse (Nennungen, answer_type) und Kosten kamen
 | Google | **Wichtig** | Google AI Overviews + AI Mode rücken **ins MVP** (über SERP-API-Anbieter, z. B. DataForSEO oder SerpApi – Preise und Abdeckung im Spike prüfen). Gemini-API zusätzlich. |
 | Hosting | **Mac mini** | `docker compose` (Postgres via colima), Web-App auf Port **3010** (3000–3008 belegt), Worker mit integriertem Scheduler; Wochenbericht über `tg-send`. |
 | Lizenz | **Echtes Open Source + spätere Hosted-Version** | Empfehlung: **AGPL-3.0** (siehe 13.2) |
-| Name | offen | Arbeitstitel OpenGEO bleibt vorerst |
+| Name | entschieden (04.11.2026) | **Askmetry** („ask“ + „-metry“). Vorher Arbeitstitel OpenGEO; verworfen wegen gleichnamigem OSS-Projekt und US-Marke. askmetry.ai/.de/.io sowie GitHub- und npm-Name waren am 04.11.2026 frei; Markenregister (EUIPO/DPMA) prüft der Nutzer. |
 
 ### 13.1 Testmarken
 

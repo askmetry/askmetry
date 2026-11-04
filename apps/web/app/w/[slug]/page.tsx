@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { eq, sql } from 'drizzle-orm';
-import { db, prompt } from '@opengeo/db';
-import { buildStatusBrief, claudeBatchWaiting, keyInsight, loadRecData, pickTopRecommendations, rankingFrom } from '@opengeo/core';
-import { CATEGORIES, categoryOf, categoryText, localizeRec, scoreVerdict, type RecCategory } from '@opengeo/core/present';
+import { db, prompt } from '@askmetry/db';
+import { buildStatusBrief, claudeBatchWaiting, keyInsight, loadRecData, pickTopRecommendations, rankingFrom } from '@askmetry/core';
+import { CATEGORIES, categoryOf, categoryText, localizeRec, scoreVerdict, type RecCategory } from '@askmetry/core/present';
 import { ActionForm } from '@/components/action-form';
 import { BrandProfileBanner } from '@/components/brand-profile';
 import { BrandMark } from '@/components/brand-mark';

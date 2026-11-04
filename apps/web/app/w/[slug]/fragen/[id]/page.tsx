@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { db, response, run } from '@opengeo/db';
+import { db, response, run } from '@askmetry/db';
 import { AnswerMarkdown } from '@/components/answer-markdown';
 import { ParamSelect } from '@/components/selects';
 import { OpenOnHash } from '@/components/open-on-hash';
@@ -11,7 +11,7 @@ import { workspaceContext, type SP } from '@/lib/context';
 import { domainMatches, groupBy, loadBase, normName, sortEngines, type Term } from '@/lib/metrics';
 import { recTouchesPrompt, sortRecs } from '@/lib/recommendations';
 import { loadRecs, promptContext, recPrompt } from '@/lib/recs-data';
-import { engineName, isLikelyCompetitor } from '@opengeo/core/present';
+import { engineName, isLikelyCompetitor } from '@askmetry/core/present';
 import { getI18n } from '@/lib/i18n/server';
 import { RecCard } from '@/components/rec-card';
 import { loadPrompt } from '@/lib/prompts';

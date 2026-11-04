@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
-import { db, workspace, workspaceMember } from '@opengeo/db';
+import { db, workspace, workspaceMember } from '@askmetry/db';
 import { auth } from './auth';
 
 export type Role = 'owner' | 'admin' | 'viewer';

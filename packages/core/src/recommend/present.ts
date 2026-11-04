@@ -1,5 +1,5 @@
 // Darstellung der Maßnahmen für UI, Lagebericht und Claude-Prompts.
-// Rein: keine DB-, SDK- oder Node-Imports – nutzbar in Client-Komponenten (`@opengeo/core/present`).
+// Rein: keine DB-, SDK- oder Node-Imports – nutzbar in Client-Komponenten (`@askmetry/core/present`).
 // Alle Texte gibt es auf Deutsch und Englisch (`lang`, Standard 'de'); siehe CONTRACT.md „Sprachen“.
 import { listJoin, pctText, type Lang } from '../i18n.ts';
 

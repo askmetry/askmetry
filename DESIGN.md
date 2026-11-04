@@ -1,4 +1,4 @@
-# OpenGEO – Design-Leitplanken
+# Askmetry – Design-Leitplanken
 
 Grundlage: Design-Review (Apple-Stil) und Einsteiger-Review (Marketerin ohne GEO-Vorwissen), 2026-11-02.
 
@@ -115,7 +115,7 @@ Navigation: **Übersicht · Maßnahmen · Fragen** und ⚙ Einstellungen. Analys
 
 ## Logos
 
-- Logos holt OpenGEO selbst von der Website der Marke (Icons aus `<link rel=icon|apple-touch-icon>`, sonst `/apple-touch-icon.png`, `/favicon.ico`). Gespeichert je Domain in `domain_logo`, Auslieferung über `/w/[slug]/logo/[domain]` nur an Mitglieder und nur für Domains von Marken dieses Workspaces.
+- Logos holt Askmetry selbst von der Website der Marke (Icons aus `<link rel=icon|apple-touch-icon>`, sonst `/apple-touch-icon.png`, `/favicon.ico`). Gespeichert je Domain in `domain_logo`, Auslieferung über `/w/[slug]/logo/[domain]` nur an Mitglieder und nur für Domains von Marken dieses Workspaces.
 - Darstellung (`BrandMark`): Quadrat mit Radius 22 %, weiße Platte, feiner Rand, 10 % Innenabstand. Ohne Logo die Initiale (eigene Marke in `--own`, sonst grau).
 - Orte: Kopfzeile vor dem Workspace-Namen (20 px), Übersicht-Kopf (40 px), Rangliste (20 px), Analyse „Alle Marken“ (20 px), Wettbewerber-Liste (24 px), Workspace-Liste (32 px).
 - Nicht in Fragen-Listen, Maßnahmen-Karten, Quellen-Domains oder KI-Such-Chips: Dort würden sie nur Unruhe bringen.

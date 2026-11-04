@@ -1,6 +1,6 @@
-// Legt die Testdatenbank opengeo_test bei jedem Lauf neu an und spielt die Migrationen (packages/db/drizzle) ein.
+// Legt die Testdatenbank askmetry_test bei jedem Lauf neu an und spielt die Migrationen (packages/db/drizzle) ein.
 // Neu statt inkrementell: nach einem Branch-Wechsel könnte sonst ein fremder Migrationsstand übrig bleiben.
-import { runMigrations } from '@opengeo/db/migrate';
+import { runMigrations } from '@askmetry/db/migrate';
 import pg from 'pg';
 import { TEST_DATABASE_URL } from '../../vitest.integration.config.ts';
 

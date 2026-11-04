@@ -5,7 +5,7 @@
 # - Pull requests (including forks) ALWAYS run on GitHub-hosted ubuntu-latest: free for public repositories
 #   and isolated from your own hardware.
 # - Pushes to main and manual runs also use ubuntu-latest by default. Setting the repository variable
-#   OPENGEO_SELF_HOSTED=true moves these (trusted) runs to a self-hosted runner labelled "opengeo".
+#   ASKMETRY_SELF_HOSTED=true moves these (trusted) runs to a self-hosted runner labelled "askmetry".
 #   Read CONTRIBUTING.md ("CI and self-hosted runners") before enabling it: the condition below lives in this
 #   file, and a pull request can edit this file, so it is not a security boundary on its own.
 name: CI
@@ -26,17 +26,17 @@ concurrency:
 env:
   NEXT_TELEMETRY_DISABLED: "1"
   # Tests never call paid APIs
-  OPENGEO_MOCK_ENGINES: "1"
+  ASKMETRY_MOCK_ENGINES: "1"
 
 jobs:
   test:
     name: Typecheck, tests, web build
-    runs-on: ${{ (github.event_name != 'pull_request' && vars.OPENGEO_SELF_HOSTED == 'true') && fromJSON('["self-hosted","opengeo"]') || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event_name != 'pull_request' && vars.ASKMETRY_SELF_HOSTED == 'true') && fromJSON('["self-hosted","askmetry"]') || 'ubuntu-latest' }}
     timeout-minutes: 25
     env:
       # Throwaway Postgres for the integration tests (started below; a free port so it never clashes on a self-hosted machine)
-      PG_CONTAINER: opengeo-ci-pg-${{ github.run_id }}-${{ github.run_attempt }}
-      TEST_DATABASE_URL: postgres://opengeo:opengeo@127.0.0.1:55439/opengeo_test
+      PG_CONTAINER: askmetry-ci-pg-${{ github.run_id }}-${{ github.run_attempt }}
+      TEST_DATABASE_URL: postgres://askmetry:askmetry@127.0.0.1:55439/askmetry_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -62,7 +62,7 @@ jobs:
           if grep -qiE 'error|warning' "$log"; then
             echo "::error::drizzle-kit generate failed (renames need an interactive 'pnpm db:generate'). Run it locally and commit packages/db/drizzle."; exit 1
           fi
-          pnpm --filter @opengeo/db exec drizzle-kit check 2>&1 | tee "$log"
+          pnpm --filter @askmetry/db exec drizzle-kit check 2>&1 | tee "$log"
           if [ "${PIPESTATUS[0]}" -ne 0 ] || grep -qiE 'error|warning' "$log"; then
             echo "::error::drizzle-kit check found problems in packages/db/drizzle (e.g. colliding migrations after a merge)."; exit 1
           fi
@@ -83,18 +83,18 @@ jobs:
       - name: Start Postgres
         run: |
           docker run -d --rm --name "$PG_CONTAINER" \
-            -e POSTGRES_USER=opengeo -e POSTGRES_PASSWORD=opengeo -e POSTGRES_DB=opengeo \
+            -e POSTGRES_USER=askmetry -e POSTGRES_PASSWORD=askmetry -e POSTGRES_DB=askmetry \
             -p 127.0.0.1:55439:5432 postgres:17
           for i in $(seq 1 30); do
-            docker exec "$PG_CONTAINER" pg_isready -U opengeo -d opengeo -h 127.0.0.1 && exit 0
+            docker exec "$PG_CONTAINER" pg_isready -U askmetry -d askmetry -h 127.0.0.1 && exit 0
             sleep 2
           done
           docker logs "$PG_CONTAINER"; exit 1
 
-      # Fresh database, then a second run that must be a no-op (the integration tests migrate their own opengeo_test)
+      # Fresh database, then a second run that must be a no-op (the integration tests migrate their own askmetry_test)
       - name: Migrations (fresh database, run twice)
         env:
-          DATABASE_URL: postgres://opengeo:opengeo@127.0.0.1:55439/opengeo
+          DATABASE_URL: postgres://askmetry:askmetry@127.0.0.1:55439/askmetry
         run: |
           pnpm db:migrate
           pnpm db:migrate | tee "$RUNNER_TEMP/migrate-2.log"
@@ -107,7 +107,7 @@ jobs:
         env:
           # Only silences better-auth while prerendering; nothing secret is needed to build
           BETTER_AUTH_SECRET: ci-build-placeholder-secret-not-used-anywhere
-        run: pnpm --filter @opengeo/web build
+        run: pnpm --filter @askmetry/web build
 
       - name: Stop Postgres
         if: always()
@@ -115,7 +115,7 @@ jobs:
 
   docker:
     name: Docker images
-    runs-on: ${{ (github.event_name != 'pull_request' && vars.OPENGEO_SELF_HOSTED == 'true') && fromJSON('["self-hosted","opengeo"]') || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event_name != 'pull_request' && vars.ASKMETRY_SELF_HOSTED == 'true') && fromJSON('["self-hosted","askmetry"]') || 'ubuntu-latest' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -135,7 +135,7 @@ jobs:
           target: ${{ matrix.target }}
           push: false
           load: false
-          tags: opengeo-${{ matrix.target }}:ci
+          tags: askmetry-${{ matrix.target }}:ci
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
 

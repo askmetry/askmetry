@@ -1,6 +1,6 @@
 import 'server-only';
 import { eq } from 'drizzle-orm';
-import { db, workspace, workspaceMember } from '@opengeo/db';
+import { db, workspace, workspaceMember } from '@askmetry/db';
 
 /** Workspaces des Nutzers – nur serverseitig (kein Server Action: userId darf nicht vom Client kommen). */
 export async function myWorkspaces(userId: string) {

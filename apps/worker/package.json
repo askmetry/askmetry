@@ -1,5 +1,5 @@
 {
-  "name": "@opengeo/worker",
+  "name": "@askmetry/worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,8 +15,8 @@
     "backfill-searched": "tsx src/cli.ts backfill-searched"
   },
   "dependencies": {
-    "@opengeo/core": "workspace:*",
-    "@opengeo/db": "workspace:*",
+    "@askmetry/core": "workspace:*",
+    "@askmetry/db": "workspace:*",
     "dotenv": "^18.0.9",
     "drizzle-orm": "^0.45.4"
   },

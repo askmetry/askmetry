@@ -1,6 +1,6 @@
 import 'server-only';
 import { and, eq } from 'drizzle-orm';
-import { db, prompt, topic } from '@opengeo/db';
+import { db, prompt, topic } from '@askmetry/db';
 
 export async function loadPromptsAndTopics(workspaceId: string) {
   const [prompts, topics] = await Promise.all([

@@ -1,4 +1,4 @@
-# OpenGEO
+# Askmetry
 
 Open-Source-Werkzeug, das misst, wie sichtbar Marken in KI-Suchmaschinen sind – ChatGPT, Gemini, Claude, Google AI Overviews und Google AI Mode (Perplexity optional) –, welche Quellen diese KIs nutzen und wo die eigene Marke fehlt. Daraus leitet es konkrete Maßnahmen ab.
 
@@ -22,7 +22,7 @@ cp .env.example .env     # POSTGRES_PASSWORD, BETTER_AUTH_SECRET, BETTER_AUTH_UR
 docker compose up -d     # baut die Images, spielt die Migrationen ein, startet db, web und worker
 ```
 
-Dashboard unter <http://localhost:3010> (Port: `OPENGEO_PORT`; gebunden an `127.0.0.1`, für öffentlichen Zugriff einen Reverse-Proxy mit TLS davorsetzen). `OPENGEO_MOCK_ENGINES=1` zum kostenlosen Ausprobieren. Details zu Diensten, Updates, Backups und Schema-Änderungen: [README.md – Quickstart](README.md#quickstart-docker).
+Dashboard unter <http://localhost:3010> (Port: `ASKMETRY_PORT`; gebunden an `127.0.0.1`, für öffentlichen Zugriff einen Reverse-Proxy mit TLS davorsetzen). `ASKMETRY_MOCK_ENGINES=1` zum kostenlosen Ausprobieren. Details zu Diensten, Updates, Backups und Schema-Änderungen: [README.md – Quickstart](README.md#quickstart-docker).
 
 ## Entwicklung
 
@@ -41,19 +41,19 @@ Schema ändern: `packages/db/src/schema.ts` bearbeiten → `pnpm db:generate` �
 
 Konto unter `/signup` anlegen, Workspace erstellen, Marken und Fragen eintragen, „Jetzt messen“.
 
-Beispieldaten (Paylindo + MediShift aus dem Prototyp, ohne API-Kosten): `pnpm --filter @opengeo/worker seed --owner du@example.com`
+Beispieldaten (Paylindo + MediShift aus dem Prototyp, ohne API-Kosten): `pnpm --filter @askmetry/worker seed --owner du@example.com`
 
-`docker-compose.yml` ist der Selbsthosting-Stack, `docker-compose.dev.yml` nur die Entwicklungsdatenbank. Beide haben feste, unterschiedliche Projektnamen (`opengeo-selfhost` bzw. `opengeo`) und kommen sich im selben Checkout nicht in die Quere.
+`docker-compose.yml` ist der Selbsthosting-Stack, `docker-compose.dev.yml` nur die Entwicklungsdatenbank. Beide haben feste, unterschiedliche Projektnamen (`askmetry-selfhost` bzw. `askmetry`) und kommen sich im selben Checkout nicht in die Quere.
 
 ## Kosten
 
-Standard-Einstellungen sind auf Kosten optimiert (Messwerte und Begründung: SPEC.md Kapitel 9). Bei 20 Fragen × 2 Wiederholungen × wöchentlich: ca. 40 $/Monat. Jeder Workspace hat einen Budget-Deckel; ist er erreicht, werden weitere Abfragen übersprungen. `OPENGEO_MOCK_ENGINES=1` ersetzt alle Engines durch einen kostenlosen Mock.
+Standard-Einstellungen sind auf Kosten optimiert (Messwerte und Begründung: SPEC.md Kapitel 9). Bei 20 Fragen × 2 Wiederholungen × wöchentlich: ca. 40 $/Monat. Jeder Workspace hat einen Budget-Deckel; ist er erreicht, werden weitere Abfragen übersprungen. `ASKMETRY_MOCK_ENGINES=1` ersetzt alle Engines durch einen kostenlosen Mock.
 
 Kostenschutz für gehostete Instanzen:
 
 - Neue Workspaces starten mit **ausgeschaltetem Zeitplan** – automatische Messungen erst nach bewusstem Einschalten in den Einstellungen.
-- `OPENGEO_MAX_BUDGET_USD` (Standard `200`): Obergrenze für das Monatsbudget je Workspace. Höhere Werte lehnt die Web-App ab; der Worker deckelt zusätzlich auf diesen Wert.
-- `OPENGEO_ALLOW_SIGNUP` (Standard `true`): mit `false` ist die Selbstregistrierung abgeschaltet (better-auth `disableSignUp`, `/signup` zeigt einen Hinweis). Konten dann vorher anlegen.
+- `ASKMETRY_MAX_BUDGET_USD` (Standard `200`): Obergrenze für das Monatsbudget je Workspace. Höhere Werte lehnt die Web-App ab; der Worker deckelt zusätzlich auf diesen Wert.
+- `ASKMETRY_ALLOW_SIGNUP` (Standard `true`): mit `false` ist die Selbstregistrierung abgeschaltet (better-auth `disableSignUp`, `/signup` zeigt einen Hinweis). Konten dann vorher anlegen.
 - Monatsausgaben = Summe der Run-Kosten nach Abschlusszeitpunkt (Europe/Berlin); auch bezahlte Fehlversuche werden verbucht.
 - Fehlt `ANTHROPIC_API_KEY` (Auswertung), bricht der Worker eine echte Messung vor dem ersten Engine-Aufruf ab. Scheitert nur die Auswertung, bleibt die Antwort gespeichert und wird beim nächsten Worker-Durchgang (`once`/`start`) ohne neuen Engine-Aufruf ausgewertet.
 
@@ -62,7 +62,7 @@ Kostenschutz für gehostete Instanzen:
 ```bash
 pnpm typecheck
 pnpm test:unit                       # ohne Datenbank und Netzwerk
-pnpm test:integration                # Mock-Engines, Datenbank opengeo_test (wird angelegt)
+pnpm test:integration                # Mock-Engines, Datenbank askmetry_test (wird angelegt)
 pnpm test                            # alles
 node e2e/full-flow.mjs login|check|create|verify   # Browser-Test gegen http://localhost:3010 (Zugang in .e2e-credentials)
 ```

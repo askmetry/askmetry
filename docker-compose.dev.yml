@@ -1,18 +1,18 @@
-# Development database only (used by `pnpm db:up`): Postgres 17 on localhost:5433, user/password opengeo.
-# The project name is pinned to "opengeo" so existing dev containers/volumes (opengeo-db-1, opengeo_opengeo-db) keep working.
+# Development database only (used by `pnpm db:up`): Postgres 17 on localhost:5433, user/password askmetry.
+# The project name is pinned to "askmetry" so the container (askmetry-db-1) and volume (askmetry_askmetry-db) keep stable names.
 # For self-hosting use docker-compose.yml instead.
-name: opengeo
+name: askmetry
 services:
   db:
     image: postgres:17
     restart: unless-stopped
     environment:
-      POSTGRES_USER: opengeo
-      POSTGRES_PASSWORD: opengeo
-      POSTGRES_DB: opengeo
+      POSTGRES_USER: askmetry
+      POSTGRES_PASSWORD: askmetry
+      POSTGRES_DB: askmetry
     ports:
       - "5433:5432"
     volumes:
-      - opengeo-db:/var/lib/postgresql/data
+      - askmetry-db:/var/lib/postgresql/data
 volumes:
-  opengeo-db:
+  askmetry-db:

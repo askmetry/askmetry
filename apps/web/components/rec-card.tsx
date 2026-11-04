@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { categoryOf, effortText, impactText, localizeRec } from '@opengeo/core/present';
+import { categoryOf, effortText, impactText, localizeRec } from '@askmetry/core/present';
 import { useI18n } from '@/lib/i18n/client';
 import { CopyButton } from '@/components/copy-button';
 import { CategoryTag } from '@/components/viz';

@@ -1,12 +1,12 @@
 // Technischer Website-Check der eigenen Domain(s): robots.txt (KI-Crawler), llms.txt, strukturierte Daten, Text ohne JavaScript.
 // Nur GET auf öffentliche Seiten, kostenlos. Höchstens einmal pro Tag je Domain (Ergebnis in site_check).
-import { db, siteCheck } from '@opengeo/db';
+import { db, siteCheck } from '@askmetry/db';
 import { and, desc, eq, gt } from 'drizzle-orm';
 import { normalizeDomain, validateBrandDomain } from '../domains.ts';
 import type { SiteCheckResult } from './data.ts';
 import { safeFetch, SAFE_FETCH_MAX_BYTES, type Resolver, type Transport } from './safe-fetch.ts';
 
-export const SITE_CHECK_UA = 'OpenGEO-SiteCheck/0.1';
+export const SITE_CHECK_UA = 'Askmetry-SiteCheck/0.1';
 export const SITE_CHECK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** Fehlgeschlagene Checks (Domain nicht erreichbar/gesperrt) werden gespeichert und erst nach 6 h wiederholt. */
 export const SITE_CHECK_FAILURE_RETRY_MS = 6 * 60 * 60 * 1000;
@@ -92,7 +92,7 @@ export function isAllowed(rules: RobotsRule[], path: string): boolean {
 /** Gilt die Website für den Crawler als gesperrt? (Startseite oder eine typische Unterseite nicht erlaubt) */
 export function isBotBlocked(groups: RobotsGroup[], bot: string): boolean {
   const rules = rulesFor(groups, bot);
-  return !isAllowed(rules, '/') || !isAllowed(rules, '/opengeo-pruefseite-x7q/');
+  return !isAllowed(rules, '/') || !isAllowed(rules, '/askmetry-pruefseite-x7q/');
 }
 
 // ---------------------------------------------------------------------------

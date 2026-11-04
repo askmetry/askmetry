@@ -98,7 +98,7 @@ describe('HTML-Auswertung', () => {
 
 describe('checkDomain (fetch injiziert)', () => {
   const fake = (pages: Record<string, { status: number; body: string; url?: string }>): FetchLike => async (url, init) => {
-    expect(init?.headers?.['user-agent']).toBe('OpenGEO-SiteCheck/0.1');
+    expect(init?.headers?.['user-agent']).toBe('Askmetry-SiteCheck/0.1');
     const p = pages[url];
     if (!p) throw new Error('Netzwerkfehler');
     return { status: p.status, url: p.url ?? url, text: async () => p.body };

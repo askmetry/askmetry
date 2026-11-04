@@ -5,7 +5,7 @@ import { getI18n } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
-  return { title: { default: 'OpenGEO', template: '%s · OpenGEO' }, description: t.common.appDescription };
+  return { title: { default: 'Askmetry', template: '%s · Askmetry' }, description: t.common.appDescription };
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

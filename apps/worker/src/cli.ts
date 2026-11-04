@@ -1,4 +1,4 @@
-// OpenGEO-Worker: Scheduler-Schleife + CLI
+// Askmetry-Worker: Scheduler-Schleife + CLI
 //   start                          Schleife (alle 60 s): fällige geplante Messungen anlegen, Warteschlange abarbeiten
 //   once                           Warteschlange abarbeiten, dann beenden
 //   collect --workspace <slug> [--mock] [--batch]   manuelle Messung anlegen und sofort abarbeiten
@@ -15,9 +15,9 @@ import { writeFileSync } from 'node:fs';
 import {
   analyzePendingResponses, autofillBrandProfile, refreshLogos, backfillSearchedCitations, createCollection, createDueScheduledCollections, finishedCollections, generateRecommendations, isMockMode,
   listProcessableCollections, processCollection,
-} from '@opengeo/core';
-import { recommendation } from '@opengeo/db';
-import { closeDb, db, workspace } from '@opengeo/db';
+} from '@askmetry/core';
+import { recommendation } from '@askmetry/db';
+import { closeDb, db, workspace } from '@askmetry/db';
 import { and, desc, eq } from 'drizzle-orm';
 import { seed } from './seed.ts';
 
@@ -47,8 +47,8 @@ async function workspaceBySlug(slug: string) {
 let stopping = false;
 const shouldStop = () => stopping;
 
-/** Lebenszeichen für Docker-Healthchecks: Datei aus OPENGEO_HEARTBEAT_FILE bei jedem Fortschritt anfassen. */
-const HEARTBEAT = process.env.OPENGEO_HEARTBEAT_FILE;
+/** Lebenszeichen für Docker-Healthchecks: Datei aus ASKMETRY_HEARTBEAT_FILE bei jedem Fortschritt anfassen. */
+const HEARTBEAT = process.env.ASKMETRY_HEARTBEAT_FILE;
 function heartbeat() {
   if (!HEARTBEAT) return;
   try { writeFileSync(HEARTBEAT, new Date().toISOString()); } catch (e) { log(`Heartbeat nicht schreibbar: ${(e as Error).message}`); }
@@ -83,8 +83,8 @@ async function drainQueue() {
 
 async function main() {
   const { cmd, flags } = parseArgs(process.argv.slice(2));
-  if (flags.mock) process.env.OPENGEO_MOCK_ENGINES = '1';
-  if (isMockMode()) log('Mock-Modus aktiv (OPENGEO_MOCK_ENGINES=1): keine echten API-Aufrufe');
+  if (flags.mock) process.env.ASKMETRY_MOCK_ENGINES = '1';
+  if (isMockMode()) log('Mock-Modus aktiv (ASKMETRY_MOCK_ENGINES=1): keine echten API-Aufrufe');
 
   switch (cmd) {
     case 'start': {

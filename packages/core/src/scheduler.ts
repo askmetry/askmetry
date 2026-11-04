@@ -1,4 +1,4 @@
-import { collection, db, workspace } from '@opengeo/db';
+import { collection, db, workspace } from '@askmetry/db';
 import { and, desc, eq } from 'drizzle-orm';
 import { CollectionActiveError, createCollection, hasActiveCollection } from './runner.ts';
 import { isScheduleDue } from './schedule.ts';

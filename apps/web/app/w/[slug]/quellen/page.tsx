@@ -8,7 +8,7 @@ import type { Fmt } from '@/lib/i18n/format';
 import { competitorOnlyDomains, domainStats, engineLabel, loadBase, loadCollectionEngines, usedNotNamed } from '@/lib/metrics';
 import { loadPromptsAndTopics } from '@/lib/prompts';
 import { loadRecs } from '@/lib/recs-data';
-import { outreachExclusions } from '@opengeo/core';
+import { outreachExclusions } from '@askmetry/core';
 import { safeUrl } from '@/lib/url';
 import { readNotCitedStats, type ReadDomain } from '@/lib/sources';
 import { recForDomain, recTargets } from '@/lib/view';

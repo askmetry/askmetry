@@ -2,8 +2,8 @@
 // Eigenes Logo der eigenen Marke hochladen/entfernen. Nur Editoren; gespeichert an der Marke (nicht im domainübergreifenden Cache).
 import { and, eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
-import { brand, db } from '@opengeo/db';
-import { LOGO_MAX_BYTES, sniffImage } from '@opengeo/core';
+import { brand, db } from '@askmetry/db';
+import { LOGO_MAX_BYTES, sniffImage } from '@askmetry/core';
 import { isNoPermission, requireEditor } from '@/lib/session';
 import { getT } from '@/lib/i18n/server';
 import type { FormState } from './workspaces';

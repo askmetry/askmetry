@@ -7,8 +7,8 @@ export function exceedsBudget(input: { monthSpendUsd: number; reservedUsd?: numb
   return monthSpendUsd + reservedUsd + estimateUsd > budgetUsd + 1e-9;
 }
 
-/** Obergrenze für workspace.monthly_budget_usd (Kostenschutz beim Hosting), env OPENGEO_MAX_BUDGET_USD, Standard 200 */
+/** Obergrenze für workspace.monthly_budget_usd (Kostenschutz beim Hosting), env ASKMETRY_MAX_BUDGET_USD, Standard 200 */
 export function maxBudgetUsd(): number {
-  const v = Number(process.env.OPENGEO_MAX_BUDGET_USD);
-  return Number.isFinite(v) && v >= 0 && process.env.OPENGEO_MAX_BUDGET_USD?.trim() ? v : 200;
+  const v = Number(process.env.ASKMETRY_MAX_BUDGET_USD);
+  return Number.isFinite(v) && v >= 0 && process.env.ASKMETRY_MAX_BUDGET_USD?.trim() ? v : 200;
 }

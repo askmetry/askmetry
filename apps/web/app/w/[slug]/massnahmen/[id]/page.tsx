@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { notFound } from 'next/navigation';
-import { db, recommendation } from '@opengeo/db';
-import { promptDeliverable, categoryOf, categoryText, effortText, impactText, localizeRec, recMetricLabels } from '@opengeo/core/present';
+import { db, recommendation } from '@askmetry/db';
+import { promptDeliverable, categoryOf, categoryText, effortText, impactText, localizeRec, recMetricLabels } from '@askmetry/core/present';
 import { StatusDot } from '@/components/rec-card';
 import { AiPromptBlock, StepChecklist } from '@/components/rec-detail-client';
 import { Evidence, Progress } from '@/components/rec-evidence';

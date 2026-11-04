@@ -2,8 +2,8 @@
 import { like } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { after } from 'next/server';
-import { autofillBrandProfile, refreshLogos } from '@opengeo/core';
-import { brand, db, workspace, workspaceMember } from '@opengeo/db';
+import { autofillBrandProfile, refreshLogos } from '@askmetry/core';
+import { brand, db, workspace, workspaceMember } from '@askmetry/db';
 import { maxBudgetUsd } from '@/lib/limits';
 import { validateDomains } from '@/lib/domain-validation';
 import { requireUser } from '@/lib/session';

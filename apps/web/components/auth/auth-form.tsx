@@ -79,7 +79,7 @@ export function Logo({ small = false }: { small?: boolean }) {
         <circle cx="12" cy="12" r="10" fill="none" stroke="var(--accent)" strokeWidth="2.2" />
         <circle cx="12" cy="12" r="4" fill="var(--accent)" />
       </svg>
-      OpenGEO
+      Askmetry
     </span>
   );
 }

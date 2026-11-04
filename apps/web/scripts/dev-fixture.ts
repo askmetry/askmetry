@@ -1,5 +1,5 @@
 // Entwicklungsdaten: Workspace „demo“ mit synthetischen, aber realistischen Messungen.
-// Aufruf: pnpm --filter @opengeo/web fixture   (idempotent: ersetzt den Demo-Workspace)
+// Aufruf: pnpm --filter @askmetry/web fixture   (idempotent: ersetzt den Demo-Workspace)
 // Zugangsdaten landen in apps/web/.dev-credentials (gitignored) und werden nicht ausgegeben.
 import { config } from 'dotenv';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -12,7 +12,7 @@ config({ path: path.resolve(here, '../../../.env'), quiet: true });
 
 const { hashPassword } = await import('better-auth/crypto');
 const { eq, inArray } = await import('drizzle-orm');
-const S = await import('@opengeo/db');
+const S = await import('@askmetry/db');
 const { db, closeDb } = S;
 
 // Deterministischer Zufall
@@ -22,8 +22,8 @@ const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)]!;
 const shuffle = <T,>(xs: T[]) => xs.map((x) => [rnd(), x] as const).sort((a, b) => a[0] - b[0]).map(([, x]) => x);
 
 const USERS = [
-  { email: 'demo@opengeo.test', name: 'Demo Nutzerin' },
-  { email: 'other@opengeo.test', name: 'Andere Person' },
+  { email: 'demo@askmetry.test', name: 'Demo Nutzerin' },
+  { email: 'other@askmetry.test', name: 'Andere Person' },
 ];
 
 async function upsertUser(email: string, name: string, password: string) {

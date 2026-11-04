@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm';
-import { db, prompt } from '@opengeo/db';
+import { db, prompt } from '@askmetry/db';
 import { ActionForm } from '@/components/action-form';
 import { box, Group, SettingsHeader } from '@/components/settings-ui';
 import { Bar } from '@/components/ui';
 import { saveWorkspaceSettings } from '@/lib/actions/settings';
 import { maxBudgetUsd } from '@/lib/limits';
-import { engineName } from '@opengeo/core/present';
+import { engineName } from '@askmetry/core/present';
 import { getI18n, getT } from '@/lib/i18n/server';
 import { requireWorkspace } from '@/lib/session';
 import { loadCosts } from '@/lib/settings-data';

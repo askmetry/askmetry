@@ -1,9 +1,9 @@
 import 'server-only';
 import { eq } from 'drizzle-orm';
-import { db, recommendation } from '@opengeo/db';
-import { buildClaudePrompt, localizeRec, toLang, type PromptContext, type RecLike } from '@opengeo/core/present';
+import { db, recommendation } from '@askmetry/db';
+import { buildClaudePrompt, localizeRec, toLang, type PromptContext, type RecLike } from '@askmetry/core/present';
 import type { Locale } from './i18n/config';
-import { nextMeasurementText } from '@opengeo/core';
+import { nextMeasurementText } from '@askmetry/core';
 import type { RecStatus } from './recommendations';
 
 export type RecRow = {

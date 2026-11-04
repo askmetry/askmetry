@@ -78,7 +78,7 @@ export const mock: Engine = {
     const engine = ctx.engineKey ?? 'mock';
     const { answer, citations, noAiAnswer } = mockAnswer(prompt, ctx.brands ?? [], { engine, repetition: ctx.repetition ?? 1 });
     const o = (ctx.options ?? {}) as { costUsd?: number };
-    const costUsd = o.costUsd ?? Number(process.env.OPENGEO_MOCK_COST_USD ?? 0);
+    const costUsd = o.costUsd ?? Number(process.env.ASKMETRY_MOCK_COST_USD ?? 0);
     const usage = { input_tokens: Math.ceil(prompt.length / 4), output_tokens: Math.ceil(answer.length / 4) };
     return {
       engine, model: 'mock', answer, citations, noAiAnswer, usage, costUsd,

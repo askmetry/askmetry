@@ -1,5 +1,5 @@
 // Farben der visuellen Bausteine (reine Werte, aus Server- und Client-Komponenten nutzbar).
-import type { RecCategory } from '@opengeo/core/present';
+import type { RecCategory } from '@askmetry/core/present';
 
 export const TONE: Record<'red' | 'amber' | 'green', string> = { red: 'var(--bad)', amber: '#d97706', green: 'var(--good)' };
 export const toneColor = (tone: 'red' | 'amber' | 'green') => TONE[tone];

@@ -4,14 +4,14 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
-import { brand, collection, db, prompt, topic, workspace } from '@opengeo/db';
+import { brand, collection, db, prompt, topic, workspace } from '@askmetry/db';
 import { normName, parseList, SELECTABLE_ENGINES } from '@/lib/metrics';
 import { maxBudgetUsd } from '@/lib/limits';
 import { isNoPermission, requireEditor } from '@/lib/session';
 import { getI18n } from '@/lib/i18n/server';
 import { validateDomains } from '@/lib/domain-validation';
-import { isValidCron } from '@opengeo/core/schedule';
-import { autofillBrandProfile, claudeBatchWaiting, refreshLogos } from '@opengeo/core';
+import { isValidCron } from '@askmetry/core/schedule';
+import { autofillBrandProfile, claudeBatchWaiting, refreshLogos } from '@askmetry/core';
 import type { FormState } from './workspaces';
 
 function isUniqueViolation(e: unknown): boolean {

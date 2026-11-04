@@ -24,8 +24,8 @@ export const MIGRATIONS_FOLDER = fileURLToPath(new URL('../drizzle', import.meta
 // Same defaults as drizzle-orm's pg migrator (pg-core/dialect.js); passed explicitly so both sides always agree.
 const MIGRATIONS_SCHEMA = 'drizzle';
 const MIGRATIONS_TABLE = '__drizzle_migrations';
-// Fixed key for pg_advisory_lock, shared by every OpenGEO migrate run against the same database
-const LOCK_NAME = 'opengeo:migrate';
+// Fixed key for pg_advisory_lock, shared by every Askmetry migrate run against the same database
+const LOCK_NAME = 'askmetry:migrate';
 
 type Log = (msg: string) => void;
 
@@ -162,7 +162,7 @@ export async function runMigrations(
         const problems = await diffAgainstSnapshot(client, snapshot);
         if (problems.length) {
           throw new BaselineMismatchError([
-            `The database already contains OpenGEO tables (${existing} of ${tables.length}) but no migration history,`,
+            `The database already contains Askmetry tables (${existing} of ${tables.length}) but no migration history,`,
             `and its schema does not match the baseline migration ${tag}. Nothing was changed.`,
             '',
             'Differences:',
@@ -173,13 +173,13 @@ export async function runMigrations(
             '  1. Back up the database (pg_dump).',
             '  2. Bring the schema to exactly the baseline state with drizzle-kit push, from a source checkout at the commit',
             `     that added drizzle/${tag}.sql (git log --diff-filter=A -- packages/db/drizzle/${tag}.sql):`,
-            '       DATABASE_URL=postgres://… pnpm --filter @opengeo/db exec drizzle-kit push',
+            '       DATABASE_URL=postgres://… pnpm --filter @askmetry/db exec drizzle-kit push',
             '     It lists the changes and asks before anything that would drop data.',
             `     Docker: check out the commit BEFORE that one (its migrate service still uses drizzle-kit push) and run`,
             '       docker compose run --rm --build -it migrate',
             '     then check out the current version again.',
             '  3. Run the migration again (pnpm db:migrate, or `docker compose up -d`). It then records the baseline as applied.',
-            'If the database is not an OpenGEO database at all, point DATABASE_URL at an empty database instead.',
+            'If the database is not an Askmetry database at all, point DATABASE_URL at an empty database instead.',
           ].join('\n'));
         }
         await client.query(`create schema if not exists "${MIGRATIONS_SCHEMA}"`);
@@ -218,7 +218,7 @@ export async function runMigrations(
 }
 
 if (import.meta.main) {
-  const url = process.env.DATABASE_URL ?? 'postgres://opengeo:opengeo@localhost:5433/opengeo';
+  const url = process.env.DATABASE_URL ?? 'postgres://askmetry:askmetry@localhost:5433/askmetry';
   runMigrations(url).then(
     () => process.exit(0),
     (err: unknown) => {

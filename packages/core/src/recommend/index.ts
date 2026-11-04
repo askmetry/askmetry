@@ -1,7 +1,7 @@
 // Maßnahmen-Generator: Messung laden → Regeln → (optional) KI-Formulierung → Upsert in recommendation.
 import {
   brand, citation, collection, db, mention, prompt, recommendation, recommendationGeneration, response, run, topic, workspace,
-} from '@opengeo/db';
+} from '@askmetry/db';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { maxBudgetUsd } from '../budget.ts';
 import { monthToDateSpend } from '../runner.ts';
@@ -283,7 +283,7 @@ export interface GenerateOptions {
   llm?: boolean;
   /** KI-Formulierung ersetzen (Tests) */
   phraser?: Phraser;
-  /** Website-Check (Standard: an, außer im Mock-Modus oder mit OPENGEO_SITE_CHECK=0) */
+  /** Website-Check (Standard: an, außer im Mock-Modus oder mit ASKMETRY_SITE_CHECK=0) */
   siteCheck?: boolean;
   /** fetch für den Website-Check (Tests) */
   fetch?: FetchLike;
@@ -327,7 +327,7 @@ export function technicalCovered(key: string, checks: SiteCheckResult[]): boolea
 /** Schätzung der KI-Kosten für die Budgetprüfung (Haiku, großzügig). */
 
 function siteCheckDefault() {
-  return process.env.OPENGEO_MOCK_ENGINES !== '1' && process.env.OPENGEO_SITE_CHECK !== '0';
+  return process.env.ASKMETRY_MOCK_ENGINES !== '1' && process.env.ASKMETRY_SITE_CHECK !== '0';
 }
 
 /**
@@ -370,7 +370,7 @@ export async function phraseInBatches(
 export async function generateRecommendations(workspaceId: string, opts: GenerateOptions = {}): Promise<GenerateSummary> {
   // Transaktion nur für den Lock (wird mit ihr freigegeben); die Arbeit selbst läuft über eigene Verbindungen
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`opengeo:recommend:${workspaceId}`}))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`askmetry:recommend:${workspaceId}`}))`);
     return generateUnlocked(workspaceId, opts);
   });
 }

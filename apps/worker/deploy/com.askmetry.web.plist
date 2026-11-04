@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- OpenGEO-Web-App (Next.js, Port 3010). Vorher einmal bauen: pnpm --filter @opengeo/web build -->
+<!-- Askmetry-Web-App (Next.js, Port 3010). Vorher einmal bauen: pnpm --filter @askmetry/web build -->
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.opengeo.web</string>
-  <key>WorkingDirectory</key><string>__OPENGEO_DIR__/apps/web</string>
+  <key>Label</key><string>com.askmetry.web</string>
+  <key>WorkingDirectory</key><string>__ASKMETRY_DIR__/apps/web</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__OPENGEO_DIR__/apps/web/node_modules/.bin/next</string>
+    <string>__ASKMETRY_DIR__/apps/web/node_modules/.bin/next</string>
     <string>start</string>
     <string>-p</string>
     <string>3010</string>
@@ -20,7 +20,7 @@
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>30</integer>
-  <key>StandardOutPath</key><string>__HOME__/Library/Logs/opengeo-web.log</string>
-  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/opengeo-web.log</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/askmetry-web.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/askmetry-web.log</string>
 </dict>
 </plist>

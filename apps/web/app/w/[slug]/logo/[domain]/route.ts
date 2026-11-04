@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { brand, db, workspace, workspaceMember } from '@opengeo/db';
-import { loadLogo } from '@opengeo/core';
+import { brand, db, workspace, workspaceMember } from '@askmetry/db';
+import { loadLogo } from '@askmetry/core';
 import { getSession } from '@/lib/session';
 
 const notFound = () => new Response('Not found', { status: 404 });

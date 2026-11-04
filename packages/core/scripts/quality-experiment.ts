@@ -1,11 +1,11 @@
 // Qualitäts-Experiment: günstigere Engine-Einstellungen gegen die teure Referenz-Messung vom 31.10.2026.
-// Aufruf (aus opengeo/): node --env-file=.env packages/core/scripts/quality-experiment.ts [--report]
+// Aufruf (aus dem Repo-Root): node --env-file=.env packages/core/scripts/quality-experiment.ts [--report]
 // Ergebnisse werden je Variante/Prompt/Wiederholung in spike/quality/results/ zwischengespeichert,
 // ein erneuter Aufruf fragt nur Fehlendes ab (kostet dann nichts).
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, inArray } from 'drizzle-orm';
-import { brand, citation, closeDb, collection, db, prompt, response, run, workspace } from '@opengeo/db';
+import { brand, citation, closeDb, collection, db, prompt, response, run, workspace } from '@askmetry/db';
 import { analyzeWithLlm } from '../src/analyze.ts';
 import { chatgpt } from '../src/engines/chatgpt.ts';
 import { claude } from '../src/engines/claude.ts';
