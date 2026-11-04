@@ -258,7 +258,7 @@ Antwort, Quellen (`searched`), Analyse (Nennungen, answer_type) und Kosten kamen
 - Wer sie **als Online-Dienst anbietet**, muss seine Änderungen ebenfalls offenlegen. Das schützt davor, dass ein Dritter einfach eine geschlossene Konkurrenz-Hosted-Version baut.
 - Als Rechteinhaber darfst du selbst jederzeit eine Hosted-Version betreiben – auch mit Zusatzfunktionen.
 - Bewährtes Modell, z. B. Plausible Analytics und Cal.com (AGPL + Hosted-Version).
-- Für Beiträge Dritter: ein Contributor License Agreement (CLA) einführen, sobald externe Pull Requests kommen. Sonst gehören Teile des Codes anderen, und spätere Lizenz-Entscheidungen werden schwer.
+- Beiträge Dritter: **DCO statt CLA** (Entscheidung 04.11.2026). Jeder Commit trägt ein `Signed-off-by`; fremde Beiträge stehen damit unter AGPL-3.0, eine spätere Umlizenzierung dieser Teile bräuchte die Zustimmung der Beitragenden.
 - Alternative MIT: maximal offen, aber jeder könnte eine geschlossene Hosted-Version bauen.
 
 ## 14. Noch offene Fragen

@@ -4,10 +4,7 @@
 
 Please **do not** open a public issue for security problems.
 
-<!-- TODO (maintainer): replace security@<domain> with a real, monitored address – and/or enable GitHub private vulnerability reporting (Settings → Security → Private vulnerability reporting). -->
-
-- Email: **security@&lt;domain&gt;** (TODO)
-- Or use GitHub's private vulnerability reporting ("Report a vulnerability" in the Security tab), if enabled.
+Report it privately through GitHub: [**Report a vulnerability**](https://github.com/mafauth2/askmetry/security/advisories/new) (Security tab → "Report a vulnerability"). Only the maintainers can see these reports.
 
 Please include a description, steps to reproduce, affected version/commit and the impact you see. We aim to acknowledge reports within 5 working days and to agree on a disclosure date with you. We are a small project and cannot pay bug bounties, but we are happy to credit you.
 

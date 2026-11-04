@@ -18,4 +18,6 @@
 - [ ] Cost impact per measurement: none / described below
 - [ ] New dependencies are AGPL-compatible
 
-By submitting this pull request I agree that my contribution is licensed under AGPL-3.0-only.
+- [ ] All commits are signed off (`git commit -s`, see [CONTRIBUTING.md](../CONTRIBUTING.md#developer-certificate-of-origin-dco))
+
+By submitting this pull request I certify the [Developer Certificate of Origin](https://developercertificate.org/) and agree that my contribution is licensed under AGPL-3.0-only.

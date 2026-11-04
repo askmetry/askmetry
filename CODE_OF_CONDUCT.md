@@ -6,4 +6,4 @@ In short: be respectful and constructive, assume good intent, and keep discussio
 
 ## Reporting
 
-Report unacceptable behaviour to the maintainers at **conduct@&lt;domain&gt;** <!-- TODO (maintainer): replace with a real, monitored address -->. All reports are handled confidentially. Maintainers may remove comments, lock threads or ban participants, following the enforcement guidelines of the Contributor Covenant 2.1.
+Report unacceptable behaviour to the maintainers at **maxfabianuth.business@gmail.com**. All reports are handled confidentially. Maintainers may remove comments, lock threads or ban participants, following the enforcement guidelines of the Contributor Covenant 2.1.

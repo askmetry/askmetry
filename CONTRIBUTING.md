@@ -2,7 +2,17 @@
 
 Thanks for your interest! Bug reports, ideas and pull requests are welcome. Please follow our [Code of Conduct](CODE_OF_CONDUCT.md). Security issues go through [SECURITY.md](SECURITY.md), not public issues.
 
-<!-- TODO (maintainer): decide on a Contributor License Agreement (CLA) or DCO before merging the first external PR (see SPEC.md 13.2) and document it here. -->
+## Developer Certificate of Origin (DCO)
+
+There is no CLA. Instead, every commit must be signed off under the [Developer Certificate of Origin 1.1](https://developercertificate.org/): by adding a `Signed-off-by` line you confirm that you wrote the change (or have the right to submit it) and that it may be distributed under the project's license, AGPL-3.0-only.
+
+```bash
+git commit -s -m "Fix …"        # adds: Signed-off-by: Your Name <you@example.com>
+git commit --amend -s --no-edit # sign off the last commit afterwards
+git rebase --signoff main       # sign off all commits of your branch
+```
+
+The name and e-mail must match the commit author. A CI check rejects pull requests with commits that are not signed off.
 
 ## Before you start
 
