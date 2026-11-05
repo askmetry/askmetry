@@ -2,7 +2,7 @@ import { engineDefaults, prices, type PriceRow } from './engine-config.ts';
 
 /** Preise einer Zeile zum Zeitpunkt `at` (angekündigte Änderungen eingerechnet). */
 function priceAt(row: PriceRow, at: Date): PriceRow {
-  const day = at.toISOString().slice(0, 10);
+  const day = (Number.isFinite(at.getTime()) ? at : new Date()).toISOString().slice(0, 10);
   let p: PriceRow = row;
   for (const c of row.changes ?? []) {
     if (day < c.from) continue;

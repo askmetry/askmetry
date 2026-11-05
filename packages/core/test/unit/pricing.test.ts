@@ -31,6 +31,8 @@ describe('pricing', () => {
     expect(costFromUsage({ engine: 'gemini', model: 'gemini-3.6-flash', usage, at: new Date('2026-12-31T12:00:00Z') })).toBeCloseTo(0.75 + 3.75, 6);
     expect(costFromUsage({ engine: 'gemini', model: 'gemini-3.6-flash', usage, at: new Date('2027-01-01T00:00:00Z') })).toBeCloseTo(1.5 + 7.5, 6);
     expect(priceFor('gemini-3.6-flash', 'gemini', new Date('2027-02-01'))?.perSearch).toBe(0);
+    // ohne modelVersion: angefragtes gemini-3.5-flash, gleiche Preise
+    expect(costFromUsage({ engine: 'gemini', model: null, usage, at: new Date('2027-01-01T00:00:00Z') })).toBeCloseTo(1.5 + 7.5, 6);
   });
   it('chat-latest: eigene Preiszeile', () => {
     expect(priceFor('chat-latest')?.perSearch).toBe(0.025);

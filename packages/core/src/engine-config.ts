@@ -41,6 +41,11 @@ export interface PriceRow {
   changes?: { from: string; input?: number; output?: number; cachedInput?: number; perSearch?: number }[];
 }
 
+const GEMINI_FLASH: PriceRow = {
+  input: 0.75, output: 3.75, perSearch: 0, cachedInput: 0.075,
+  changes: [{ from: '2027-01-01', input: 1.5, output: 7.5, cachedInput: 0.15 }],
+};
+
 // Listenpreise in USD (Stand 05.11.2026, Quellen siehe SPEC.md). Pro 1 Mio. Tokens bzw. pro Suche.
 export const prices: Record<string, PriceRow> = {
   // cached input 0,50 $ (developers.openai.com/api/docs/pricing); flex/Batch halbiert alle Token-Preise
@@ -49,13 +54,10 @@ export const prices: Record<string, PriceRow> = {
   // (10 $/1.000 + Suchinhalte zum Modellpreis) abgerechnet wird, ist unklar → vorsichtig: Suchinhalte + 25 $/1.000.
   'chat-latest': { input: 5, output: 30, perSearch: 0.025 },
   'gpt-5.4-mini': { input: 0.75, output: 4.5, perSearch: 0.01 },
-  'gemini-3.5-flash': { input: 0.75, output: 3.75, perSearch: 0 }, // Grounding im Freikontingent
-  // Die API meldet für gemini-3.5-flash die modelVersion gemini-3.6-flash. Preise verdoppeln sich ab 01.01.2027
-  // (aistudio.google.com/docs/pricing). Grounding: 5.000 Anfragen/Monat frei, danach 14 $/1.000 – hier 0 (Freikontingent).
-  'gemini-3.6-flash': {
-    input: 0.75, output: 3.75, perSearch: 0, cachedInput: 0.075,
-    changes: [{ from: '2027-01-01', input: 1.5, output: 7.5, cachedInput: 0.15 }],
-  },
+  // Die API meldet für gemini-3.5-flash die modelVersion gemini-3.6-flash; beide Zeilen gleich. Preise verdoppeln sich
+  // ab 01.01.2027 (aistudio.google.com/docs/pricing). Grounding: 5.000 Anfragen/Monat frei, danach 14 $/1.000 – hier 0.
+  'gemini-3.5-flash': GEMINI_FLASH,
+  'gemini-3.6-flash': GEMINI_FLASH,
   // Cache-Lesen: Opus 5.5 0,05× (0,20 $), Sonnet/Haiku 0,1×; Cache-Schreiben (5 Min.) 1,25×
   'claude-opus-5-5': { input: 4, output: 20, perSearch: 0.01, cachedInput: 0.2 },
   'claude-sonnet-5-5': { input: 2, output: 10, perSearch: 0.01, cachedInput: 0.2 },
