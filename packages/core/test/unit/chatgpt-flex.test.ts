@@ -22,6 +22,21 @@ describe('ChatGPT flex', () => {
     expect(sentTiers(f)).toEqual(['flex']);
     expect(r.costUsd).toBeCloseTo((0.005 + 0.003) / 2, 6);
   });
+  it('zählt nur Suchen (action search) als abgerechnete Suchaufrufe, nicht open_page', async () => {
+    const body = {
+      model: 'gpt-5.5', service_tier: 'flex', usage: { input_tokens: 1000, output_tokens: 100, input_tokens_details: { cached_tokens: 0 } },
+      output: [
+        { type: 'web_search_call', action: { type: 'search', query: 'a' } },
+        { type: 'web_search_call', action: { type: 'open_page', url: 'https://example.com/' } },
+        { type: 'web_search_call' },
+        { type: 'message', content: [{ type: 'output_text', text: 'Antwort', annotations: [] }] },
+      ],
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(body), { status: 200 })));
+    const r = await chatgpt.run('Frage', ctx);
+    expect(r.usage?.web_search_calls).toBe(2);
+    expect(r.costUsd).toBeCloseTo((0.005 + 0.003) / 2 + 0.02, 6);
+  });
   it('fällt bei fehlender flex-Kapazität einmal auf den Normalpreis zurück', async () => {
     const f = vi.fn().mockResolvedValueOnce(err(429, 'Resource Unavailable')).mockResolvedValueOnce(ok('default'));
     vi.stubGlobal('fetch', f);

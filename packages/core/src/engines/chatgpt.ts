@@ -48,8 +48,10 @@ export const chatgpt: Engine = {
         }
       }
     }
-    // Jeder web_search_call wird als Suche abgerechnet
-    const searchCalls = (raw.output ?? []).filter((i: any) => i.type === 'web_search_call').length;
+    // Abgerechnet werden nur Suchen (action.type 'search'); open_page/find_in_page sind keine Suchanfragen.
+    // Ohne action-Angabe vorsichtig als Suche zählen.
+    const searchCalls = (raw.output ?? []).filter((i: any) =>
+      i.type === 'web_search_call' && (!i.action?.type || i.action.type === 'search')).length;
     // service_tier meldet die API zurück (flex = Batch-Preise)
     const usage = { ...raw.usage, web_search_calls: searchCalls, service_tier: raw.service_tier ?? null };
     const served = raw.model ?? model;
