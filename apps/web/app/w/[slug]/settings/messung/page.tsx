@@ -11,6 +11,8 @@ import { workspaceContext } from '@/lib/context';
 import { SELECTABLE_ENGINES } from '@/lib/metrics';
 import { engineName } from '@askmetry/core/present';
 import { getI18n, getT } from '@/lib/i18n/server';
+import { redirect } from 'next/navigation';
+import { rightsFor } from '@/lib/hosted/server';
 import { scheduleText } from '@/lib/schedule';
 import { loadCosts, runStatsByCollection } from '@/lib/settings-data';
 
@@ -22,6 +24,7 @@ export async function generateMetadata() {
 export default async function MessungPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const { ws, all, canEdit } = await workspaceContext(slug, {});
+  if (!(await rightsFor(ws)).measureSettings) redirect(`/w/${slug}/berichte`);
   const ro = !canEdit;
   const { t: tt, f, locale } = await getI18n();
   const t = tt.settings;

@@ -1,12 +1,13 @@
 import { collection, db, workspace } from '@askmetry/db';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { CollectionActiveError, createCollection, hasActiveCollection } from './runner.ts';
 import { isScheduleDue } from './schedule.ts';
 
 /** Für jeden Workspace mit aktivem Zeitplan eine geplante Collection anlegen, wenn sie fällig ist. */
 export async function createDueScheduledCollections(now = new Date(), log: (m: string) => void = () => {}) {
   const created: string[] = [];
-  const list = await db.select().from(workspace).where(eq(workspace.scheduleEnabled, true));
+  // gehostete Arbeitsbereiche (hosted_kind gesetzt) messen nie per Zeitplan – nur über Checks/Berichte
+  const list = await db.select().from(workspace).where(and(eq(workspace.scheduleEnabled, true), isNull(workspace.hostedKind)));
   for (const ws of list) {
     const [last] = await db.select({ createdAt: collection.createdAt }).from(collection)
       .where(and(eq(collection.workspaceId, ws.id), eq(collection.trigger, 'scheduled')))

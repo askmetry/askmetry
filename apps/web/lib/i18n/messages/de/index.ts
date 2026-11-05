@@ -7,6 +7,13 @@ import recs from './recs';
 import questions from './questions';
 import settings from './settings';
 import workspaces from './workspaces';
+import check from './check';
+import buy from './buy';
+import reports from './reports';
+import account from './account';
+import marketing from './marketing';
+import legal from './legal';
+import billing from './billing';
 
-export const de = { common, auth, overview, analysis, sources, recs, questions, settings, workspaces };
+export const de = { common, auth, overview, analysis, sources, recs, questions, settings, workspaces, marketing, legal, billing, check, buy, reports, account };
 export type Messages = typeof de;

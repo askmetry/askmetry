@@ -15,6 +15,13 @@
       "when": 1793868378103,
       "tag": "0001_hesitant_starbolt",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793871183128,
+      "tag": "0002_fancy_skreet",
+      "breakpoints": true
     }
   ]
 }

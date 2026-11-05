@@ -9,12 +9,14 @@ import { validateDomains } from '@/lib/domain-validation';
 import { requireUser } from '@/lib/session';
 import { getI18n } from '@/lib/i18n/server';
 import { slugify } from '@/lib/slug';
+import { isHosted } from '@askmetry/core/hosted/config';
 
 export type FormState = { error?: string; ok?: string } | null;
 
 export async function createWorkspace(_prev: FormState, form: FormData): Promise<FormState> {
   const u = await requireUser();
   const { t, locale } = await getI18n();
+  if (isHosted()) return { error: t.reports.lock.noNewWorkspace };
   const name = String(form.get('name') ?? '').trim();
   const brandName = String(form.get('brandName') ?? '').trim();
   const dom = validateDomains(String(form.get('domains') ?? ''), locale);

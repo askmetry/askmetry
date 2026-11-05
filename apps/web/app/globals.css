@@ -209,3 +209,29 @@ mark.hl-untracked { background: var(--untracked-soft); color: var(--fg); border-
 /* Marken-Logos: feiner Rand, damit weiße Logos auf weißer Karte nicht verschwinden */
 .brand-mark { box-shadow: inset 0 0 0 1px rgb(0 0 0 / .06); }
 @media (prefers-color-scheme: dark) { .brand-mark { box-shadow: inset 0 0 0 1px rgb(255 255 255 / .08); } }
+
+/* Rechtstexte (Impressum, Datenschutz, AGB, AVV) – ruhiges Lese-Layout */
+.legal-md { line-height: 1.7; overflow-wrap: anywhere; }
+.legal-md > :first-child { margin-top: 0; }
+.legal-md p, .legal-md ul, .legal-md ol, .legal-md .md-table, .legal-md blockquote { margin: 0 0 1em; }
+.legal-md h2 { font-size: 1.25rem; font-weight: 600; letter-spacing: -.01em; line-height: 1.35; margin: 2.2em 0 .6em; scroll-margin-top: 5rem; }
+.legal-md h3 { font-size: 1.0625rem; font-weight: 600; line-height: 1.4; margin: 1.6em 0 .4em; scroll-margin-top: 5rem; }
+.legal-md h4 { font-weight: 600; margin: 1.2em 0 .3em; }
+.legal-md strong { font-weight: 600; }
+.legal-md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in oklab, var(--accent) 40%, transparent); }
+.legal-md ul { list-style: disc; padding-left: 1.3em; }
+.legal-md ol { list-style: decimal; padding-left: 1.5em; }
+.legal-md li { margin: .25em 0; }
+.legal-md li::marker { color: var(--faint); }
+.legal-md blockquote { border-left: 3px solid var(--border); padding-left: .9em; color: var(--muted); }
+.legal-md hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+.legal-md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; background: var(--subtle); border-radius: 4px; padding: .1em .3em; }
+.legal-md .md-table { overflow-x: auto; border: 1px solid var(--border); border-radius: .75rem; background: var(--card); }
+.legal-md table { width: 100%; border-collapse: collapse; font-size: .875rem; line-height: 1.5; }
+.legal-md th, .legal-md td { padding: .55em .8em; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; min-width: 8em; overflow-wrap: normal; }
+.legal-md th { font-weight: 500; color: var(--muted); background: var(--subtle); }
+.legal-md tr:last-child td { border-bottom: none; }
+
+/* Unbestimmter Fortschritt (Schnell-Check, Berichte) */
+@keyframes progress { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+@media (prefers-reduced-motion: reduce) { .animate-\[progress_1\.6s_ease-in-out_infinite\], .animate-pulse { animation: none !important; } }

@@ -5,12 +5,16 @@ import { LocaleSwitcher } from '@/components/locale-switcher';
 import { signupAllowed } from '@/lib/limits';
 import { getSession } from '@/lib/session';
 import { getT } from '@/lib/i18n/server';
+import { isHosted, verifiedCheckEmail } from '@/lib/hosted/server';
+import { checkTokenFromNext, safeNext } from '@/lib/hosted/safe-next';
 
 export async function generateMetadata() {
   return { title: (await getT()).auth.signupPageTitle };
 }
-export default async function SignupPage() {
-  if (await getSession()) redirect('/w');
+export default async function SignupPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
+  const next = safeNext(typeof sp.next === 'string' ? sp.next : null);
+  if (await getSession()) redirect(next ?? '/w');
   if (!signupAllowed()) {
     const t = (await getT()).auth.closed;
     return (
@@ -25,5 +29,10 @@ export default async function SignupPage() {
       </main>
     );
   }
-  return <AuthForm mode="signup" />;
+  // Kauf aus einem Schnell-Check: E-Mail aus dem (bestätigten) Check vorbelegen; Token steht im Rücksprung-Ziel
+  const hosted = isHosted();
+  const token = hosted ? checkTokenFromNext(next) : null;
+  const t = (await getT()).auth;
+  return <AuthForm mode="signup" next={next} hosted={hosted} defaultEmail={token ? await verifiedCheckEmail(token) : null}
+    intro={token || next?.startsWith('/kaufen') ? t.signupForReport : undefined} />;
 }

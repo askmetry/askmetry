@@ -12,11 +12,15 @@
     "typecheck": "tsc --noEmit",
     "test": "echo \"keine Tests im Worker (siehe packages/core)\"",
     "recommend": "tsx src/cli.ts recommend",
-    "backfill-searched": "tsx src/cli.ts backfill-searched"
+    "backfill-searched": "tsx src/cli.ts backfill-searched",
+    "stats": "tsx src/cli.ts stats",
+    "check": "tsx src/cli.ts check",
+    "report-pdf": "tsx src/cli.ts report-pdf"
   },
   "dependencies": {
     "@askmetry/core": "workspace:*",
     "@askmetry/db": "workspace:*",
+    "@askmetry/report": "workspace:*",
     "dotenv": "^18.0.9",
     "drizzle-orm": "^0.45.4"
   },

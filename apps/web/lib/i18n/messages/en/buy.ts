@@ -1,0 +1,43 @@
+import type de from '../de/buy';
+
+const buy: typeof de = {
+  metaTitle: 'Buy a report',
+  title: (tier: string) => `Order: ${tier}`,
+  remeasureTitle: (tier: string) => `Follow-up measurement: ${tier}`,
+  forBrand: (brand: string) => `For ${brand}`,
+  includes: 'What’s included',
+  remeasurePoints: ['Same questions, competitors and AI engines as your last report', 'Before-and-after comparison for every metric', 'PDF report by email'],
+  howItWorks: 'What happens next',
+  howSteps: ['You pay securely by card or bank transfer and receive an invoice.', 'You review the questions and competitors and start the measurement.', 'A few hours later you get the report as a PDF by email.'],
+  remeasureSteps: ['You pay securely by card or bank transfer and receive an invoice.', 'The measurement starts right away with the same questions.', 'A few hours later you get the comparison as a PDF by email.'],
+  price: 'Price',
+  net: 'net, plus VAT',
+  listPrice: 'instead of',
+  betaPrice: 'Beta price',
+  b2b: 'I’m ordering as a business (§ 14 BGB), not as a consumer.',
+  termsBefore: 'I accept the',
+  termsLink: 'terms and conditions',
+  termsMiddle: 'and have read the',
+  privacyLink: 'privacy policy',
+  termsAfter: '.',
+  submit: 'Continue to payment',
+  reminderNote: 'After your report we may send you a reminder about a follow-up measurement. You can object at any time – the link is in every email.',
+  busy: 'One moment …',
+  canceled: 'The payment was canceled. You can try again at any time.',
+  businessOnly: 'Askmetry only sells to businesses. The invoice shows VAT; you can enter your VAT ID during payment.',
+  errors: {
+    b2b: 'Please confirm that you’re ordering as a business.',
+    terms: 'Please accept the terms and conditions.',
+    generic: 'Something went wrong. Please try again.',
+  },
+  invalid: {
+    title: 'This offer isn’t available',
+    text: 'The link is incomplete or the check is no longer valid. It’s best to start a new quick check.',
+    noReport: 'A follow-up measurement is only possible once a report is ready.',
+    back: 'Go to the home page',
+  },
+  signupFirst: 'First create a free account – that’s where you’ll find your report later.',
+  back: 'Back to the check',
+  backToReports: 'Back to reports',
+};
+export default buy;

@@ -13,6 +13,7 @@ import { CategoryIcon, Dot, ScoreRing } from '@/components/viz';
 import { CAT_STYLE, toneColor } from '@/components/viz-style';
 import { startCollection } from '@/lib/actions/settings';
 import { workspaceContext } from '@/lib/context';
+import { remeasureHref, rightsFor } from '@/lib/hosted/server';
 import { logoMap } from '@/lib/logos';
 import { getI18n, getT } from '@/lib/i18n/server';
 import { brandMetrics, engineLabel, groupBy, loadBase, sortEngines } from '@/lib/metrics';
@@ -35,9 +36,12 @@ const Section = ({ title, hint, children, aside }: { title: string; hint?: React
   </section>
 );
 
-export default async function Uebersicht({ params }: { params: Promise<{ slug: string }> }) {
+export default async function Uebersicht({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { slug } = await params;
   const ctx = await workspaceContext(slug, {});
+  const rights = await rightsFor(ctx.ws);
+  const canceledNote = (await searchParams).checkout === 'canceled'
+    ? <p role="status" className="mb-6 rounded-xl bg-subtle px-4 py-3 text-sm">{(await getI18n()).t.buy.canceled}</p> : null;
   const { locale, t: tt, f } = await getI18n();
   const t = tt.overview;
   const { ws, own, brands, selected, previous, all, canEdit } = ctx;
@@ -52,17 +56,21 @@ export default async function Uebersicht({ params }: { params: Promise<{ slug: s
   if (!selected) {
     if (running) {
       return (
-        <EmptyState title={t.firstRunning.title} action={{ href: `/w/${slug}/settings/messung`, label: t.firstRunning.action }}>
+        <EmptyState title={t.firstRunning.title} action={{ href: ctx.measureHref, label: ctx.measureLabel ?? t.firstRunning.action }}>
           {t.firstRunning.text + batchNote}
         </EmptyState>
       );
+    }
+    // Kunden-Workspace (gehostet): Messung läuft über den Bericht
+    if (ctx.customer) {
+      return <>{canceledNote}<EmptyState title={tt.reports.firstReport} action={{ href: ctx.measureHref, label: tt.reports.measureViaReports }}>{tt.reports.firstReportText}</EmptyState></>;
     }
     // Neuer Workspace: drei Schritte bis zur ersten Messung, abgehakt nach echtem Stand
     const [pr] = await db.select({ n: sql<number>`count(*) filter (where ${prompt.active})::int` }).from(prompt).where(eq(prompt.workspaceId, ws.id));
     const steps = [
       { done: brands.some((b) => !b.isOwn), label: t.onboarding.competitors, text: t.onboarding.competitorsText, href: `/w/${slug}/settings/wettbewerber` },
       { done: (pr?.n ?? 0) > 0, label: t.onboarding.questions, text: t.onboarding.questionsText, href: `/w/${slug}/settings/fragen` },
-      { done: false, label: t.onboarding.measure, text: t.onboarding.measureText, href: `/w/${slug}/settings/messung` },
+      { done: false, label: t.onboarding.measure, text: t.onboarding.measureText, href: ctx.measureHref },
     ];
     return (
       <div className="mx-auto max-w-xl space-y-6" data-testid="onboarding">
@@ -124,8 +132,10 @@ export default async function Uebersicht({ params }: { params: Promise<{ slug: s
   const catCount = new Map<RecCategory, number>();
   for (const r of current) catCount.set(categoryOf(r.type), (catCount.get(categoryOf(r.type)) ?? 0) + 1);
 
+  const rebuy = await remeasureHref(ws);
   return (
     <div className="space-y-12">
+      {canceledNote}
       {/* Kopfzeile */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-4">
@@ -134,7 +144,12 @@ export default async function Uebersicht({ params }: { params: Promise<{ slug: s
           <h1 className="text-2xl font-semibold tracking-tight">{own.name}</h1>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted">
             <span>{t.measuredOn(f.date(selected.finishedAt ?? selected.createdAt, false))}</span>
-            {running ? <span>{t.newRunning + batchNote}</span> : canEdit && (
+            {running ? <span>{t.newRunning + batchNote}</span> : !rights.measureNow ? (rebuy && canEdit && (
+              <>
+                <span aria-hidden>·</span>
+                <Link href={rebuy} className="text-sm text-accent hover:underline">{tt.reports.remeasureLink}</Link>
+              </>
+            )) : canEdit && (
               <>
                 <span aria-hidden>·</span>
                 <ActionForm action={startCollection} slug={slug} submit={t.measureAgain} inline className="contents"

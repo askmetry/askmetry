@@ -18,7 +18,10 @@ const auth = {
     passwordTooShort: 'Das Passwort muss mindestens 8 Zeichen haben.',
     invalidEmail: 'Bitte gib eine gültige E-Mail-Adresse ein.',
     generic: 'Das hat nicht geklappt. Bitte versuche es erneut.',
+    notVerified: 'Bitte bestätige zuerst deine E-Mail-Adresse. Wir haben dir den Link noch einmal geschickt.',
   },
+  signupForReport: 'Konto anlegen, um deinen Bericht zu bestellen',
+  verifyHint: 'Wir schicken dir eine Mail, um deine Adresse zu bestätigen.',
   closed: {
     title: 'Registrierung geschlossen',
     text: 'Neue Konten können auf dieser Instanz nicht selbst angelegt werden. Bitte wende dich an die Person, die Askmetry hier betreibt.',

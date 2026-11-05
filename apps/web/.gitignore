@@ -2,3 +2,4 @@
 .dev-credentials
 next-env.d.ts
 *.tsbuildinfo
+.dev-hosted-credentials

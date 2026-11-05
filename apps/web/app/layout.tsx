@@ -5,7 +5,8 @@ import { getI18n } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
-  return { title: { default: 'Askmetry', template: '%s · Askmetry' }, description: t.common.appDescription };
+  // Standard: nicht indexieren (App, Check, Kauf); Startseite und Rechtsseiten überschreiben das mit index: true
+  return { title: { default: 'Askmetry', template: '%s · Askmetry' }, description: t.common.appDescription, robots: { index: false, follow: false } };
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

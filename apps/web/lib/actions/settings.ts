@@ -13,6 +13,7 @@ import { validateDomains } from '@/lib/domain-validation';
 import { isValidCron } from '@askmetry/core/schedule';
 import { autofillBrandProfile, claudeBatchWaiting, refreshLogos } from '@askmetry/core';
 import type { FormState } from './workspaces';
+import { limitsFor, rightsFor } from '@/lib/hosted/server';
 
 function isUniqueViolation(e: unknown): boolean {
   for (let cur: any = e, i = 0; cur && i < 5; cur = cur.cause, i++) if (cur.code === '23505') return true;
@@ -30,11 +31,28 @@ async function guard(f: FormData) {
   const slug = str(f, 'slug');
   const { t, f: fmt, locale } = await getI18n();
   try {
-    return { slug, t: t.settings, fmt, locale, ...(await requireEditor(slug)) };
+    const ctx = await requireEditor(slug);
+    return { slug, t: t.settings, tr: t.reports, fmt, locale, ...ctx, rights: await rightsFor(ctx.ws) };
   } catch (e) {
     if (isNoPermission(e)) return { slug, denied: t.common.noPermission } as const;
     throw e;
   }
+}
+
+type G = Exclude<Awaited<ReturnType<typeof guard>>, { denied: string }>;
+/** Gehostet, Kunden-Workspace: Fragen/Wettbewerber gesperrt, solange ein Bericht misst. */
+const editLock = (g: G): FormState => (g.rights.editPromptsAndCompetitors ? null : { error: g.rights.lockReason === 'remeasure' ? g.tr.lock.remeasure : g.tr.lock.measuring });
+
+/** Gehostet, Kunden-Workspace: höchstens so viele aktive Fragen bzw. Wettbewerber, wie der Bericht misst. */
+async function overLimit(g: G, what: 'prompts' | 'competitors', adding = 1): Promise<FormState> {
+  const lim = await limitsFor(g.ws);
+  if (!lim) return null;
+  if (what === 'prompts') {
+    const [r] = await db.select({ n: sql<number>`count(*)::int` }).from(prompt).where(and(eq(prompt.workspaceId, g.ws.id), eq(prompt.active, true)));
+    return (r?.n ?? 0) + adding > lim.prompts ? { error: g.tr.lock.tooManyPrompts(lim.prompts) } : null;
+  }
+  const [r] = await db.select({ n: sql<number>`count(*)::int` }).from(brand).where(and(eq(brand.workspaceId, g.ws.id), eq(brand.isOwn, false)));
+  return (r?.n ?? 0) + adding > lim.competitors ? { error: g.tr.lock.tooManyCompetitors(lim.competitors) } : null;
 }
 
 /** Bisher ungetrackte Nennungen (brand_id null) der Marke zuordnen – höchstens eine pro Antwort. */
@@ -55,10 +73,13 @@ async function backfillMentions(workspaceId: string, brandId: string, names: str
 export async function addCompetitor(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
+  const lock = editLock(g);
+  if (lock) return lock;
   const name = str(f, 'name');
   if (!name) return { error: g.t.errors.nameMissing };
   const existing = await db.select({ id: brand.id }).from(brand)
     .where(and(eq(brand.workspaceId, g.ws.id), sql`lower(${brand.name}) = ${name.toLowerCase()}`));
+  if (!existing[0]) { const lim = await overLimit(g, 'competitors'); if (lim) return lim; }
   const id = existing[0]?.id ?? (await db.insert(brand).values({ workspaceId: g.ws.id, name, isOwn: false }).returning({ id: brand.id }))[0]!.id;
   await backfillMentions(g.ws.id, id, [name]);
   return done(g.slug, g.t.ok.tracked(name));
@@ -68,6 +89,8 @@ export async function addCompetitor(_p: FormState, f: FormData): Promise<FormSta
 export async function addCompetitors(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
+  const lock = editLock(g);
+  if (lock) return lock;
   const names = f.getAll('name').map((n) => String(n).replace(/\s+/g, ' ').trim()).filter((n) => n && n.length <= 80).slice(0, 10);
   if (!names.length) return { error: g.t.errors.nameMissing };
   const existing = await db.select({ name: brand.name, aliases: brand.aliases }).from(brand).where(eq(brand.workspaceId, g.ws.id));
@@ -75,6 +98,7 @@ export async function addCompetitors(_p: FormState, f: FormData): Promise<FormSt
   let n = 0;
   for (const name of names) {
     if (have.has(normName(name))) continue;
+    if (await overLimit(g, 'competitors')) break;
     have.add(normName(name)); // auch Dubletten innerhalb der Liste (Foo/foo) überspringen
     const id = (await db.insert(brand).values({ workspaceId: g.ws.id, name, isOwn: false }).returning({ id: brand.id }))[0]!.id;
     await backfillMentions(g.ws.id, id, [name]);
@@ -92,6 +116,10 @@ export async function saveBrand(_p: FormState, f: FormData): Promise<FormState> 
   const dom = validateDomains(str(f, 'domains'), g.locale);
   if ('error' in dom) return { error: dom.error };
   // Beschreibung/Typ pflegt nur saveBrandProfile (bzw. die automatische Erkennung) – hier nie überschreiben
+  // eigene Marke bleibt bearbeitbar; Wettbewerber sind gesperrt, solange ein Bericht misst
+  const [target] = id ? await db.select({ isOwn: brand.isOwn }).from(brand).where(and(eq(brand.id, id), eq(brand.workspaceId, g.ws.id))) : [];
+  if (!target?.isOwn) { const lock = editLock(g); if (lock) return lock; }
+  if (!id) { const lim = await overLimit(g, 'competitors'); if (lim) return lim; }
   const values = {
     name,
     aliases: parseList(str(f, 'aliases')),
@@ -122,6 +150,8 @@ export async function saveBrand(_p: FormState, f: FormData): Promise<FormState> 
 export async function deleteBrand(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
+  const lock = editLock(g);
+  if (lock) return lock;
   const r = await db.delete(brand).where(and(eq(brand.id, str(f, 'id')), eq(brand.workspaceId, g.ws.id), eq(brand.isOwn, false))).returning({ id: brand.id });
   if (!r.length) return { error: g.t.errors.cannotDeleteOwn };
   return done(g.slug, g.t.ok.competitorRemoved);
@@ -139,7 +169,14 @@ export async function savePrompt(_p: FormState, f: FormData): Promise<FormState>
   const id = str(f, 'id');
   const text = str(f, 'text');
   if (text.length < 5) return { error: g.t.errors.fullQuestion };
+  const lock = editLock(g);
+  if (lock) return lock;
   const values = { text, topicId: await validTopic(g.ws.id, str(f, 'topicId')), active: f.get('active') === 'on' };
+  if (values.active) {
+    // nur zählen, wenn die Frage dadurch neu aktiv wird
+    const [was] = id ? await db.select({ active: prompt.active }).from(prompt).where(and(eq(prompt.id, id), eq(prompt.workspaceId, g.ws.id))) : [];
+    if (!was?.active) { const lim = await overLimit(g, 'prompts'); if (lim) return lim; }
+  }
   if (id) {
     const r = await db.update(prompt).set(values).where(and(eq(prompt.id, id), eq(prompt.workspaceId, g.ws.id))).returning({ id: prompt.id });
     if (!r.length) return { error: g.t.errors.promptNotFound };
@@ -152,6 +189,8 @@ export async function savePrompt(_p: FormState, f: FormData): Promise<FormState>
 export async function deletePrompt(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
+  const lock = editLock(g);
+  if (lock) return lock;
   await db.delete(prompt).where(and(eq(prompt.id, str(f, 'id')), eq(prompt.workspaceId, g.ws.id)));
   return done(g.slug, g.t.ok.promptDeleted);
 }
@@ -159,6 +198,8 @@ export async function deletePrompt(_p: FormState, f: FormData): Promise<FormStat
 export async function saveTopic(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
+  const lock = editLock(g);
+  if (lock) return lock;
   const id = str(f, 'id');
   const name = str(f, 'name');
   if (!name) return { error: g.t.errors.enterName };
@@ -170,6 +211,8 @@ export async function saveTopic(_p: FormState, f: FormData): Promise<FormState> 
 export async function deleteTopic(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
+  const lock = editLock(g);
+  if (lock) return lock;
   await db.delete(topic).where(and(eq(topic.id, str(f, 'id')), eq(topic.workspaceId, g.ws.id)));
   return done(g.slug, g.t.ok.topicDeleted);
 }
@@ -183,6 +226,8 @@ export async function saveWorkspaceSettings(_p: FormState, f: FormData): Promise
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
   const part = str(f, 'part');
+  // Kunden-Workspace: Messplan, KI-Auswahl, Wiederholungen und Budget sind fest (Messungen nur über Berichte)
+  if (!g.rights.measureSettings && part !== 'workspace') return { error: g.tr.lock.notAvailable };
   const has = (p: string) => !part || part === p;
   const set: Partial<typeof workspace.$inferInsert> = {};
   if (has('messung')) {
@@ -220,6 +265,7 @@ export async function saveWorkspaceSettings(_p: FormState, f: FormData): Promise
 export async function startCollection(_p: FormState, f: FormData): Promise<FormState> {
   const g = await guard(f);
   if ('denied' in g) return { error: g.denied };
+  if (!g.rights.measureNow) return { error: g.tr.lock.notAvailable };
   const activePrompts = await db.select({ id: prompt.id }).from(prompt).where(and(eq(prompt.workspaceId, g.ws.id), eq(prompt.active, true))).limit(1);
   if (!activePrompts.length) return { error: g.t.errors.noActivePrompts };
   const running = await db.select({ id: collection.id }).from(collection)

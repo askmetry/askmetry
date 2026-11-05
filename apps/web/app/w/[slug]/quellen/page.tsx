@@ -42,7 +42,7 @@ export default async function SourcesPage({ params, searchParams }: { params: Pr
       </PageHeader>
     </>
   );
-  if (!selected) return <>{header}<EmptyState title={t.noMeasurement} action={{ href: `/w/${slug}/settings/messung`, label: t.toSettings }}>{t.startFirst}</EmptyState></>;
+  if (!selected) return <>{header}<EmptyState title={t.noMeasurement} action={{ href: ctx.measureHref, label: ctx.measureLabel ?? t.toSettings }}>{t.startFirst}</EmptyState></>;
 
   const isLatest = ctx.finished[0]?.id === selected.id;
   const [base, { prompts }, recs, exclusions] = await Promise.all([loadBase(ws.id, [selected.id], { engine: engine || null }), loadPromptsAndTopics(ws.id), loadRecs(ws.id),

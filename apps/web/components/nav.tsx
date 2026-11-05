@@ -3,20 +3,23 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useT } from '@/lib/i18n/client';
 
-export function WorkspaceNav({ slug }: { slug: string }) {
+/** Hauptnavigation; `reports` = Kunden-Workspace der gehosteten Version (Punkt „Berichte“). */
+export function WorkspaceNav({ slug, reports = false }: { slug: string; reports?: boolean }) {
   const path = usePathname();
-  const t = useT().common.nav;
+  const all = useT();
+  const t = all.common.nav;
   const base = `/w/${slug}`;
   const items = [
     { href: base, label: t.overview, exact: true },
     { href: `${base}/massnahmen`, label: t.recs },
     { href: `${base}/fragen`, label: t.questions },
+    ...(reports ? [{ href: `${base}/berichte`, label: all.reports.nav, also: `${base}/bericht/` }] : []),
   ];
   const settingsActive = path.startsWith(`${base}/settings`);
   return (
-    <nav className="-mb-px flex items-center gap-1">
+    <nav className="-mb-px flex items-center gap-1 overflow-x-auto">
       {items.map((it) => {
-        const active = it.exact ? path === it.href : path.startsWith(it.href);
+        const active = it.exact ? path === it.href : path.startsWith(it.href) || ('also' in it && !!it.also && path.startsWith(it.also));
         return (
           <Link key={it.href} href={it.href} aria-current={active ? 'page' : undefined}
             className={`whitespace-nowrap border-b-2 px-3 py-2.5 text-sm ${active ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}`}>

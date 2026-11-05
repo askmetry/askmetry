@@ -7,6 +7,8 @@ import { saveWorkspaceSettings } from '@/lib/actions/settings';
 import { maxBudgetUsd } from '@/lib/limits';
 import { engineName } from '@askmetry/core/present';
 import { getI18n, getT } from '@/lib/i18n/server';
+import { redirect } from 'next/navigation';
+import { rightsFor } from '@/lib/hosted/server';
 import { requireWorkspace } from '@/lib/session';
 import { loadCosts } from '@/lib/settings-data';
 
@@ -18,6 +20,7 @@ export async function generateMetadata() {
 export default async function KostenPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const { ws, canEdit } = await requireWorkspace(slug);
+  if (!(await rightsFor(ws)).costs) redirect(`/w/${slug}/berichte`);
   const ro = !canEdit;
   const { t: tt, f, locale } = await getI18n();
   const t = tt.settings;

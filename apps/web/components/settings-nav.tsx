@@ -7,13 +7,13 @@ import { useT } from '@/lib/i18n/client';
 export const SETTINGS_PAGES = ['marke', 'wettbewerber', 'fragen', 'messung', 'kosten', 'workspace'] as const;
 
 /** Seitenleiste der Einstellungen (mobil: Reiter-Zeile). Jede Seite ist eine eigene Adresse – kein Springen und Scrollen. */
-export function SettingsNav({ slug }: { slug: string }) {
+export function SettingsNav({ slug, hide = [] }: { slug: string; hide?: readonly string[] }) {
   const path = usePathname();
   const t = useT().settings;
   return (
     <nav aria-label={t.title} className="-mx-4 overflow-x-auto px-4 lg:mx-0 lg:overflow-visible lg:px-0">
       <ul className="flex gap-1 border-b border-border lg:flex-col lg:border-0">
-        {SETTINGS_PAGES.map((id) => {
+        {SETTINGS_PAGES.filter((id) => !hide.includes(id)).map((id) => {
           const href = `/w/${slug}/settings/${id}`;
           const active = path === href;
           return (

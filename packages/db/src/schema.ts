@@ -310,6 +310,8 @@ export const report = pgTable('report', {
   collectionId: uuid('collection_id').references(() => collection.id, { onDelete: 'set null' }),
   costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).notNull().default('0'),
   error: text('error'),
+  // Strategiebericht: Zusatzfragen sind erzeugt (einmalig – danach nie erneut, auch wenn der Kunde Fragen deaktiviert)
+  promptsGeneratedAt: timestamp('prompts_generated_at', { withTimezone: true }),
   paidAt: timestamp('paid_at', { withTimezone: true }),
   startedAt: timestamp('started_at', { withTimezone: true }),
   readyAt: timestamp('ready_at', { withTimezone: true }),

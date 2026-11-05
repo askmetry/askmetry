@@ -39,7 +39,8 @@ export const requireWorkspace = cache(async (slug: string) => {
     .innerJoin(workspaceMember, and(eq(workspaceMember.workspaceId, workspace.id), eq(workspaceMember.userId, u.id)))
     .where(eq(workspace.slug, slug))
     .limit(1);
-  if (!rows[0]) notFound();
+  // Check-Workspaces (gehostet) gehören niemandem und sind nie sichtbar – auch nicht bei versehentlicher Mitgliedschaft
+  if (!rows[0] || rows[0].ws.hostedKind === 'check') notFound();
   const role = rows[0].role as Role;
   return { user: u, ws: rows[0].ws, role, canEdit: role !== 'viewer' };
 });

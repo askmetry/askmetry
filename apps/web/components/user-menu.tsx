@@ -7,9 +7,11 @@ import { useT } from '@/lib/i18n/client';
 import { LocaleSwitcher } from '@/components/locale-switcher';
 
 /** Konto-Menü: runder Avatar statt E-Mail + Button in der Kopfzeile. */
-export function UserMenu({ email, name }: { email: string; name?: string | null }) {
+/** `account` = Link „Konto“ (gehostete Version). */
+export function UserMenu({ email, name, account = false }: { email: string; name?: string | null; account?: boolean }) {
   const router = useRouter();
-  const t = useT().common;
+  const all = useT();
+  const t = all.common;
   const ref = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     const close = (e: MouseEvent | KeyboardEvent) => {
@@ -32,8 +34,9 @@ export function UserMenu({ email, name }: { email: string; name?: string | null 
         <p className="truncate px-3 py-2 text-muted">{email}</p>
         <div className="my-1 border-t border-border" />
         <Link href="/w" className="block rounded-lg px-3 py-2 hover:bg-subtle">{t.account.workspaces}</Link>
+        {account && <Link href="/konto" className="block rounded-lg px-3 py-2 hover:bg-subtle">{all.account.menu}</Link>}
         <button type="button" className="block w-full rounded-lg px-3 py-2 text-left hover:bg-subtle"
-          onClick={async () => { await authClient.signOut(); router.push('/login'); router.refresh(); }}>{t.account.signOut}</button>
+          onClick={async () => { await authClient.signOut(); router.push(account ? '/' : '/login'); router.refresh(); }}>{t.account.signOut}</button>
         <div className="my-1 border-t border-border" />
         <div className="flex items-center justify-between gap-3 px-3 py-2">
           <span className="text-muted">{t.language.label}</span>

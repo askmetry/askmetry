@@ -10,6 +10,7 @@ import { Card } from '@/components/ui';
 import { myWorkspaces } from '@/lib/workspaces';
 import { requireUser } from '@/lib/session';
 import { getT } from '@/lib/i18n/server';
+import { isHosted } from '@/lib/hosted/server';
 
 export async function generateMetadata() {
   return { title: (await getT()).workspaces.metaTitle };
@@ -17,7 +18,9 @@ export async function generateMetadata() {
 
 export default async function WorkspacesPage() {
   const u = await requireUser();
-  const t = (await getT()).workspaces;
+  const all = await getT();
+  const t = all.workspaces;
+  const hosted = isHosted();
   const list = await myWorkspaces(u.id);
   // eigene Marke je Workspace für das Logo
   const owns = list.length ? await db.select({ ws: brand.workspaceId, id: brand.id, name: brand.name, domains: brand.domains, logoType: brand.logoType, logoUpdatedAt: brand.logoUpdatedAt }).from(brand)
@@ -29,14 +32,20 @@ export default async function WorkspacesPage() {
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
           <Logo small />
-          <UserMenu email={u.email} name={u.name} />
+          <UserMenu email={u.email} name={u.name} account={hosted} />
         </div>
       </header>
-      <main className="mx-auto grid max-w-5xl gap-6 px-6 py-10 md:grid-cols-[1fr_360px]">
+      <main className={`mx-auto grid max-w-5xl gap-6 px-4 py-10 sm:px-6 ${hosted ? '' : 'md:grid-cols-[1fr_360px]'}`}>
         <div>
           <h1 className="mb-1 text-2xl font-semibold tracking-tight">{t.title}</h1>
           <p className="mb-6 text-sm text-muted">{t.intro}</p>
-          {list.length === 0 ? (
+          {list.length === 0 && hosted ? (
+            <div className="rounded-2xl bg-card px-6 py-12 text-center shadow-card" data-testid="hosted-empty">
+              <p className="text-lg font-semibold">{all.reports.hostedEmpty.title}</p>
+              <p className="mx-auto mt-1.5 max-w-md text-sm text-muted">{all.reports.hostedEmpty.text}</p>
+              <Link href="/" className="btn btn-primary mt-5">{all.reports.startCheck}</Link>
+            </div>
+          ) : list.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-card px-6 py-10 text-center text-sm text-muted">
               {t.empty}
             </div>
@@ -56,7 +65,8 @@ export default async function WorkspacesPage() {
             </ul>
           )}
         </div>
-        <Card title={t.new}><CreateWorkspaceForm /></Card>
+        {/* gehostet entstehen Workspaces nur über einen Schnell-Check + Kauf */}
+        {!hosted && <Card title={t.new}><CreateWorkspaceForm /></Card>}
       </main>
     </div>
   );

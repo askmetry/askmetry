@@ -9,7 +9,9 @@ config({ path: path.resolve(process.cwd(), '../../.env'), quiet: true });
 const standalone = process.env.ASKMETRY_STANDALONE === '1';
 
 const nextConfig: NextConfig = {
-  ...(standalone ? { output: 'standalone' as const, outputFileTracingRoot: path.resolve(process.cwd(), '../..') } : {}),
+  ...(standalone ? { output: 'standalone' as const, outputFileTracingRoot: path.resolve(process.cwd(), '../..'),
+    // Rechtstexte werden zur Laufzeit per fs gelesen (components/marketing/legal-page.tsx)
+    outputFileTracingIncludes: { '/*': ['./content/legal/**/*'] } } : {}),
   transpilePackages: ['@askmetry/db', '@askmetry/core'],
   serverExternalPackages: ['pg'],
   poweredByHeader: false,

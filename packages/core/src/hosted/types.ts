@@ -63,6 +63,8 @@ export interface ReportView {
   amountCents: number; currency: string; previousReportId: string | null;
   collectionId: string | null; createdAt: string; paidAt: string | null; startedAt: string | null; readyAt: string | null;
   hasPdf: boolean; emailedAt: string | null; error: string | null;
+  /** Strategiebericht: Zusatzfragen werden noch erzeugt (Start erst danach möglich) */
+  promptsPreparing: boolean;
   /** Fortschritt der Messung (nur bei measuring) */
   progress: { done: number; total: number } | null;
 }

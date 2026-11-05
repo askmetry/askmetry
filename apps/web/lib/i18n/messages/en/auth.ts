@@ -20,7 +20,10 @@ const auth: typeof de = {
     passwordTooShort: 'Your password needs at least 8 characters.',
     invalidEmail: 'Please enter a valid email address.',
     generic: 'Something went wrong. Please try again.',
+    notVerified: 'Please confirm your email address first. We’ve sent you the link again.',
   },
+  signupForReport: 'Create an account to order your report',
+  verifyHint: 'We’ll email you to confirm your address.',
   closed: {
     title: 'Sign-up is closed',
     text: 'New accounts can’t be created on this instance. Please contact the person who runs Askmetry here.',

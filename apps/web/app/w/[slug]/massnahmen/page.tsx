@@ -38,7 +38,7 @@ export default async function MassnahmenPage({ params, searchParams }: { params:
   );
   if (!own) return <>{header}<EmptyState title={t.empty.noBrandTitle} action={{ href: `/w/${slug}/settings/marke`, label: t.empty.noBrandAction }}>{t.empty.noBrandText}</EmptyState></>;
   if (!selected) {
-    return <>{header}<EmptyState title={t.empty.noMeasurementTitle} action={{ href: `/w/${slug}/settings/messung`, label: running ? t.empty.viewStatus : t.empty.measureNow }}>
+    return <>{header}<EmptyState title={t.empty.noMeasurementTitle} action={{ href: ctx.measureHref, label: ctx.measureLabel ?? (running ? t.empty.viewStatus : t.empty.measureNow) }}>
       {running ? t.empty.measurementRunning(running.status === 'running') : t.empty.noMeasurementText}
     </EmptyState></>;
   }

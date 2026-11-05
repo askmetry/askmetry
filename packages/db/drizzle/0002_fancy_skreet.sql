@@ -1,0 +1,1 @@
+ALTER TABLE "report" ADD COLUMN "prompts_generated_at" timestamp with time zone;

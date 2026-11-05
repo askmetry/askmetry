@@ -34,7 +34,7 @@ export default async function FragenPage({ params, searchParams }: { params: Pro
     </div>
   );
   if (!prompts.length) return <>{header}<EmptyState title={t.empty.noQuestionsTitle} action={{ href: `/w/${slug}/settings/fragen`, label: t.empty.addQuestions }}>{t.empty.noQuestionsText}</EmptyState></>;
-  if (!selected) return <>{header}<EmptyState title={t.empty.noMeasurementTitle} action={{ href: `/w/${slug}/settings/messung`, label: t.empty.measureNow }}>{t.empty.noMeasurementText}</EmptyState></>;
+  if (!selected) return <>{header}<EmptyState title={t.empty.noMeasurementTitle} action={{ href: ctx.measureHref, label: ctx.measureLabel ?? t.empty.measureNow }}>{t.empty.noMeasurementText}</EmptyState></>;
 
   const base = await loadBase(ws.id, [selected.id]);
   const matrix = promptEngineMatrix(base.resps, base.ments, own?.id);

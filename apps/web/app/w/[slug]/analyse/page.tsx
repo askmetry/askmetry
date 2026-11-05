@@ -41,7 +41,7 @@ export default async function AnalysePage({ params, searchParams }: { params: Pr
     return (
       <>
         <PageHeader title={t.title} />
-        <EmptyState title={t.noMeasurement} action={{ href: `/w/${slug}/settings/messung`, label: t.toSettings }}>
+        <EmptyState title={t.noMeasurement} action={{ href: ctx.measureHref, label: ctx.measureLabel ?? t.toSettings }}>
           {active.length ? (active[0]!.status === 'running' ? t.runningNow + batchNote : t.queuedNow) : t.startFirst}
         </EmptyState>
       </>
@@ -81,7 +81,7 @@ export default async function AnalysePage({ params, searchParams }: { params: Pr
 
       {active.length > 0 && (
         <p className="mb-4 rounded-xl bg-accent-soft px-4 py-2.5 text-sm">
-          {active[0]!.status === 'running' ? t.newRunning + batchNote : t.newQueued} <Link className="text-accent hover:underline" href={`/w/${slug}/settings/messung`}>{t.viewStatus}</Link>
+          {active[0]!.status === 'running' ? t.newRunning + batchNote : t.newQueued} <Link className="text-accent hover:underline" href={ctx.measureHref}>{t.viewStatus}</Link>
         </p>
       )}
 
