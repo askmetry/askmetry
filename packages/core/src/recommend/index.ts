@@ -331,6 +331,9 @@ export function technicalCovered(key: string, checks: SiteCheckResult[]): boolea
     // Unterseiten-Befunde: nur mit vertieftem Check und ohne gescheiterten Unterseiten-Abruf
     case 'technical:noindex': case 'technical:canonical': case 'technical:meta': case 'technical:speed': case 'technical:hreflang':
       return checks.every((c) => homeDecided(c) && !!c.pages && c.pages.every((p) => p.status !== null && (p.status < 400 || p.status === 404 || p.status === 410)));
+    // nutzen seit dem vertieften Check auch Unterseiten (wenig Text, Schema auf „Über uns“): gescheiterter Unterseiten-Abruf = unbekannt
+    case 'technical:js_text': case 'technical:structured_data':
+      return checks.every((c) => homeDecided(c) && (c.pages ?? []).every((p) => p.status !== null && !(p.status === 429 || p.status >= 500)));
     default: return checks.every(homeDecided);
   }
 }

@@ -987,7 +987,7 @@ function resultName(rec: RecLike): string {
 // Claude-Prompt für die Typen ab Nov. 2026 (comparison, listicle, reviews, entity) und Themen-Cluster (content_gap)
 // ---------------------------------------------------------------------------
 
-type EvX = Ev & { targets?: string[]; existingPages?: string[]; ownProfiles?: string[]; wikidata?: { ids: string[]; wikipedia: string[] } | null;
+type EvX = Ev & { targets?: string[]; existingPages?: string[]; ownProfiles?: string[]; wikidata?: { ids: string[]; wikipedia: string[] | null } | null;
   cluster?: { label?: string }; facets?: string[]; facetsByLang?: Partial<Record<Lang, string[]>> };
 const facetsOf = (ev: Ev, lang: Lang) => ((ev as EvX).facetsByLang?.[lang] ?? (ev as EvX).facets ?? []).map((x) => F(x, 40));
 type Extra = { facts: string[]; role: string; task: string[]; done: string[]; goal: string; deliverable: string; result: string };
@@ -1110,7 +1110,7 @@ function extraPrompt(rec: RecLike, ev0: Ev, ctx: PromptContext, lang: Lang): Ext
         facts: [
           en ? `Wikipedia was a source in ${o(m.wikipediaResponses, m.responses)} answers.` : `Wikipedia war Quelle in ${o(m.wikipediaResponses, m.responses)} Antworten.`,
           ev.wikidata?.ids?.length
-            ? (en ? `Wikidata item with our website: ${ev.wikidata.ids.join(', ')}; Wikipedia articles: ${ev.wikidata.wikipedia.join(', ') || 'none'}.` : `Wikidata-Eintrag mit unserer Website: ${ev.wikidata.ids.join(', ')}; Wikipedia-Artikel: ${ev.wikidata.wikipedia.join(', ') || 'keine'}.`)
+            ? (en ? `Wikidata item with our website: ${ev.wikidata.ids.join(', ')}; Wikipedia articles: ${ev.wikidata.wikipedia ? ev.wikidata.wikipedia.join(', ') || 'none' : 'unknown'}.` : `Wikidata-Eintrag mit unserer Website: ${ev.wikidata.ids.join(', ')}; Wikipedia-Artikel: ${ev.wikidata.wikipedia ? ev.wikidata.wikipedia.join(', ') || 'keine' : 'unbekannt'}.`)
             : (en ? `No Wikidata item lists ${d} as its official website (checked via the Wikidata search).` : `Kein Wikidata-Eintrag nennt ${d} als offizielle Website (geprüft über die Wikidata-Suche).`),
           ...(ev.urls?.length ? [en ? 'Wikipedia articles the AI used most:' : 'Am häufigsten genutzte Wikipedia-Artikel:', ...urls(ev.urls, 5)] : []),
         ],

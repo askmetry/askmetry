@@ -164,7 +164,13 @@ const absUrl = (href: string | undefined, base: string): string | null => {
   if (!href?.trim()) return null;
   try { const u = new URL(href.trim(), base); return /^https?:$/.test(u.protocol) ? u.toString() : null; } catch { return null; }
 };
-const noindexIn = (s: string | null | undefined) => !!s && /\b(noindex|none)\b/i.test(s);
+/** noindex/none als ganze Direktive; bei „bot: …“ (X-Robots-Tag) nur für alle Bots, Googlebot oder Bingbot. */
+const noindexIn = (s: string | null | undefined) => !!s && s.split(',').some((part) => {
+  const m = /^\s*([a-z0-9_-]+)\s*:\s*(.*)$/i.exec(part);
+  const bot = m && !/^(max-|unavailable_after)/i.test(m[1]) ? m[1].toLowerCase() : null;
+  if (bot && !['googlebot', 'bingbot', 'robots'].includes(bot)) return false;
+  return /^(noindex|none)$/i.test((bot ? m![2] : part).trim());
+});
 
 /** Seiten-Fakten aus HTML (ohne Abruf): Titel, Meta-Description, Canonical, noindex, Text ohne JS, JSON-LD. */
 export function pageFacts(html: string, url: string, xRobotsTag?: string | null) {
@@ -219,13 +225,15 @@ export function parseSitemap(xml: string): { index: boolean; locs: string[]; new
   return { index, locs, newest: newest === null ? null : new Date(newest).toISOString(), hreflang: /hreflang\s*=/i.test(xml) };
 }
 
-const LANG_SEG = /^[a-z]{2}(?:[-_][a-z]{2})?$/i;
+/** ISO-639-1-Codes, die als Sprachpräfix in URLs üblich sind (nicht jede Zwei-Buchstaben-Pfadangabe wie /go/ oder /hr/). */
+const LANG_CODES = new Set('de en fr it es nl pl pt cs sk sl hu ro bg el sv da no nb fi et lv lt tr ru uk ja zh ko ar he hi id th vi ms'.split(' '));
+const LANG_SEG = { test: (seg: string) => { const m = /^([a-z]{2})(?:[-_][a-z]{2})?$/i.exec(seg); return !!m && LANG_CODES.has(m[1].toLowerCase()); } };
 /** Blog-, News- und Presse-Bereiche: dort liegen Artikel, keine Kernseiten. */
 const ARTICLE_SEG = /^(news|blog|blogs|press|presse|pressemitteilungen|magazin|magazine|webinars?|events?|artikel|articles?|insights|resources|ressourcen|case-stud(?:y|ies)|stories|podcasts?|analyst-stud(?:y|ies)|reports?|whitepapers?|studien|studies|downloads?|ebooks?|jobs|karriere|careers|team|tags?|category|kategorie|author|autor)$/i;
 const KIND_SEG: Record<PageKind, RegExp> = {
   pricing: /^(preise?|pricing|prices|kosten|tarife?|plans|pakete|preismodell|preisliste)$/i,
   product: /^(produkte?|products?|platform|plattform|features|funktionen|leistungen|solutions?|loesungen|lösungen|software|services?|angebot)$/i,
-  comparison: /^(vergleich|vergleiche|compare|comparison|alternativen?|alternatives?)$|^[a-z0-9]+(?:-[a-z0-9]+){0,2}-(?:vs|versus)-[a-z0-9]+(?:-[a-z0-9]+){0,2}$|(?:^|-)alternatives?(?:-|$)|(?:^|-)alternativen(?:-|$)/i,
+  comparison: /^(vergleich|vergleiche|compare|comparison|alternativen?|alternatives?)$|^[a-z0-9]+(?:-[a-z0-9]+){0,2}-(?:vs|versus)-[a-z0-9]+(?:-[a-z0-9]+){0,2}$|^(?:alternatives?-to|alternativen-zu|alternative-zu)-|-alternative[ns]?$/i,
   faq: /^(faq|faqs|haeufige-fragen|häufige-fragen|fragen-und-antworten|hilfe|help|help-center|support)$/i,
   about: /^(ueber-uns|über-uns|about|about-us|unternehmen|company|wir|ueber-[a-z0-9-]+|über-[a-z0-9-]+)$/i,
 };
@@ -259,16 +267,20 @@ export function pickKeyPages(urls: string[]): Map<PageKind, string> {
   return new Map([...best].map(([k, v]) => [k, v.url]));
 }
 
-/** Sprachpräfixe (/de/, /en/ …), die mindestens zweimal vorkommen. */
+/** Sprachpräfixe (/de/, /en/ …), die mindestens zweimal vorkommen – nur wenn es mindestens zwei Sprachen gibt
+ * (eine Seite, die nur ihre Standardsprache oder nur /de/ hat, braucht kein hreflang). URLs ohne Präfix zählen als Standardsprache. */
 export function languagePrefixes(urls: string[]): string[] {
   const n = new Map<string, number>();
   for (const u of urls) {
     try {
       const seg = new URL(u).pathname.split('/').filter(Boolean)[0]?.toLowerCase();
-      if (seg && LANG_SEG.test(seg)) n.set(seg, (n.get(seg) ?? 0) + 1);
+      const key = seg && LANG_SEG.test(seg) ? seg : '';
+      n.set(key, (n.get(key) ?? 0) + 1);
     } catch { /* ungültige URL */ }
   }
-  return [...n].filter(([, c]) => c >= 2).map(([l]) => l).sort();
+  const langs = [...n].filter(([l, c]) => l && c >= 2).map(([l]) => l).sort();
+  // Sprachversionen nur, wenn neben den Präfixen noch eine weitere Sprache (andere Präfixe oder Standardsprache ohne Präfix) existiert
+  return langs.length >= 2 || (langs.length === 1 && (n.get('') ?? 0) >= 2) ? langs : [];
 }
 
 /** Mögliche Schreibweisen der offiziellen Website in Wikidata (P856). */
@@ -311,19 +323,27 @@ export async function wikidataLookup(fetchFn: FetchLike, host: string, opts: { t
   let ids: string[];
   try {
     if (search.status !== 200) throw new Error();
-    ids = ((JSON.parse(search.text)?.query?.search ?? []) as { title?: string }[]).map((s) => s.title ?? '').filter((x) => /^Q\d+$/.test(x));
+    // MediaWiki meldet Fehler (Rate-Limit, maxlag, Suche gestört) mit HTTP 200 und {"error": …}
+    const json = JSON.parse(search.text);
+    if (json?.error || !Array.isArray(json?.query?.search)) throw new Error();
+    ids = (json.query.search as { title?: string }[]).map((s) => s.title ?? '').filter((x) => /^Q\d+$/.test(x));
   } catch { return { status: 'error', ids: [], wikipedia: [] }; }
   if (!ids.length) return { status: 'none', ids: [], wikipedia: [] };
   const ent = await get(fetchFn, `https://www.wikidata.org/w/api.php?action=wbgetentities&props=sitelinks&format=json&ids=${ids.join('|')}`, t, opts.signal, WIKIDATA_UA);
   const wikipedia = new Set<string>();
   try {
-    for (const e of Object.values((JSON.parse(ent.text)?.entities ?? {}) as Record<string, { sitelinks?: Record<string, unknown> }>)) {
+    const json = ent.status === 200 ? JSON.parse(ent.text) : null;
+    if (!json?.entities || json.error) throw new Error();
+    for (const e of Object.values(json.entities as Record<string, { sitelinks?: Record<string, unknown> }>)) {
       for (const k of Object.keys(e.sitelinks ?? {})) {
         const m = /^([a-z]{2,3})wiki$/.exec(k);
         if (m) wikipedia.add(m[1]);
       }
     }
-  } catch { /* Sitelinks unbekannt – Eintrag gilt trotzdem als gefunden */ }
+  } catch {
+    // Sitelinks unbekannt – Eintrag gilt als gefunden, Wikipedia-Artikel unbekannt (null)
+    return { status: 'found', ids, wikipedia: null };
+  }
   return { status: 'found', ids, wikipedia: [...wikipedia].sort((a, b) => (a === 'de' ? -1 : b === 'de' ? 1 : a === 'en' ? -1 : b === 'en' ? 1 : a.localeCompare(b))) };
 }
 
@@ -407,10 +427,21 @@ async function deepCheck(fetchFn: FetchLike, host: string, robotsRes: Got, homeR
   // Sitemap: „Sitemap:“-Zeilen der robots.txt (nur bei gültiger robots.txt), sonst /sitemap.xml
   const robotsOk = robotsRes.status !== null && robotsRes.status >= 200 && robotsRes.status < 300 && !looksLikeHtml(robotsRes.text);
   const declared = robotsOk ? [...robotsRes.text.matchAll(/^\s*sitemap\s*:\s*(\S+)/gim)].map((m) => absUrl(m[1], origin)).filter((u): u is string => !!u) : [];
-  const smUrl = declared[0] ?? `${origin}/sitemap.xml`;
-  const smRes = await get(fetchFn, smUrl, timeout, signal);
   const isXml = (r: Got) => r.status !== null && r.status >= 200 && r.status < 300 && /<(urlset|sitemapindex)\b/i.test(r.text.slice(0, 5000));
+  // bis zu 3 deklarierte Sitemaps nacheinander, die erste lesbare zählt
+  const candidates = declared.length ? [...new Set(declared)].slice(0, 3) : [`${origin}/sitemap.xml`];
+  let smRes: Got = await get(fetchFn, candidates[0], timeout, signal);
+  // nicht auswertbar statt „fehlt“: komprimiert (.gz), 401/403 (WAF/Login), deklariert aber kein XML
+  let unreadable = false;
+  for (let i = 0; ; i++) {
+    if (isXml(smRes)) break;
+    const gz = /\.gz($|\?)/i.test(candidates[i]);
+    if (gz || smRes.status === 401 || smRes.status === 403 || (declared.length && smRes.status !== null && smRes.status < 300)) unreadable = true;
+    if (i + 1 >= candidates.length) break;
+    smRes = await get(fetchFn, candidates[i + 1], timeout, signal);
+  }
   let parsed = isXml(smRes) ? parseSitemap(smRes.text) : null;
+  if (parsed) unreadable = false;
   // Sitemap-Index: die erste Teil-Sitemap (bevorzugt Seiten statt Beiträge/Bilder) mitlesen
   if (parsed?.index && parsed.locs.length) {
     const child = parsed.locs.find((u) => /page|seite/i.test(u)) ?? parsed.locs.find((u) => !/post|image|video|blog|news|tag|categor|author/i.test(u)) ?? parsed.locs[0];
@@ -418,10 +449,13 @@ async function deepCheck(fetchFn: FetchLike, host: string, robotsRes: Got, homeR
     if (isXml(childRes)) {
       const c = parseSitemap(childRes.text);
       parsed = { index: true, locs: c.locs, newest: [parsed.newest, c.newest].filter(Boolean).sort().pop() ?? null, hreflang: parsed.hreflang || c.hreflang };
+    } else {
+      // Teil-Sitemap nicht lesbar: keine Seiten-URLs bekannt (die Index-Einträge sind Sitemaps, keine Seiten)
+      parsed = { ...parsed, locs: [] };
     }
   }
   const sitemap: NonNullable<SiteCheckResult['sitemap']> = {
-    status: smRes.status, found: !!parsed, url: parsed ? smRes.url : null, source: parsed ? (declared.length ? 'robots' : 'default') : null,
+    status: unreadable ? null : smRes.status, found: !!parsed, url: parsed ? smRes.url : null, source: parsed ? (declared.length ? 'robots' : 'default') : null,
     urls: parsed?.locs.length ?? 0, newest: parsed?.newest ?? null, hreflang: parsed?.hreflang ?? false,
   };
   const html = okHtml(homeRes) ? homeRes.text : '';
@@ -431,8 +465,11 @@ async function deepCheck(fetchFn: FetchLike, host: string, robotsRes: Got, homeR
   const languages = languagePrefixes(all);
   const homePath = (() => { try { return new URL(homeRes.url).pathname.replace(/\/$/, ''); } catch { return ''; } })();
   const keys = [...pickKeyPages(all)].filter(([, u]) => { try { return new URL(u).pathname.replace(/\/$/, '') !== homePath; } catch { return false; } });
-  const pages: PageCheck[] = await Promise.all(keys.map(async ([kind, url]): Promise<PageCheck> => {
+  const fetched = await Promise.all(keys.map(async ([kind, url]): Promise<PageCheck | null> => {
     const r = await get(fetchFn, url, timeout, signal);
+    // Weiterleitung auf eine fremde Domain (z. B. Helpdesk-Anbieter): keine Befunde über die eigene Website ableiten
+    const offHost = (() => { try { return !hosts.includes(new URL(r.url || url).hostname.toLowerCase().replace(/^www\./, '')); } catch { return true; } })();
+    if (offHost) return null;
     const ok = okHtml(r);
     const pf = ok ? pageFacts(r.text, r.url, r.xRobotsTag) : null;
     return {
@@ -441,6 +478,7 @@ async function deepCheck(fetchFn: FetchLike, host: string, robotsRes: Got, homeR
       ms: r.ms, bytes: ok ? bytesOf(r.text) : null,
     };
   }));
+  const pages = fetched.filter((p): p is PageCheck => !!p);
   pages.sort((a, b) => PAGE_KINDS.indexOf(a.kind) - PAGE_KINDS.indexOf(b.kind));
   return { sitemap, pages, languages };
 }

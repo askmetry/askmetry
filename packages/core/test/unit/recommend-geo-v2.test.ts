@@ -64,6 +64,10 @@ describe('Website-Check: HTML- und Sitemap-Helfer', () => {
     expect(pageFacts(html.replace('index, follow', 'noindex'), 'https://synera.ai/').noindex).toBe(true);
     expect(pageFacts(html, 'https://synera.ai/', 'noindex, nofollow').noindex).toBe(true);
     expect(pageFacts('<html><body>x</body></html>', 'https://synera.ai/').metaDescription).toBeNull();
+    // keine Fehlalarme: andere Direktiven mit „none“, X-Robots-Tag für fremde Bots
+    expect(pageFacts(html.replace('index, follow', 'index, max-image-preview:none'), 'https://synera.ai/').noindex).toBe(false);
+    expect(pageFacts(html, 'https://synera.ai/', 'otherbot: noindex').noindex).toBe(false);
+    expect(pageFacts(html, 'https://synera.ai/', 'googlebot: noindex').noindex).toBe(true);
   });
 
   it('parseSitemap: URL-Liste, Index, jüngstes lastmod, hreflang', () => {
@@ -88,7 +92,14 @@ describe('Website-Check: HTML- und Sitemap-Helfer', () => {
     const picked = pickKeyPages(['https://synera.ai/de/preise', 'https://synera.ai/pricing', 'https://synera.ai/about', 'https://synera.ai/company/about']);
     expect(picked.get('pricing')).toBe('https://synera.ai/pricing'); // ohne Sprachpräfix zuerst
     expect(picked.get('about')).toBe('https://synera.ai/about');
-    expect(languagePrefixes(['https://x.de/de/a', 'https://x.de/de/b', 'https://x.de/en/a', 'https://x.de/a'])).toEqual(['de']);
+    expect(languagePrefixes(['https://x.de/de/a', 'https://x.de/de/b', 'https://x.de/en/a', 'https://x.de/en/b', 'https://x.de/a'])).toEqual(['de', 'en']);
+    expect(languagePrefixes(['https://x.de/de/a', 'https://x.de/de/b', 'https://x.de/a', 'https://x.de/b'])).toEqual(['de']); // Standardsprache ohne Präfix + /de/
+    // nur eine Sprache (alles unter /de/) bzw. Pfade, die keine Sprachcodes sind
+    expect(languagePrefixes(['https://x.de/de/a', 'https://x.de/de/b', 'https://x.de/de/c'])).toEqual([]);
+    expect(languagePrefixes(['https://x.de/go/a', 'https://x.de/go/b', 'https://x.de/a', 'https://x.de/b'])).toEqual([]);
+    expect(pageKindOf('https://x.de/features/alternative-payment-methods')).toBeNull();
+    expect(pageKindOf('https://x.de/alternatives-to-altair')).toBe('comparison');
+    expect(pageKindOf('https://x.de/altair-alternativen')).toBe('comparison');
   });
 });
 
@@ -125,7 +136,30 @@ describe('Website-Check: checkDomain mit Sitemap, Unterseiten und Wikidata (fetc
     expect(decodeURIComponent(urls.find((u) => u.includes('list=search'))!)).toContain('haswbstatement:P856=https://www.synera.ai/|P856=https://synera.ai/');
   });
 
+  it('Weiterleitung auf fremde Domain wird verworfen; zweite deklarierte Sitemap wird gelesen; .gz = unbekannt', async () => {
+    const site: Record<string, { status: number; body: string; url?: string }> = {
+      'https://x.de/robots.txt': { status: 200, body: 'Sitemap: https://x.de/news.xml\nSitemap: https://x.de/pages.xml\n' },
+      'https://x.de/': { status: 200, body: '<html><body><a href="/faq">FAQ</a><a href="/pricing">Preise</a></body></html>' },
+      'https://x.de/faq': { status: 200, url: 'https://x.zendesk.com/hc', body: '<html><head><meta name="robots" content="noindex"></head><body>Help</body></html>' },
+      'https://x.de/pricing': { status: 200, body: '<html><body>Preise</body></html>' },
+      'https://x.de/pages.xml': { status: 200, body: '<urlset><url><loc>https://x.de/pricing</loc></url></urlset>' },
+    };
+    const f: FetchLike = async (url) => ({ status: site[url]?.status ?? 404, url: site[url]?.url ?? url, text: async () => site[url]?.body ?? '' });
+    const r = await checkDomain('x.de', { fetch: f, entity: false });
+    expect(r.pages!.map((p) => p.kind)).toEqual(['pricing']);
+    expect(r.sitemap).toMatchObject({ found: true, url: 'https://x.de/pages.xml', urls: 1 });
+    site['https://x.de/robots.txt'] = { status: 200, body: 'Sitemap: https://x.de/sitemap.xml.gz\n' };
+    site['https://x.de/sitemap.xml.gz'] = { status: 200, body: '\u001f\u008b binary' };
+    const gz = await checkDomain('x.de', { fetch: f, entity: false });
+    expect(gz.sitemap).toMatchObject({ found: false, status: null });
+    expect(technicalCovered('technical:sitemap', [gz])).toBe(false);
+  });
+
   it('wikidataLookup: kein Treffer → none, Fehler → error', async () => {
+    const apiErr: FetchLike = async (url) => ({ status: 200, url, text: async () => '{"error":{"code":"maxlag"}}' });
+    expect((await wikidataLookup(apiErr, 'x.de')).status).toBe('error');
+    const noLinks: FetchLike = async (url) => ({ status: url.includes('list=search') ? 200 : 503, url, text: async () => (url.includes('list=search') ? '{"query":{"search":[{"title":"Q7"}]}}' : '') });
+    expect(await wikidataLookup(noLinks, 'x.de')).toEqual({ status: 'found', ids: ['Q7'], wikipedia: null });
     const none: FetchLike = async (url) => ({ status: 200, url, text: async () => '{"query":{"search":[]}}' });
     expect(await wikidataLookup(none, 'x.de')).toEqual({ status: 'none', ids: [], wikipedia: [] });
     const err: FetchLike = async (url) => ({ status: 503, url, text: async () => '' });
@@ -241,6 +275,10 @@ describe('Themen-Cluster statt einer Seite je Testfrage', () => {
     expect(facetOf('Wie sicher sind KI-Plattformen für CAD-Daten?')).toBe('risk');
     expect(facetOf('Wie verbinde ich KI mit SAP?')).toBe('integration');
     expect(facetOf('Wie führe ich KI ein?')).toBe('howto');
+    expect(facetOf('Was ist eine CRM-Software?')).toBe('explain');
+    expect(facetOf('Wie führe ich eine HR-Software ein?')).toBe('howto');
+    expect(facetOf('Welche kostenlosen Tools gibt es?')).toBe('list');
+    expect(facetOf('Gibt es Lösungen für den Bestand an CAD-Daten?')).toBe('list');
   });
 
   it('comparison: Vergleichs- und Alternativfragen als transparente Vergleichsseiten', () => {
@@ -275,6 +313,9 @@ describe('Neue Off-Site-Maßnahmen aus den Quellen', () => {
     expect(c.steps.join(' ')).toMatch(/Anzeige kennzeichnet/);
     expect(categoryOf('listicle')).toBe('offsite');
     expect(ruleListicle(indexData(d), { skipHosts: new Set(['thecadhub.com', 'tools.de']) })).toEqual([]);
+    // Umlaute sind keine Wortgrenze: „Bestände“ ist keine Bestenliste
+    const d2 = fixture({ p1: ['X?', null] }, [...compOnly('p1', ['https://lager.de/artikel|Bestände richtig verwalten']), ...compOnly('p1', ['https://lager.de/artikel'])]);
+    expect(ruleListicle(indexData(d2))).toEqual([]);
   });
 
   it('reviews: Bewertungsportale gebündelt, eigenes Profil erkannt', () => {
@@ -287,6 +328,10 @@ describe('Neue Off-Site-Maßnahmen aus den Quellen', () => {
     expect(c.evidence.domains).toEqual(['g2.com', 'capterra.com']);
     expect(c.evidence.ownProfiles).toEqual(['https://g2.com/products/synera/reviews']);
     expect(c.steps.join(' ')).toMatch(/Keine gekauften oder gefälschten Bewertungen/);
+    // Teilwort zählt nicht als eigenes Profil
+    const nova = { ...fixture({ p1: ['Welche Tools?', null] }, compOnly('p1', ['https://www.g2.com/categories/innovation-management', 'https://capterra.com/p/1/x'])) };
+    nova.brands = [{ ...brands[0], name: 'Nova' }, ...brands.slice(1)];
+    expect(ruleReviews(indexData(nova))[0].evidence.ownProfiles).toEqual([]);
   });
 
   it('entity: Wikidata fehlt und Wikipedia ist häufige Quelle; ohne Wikipedia-Artikel-Vorschlag', () => {
@@ -302,6 +347,7 @@ describe('Neue Off-Site-Maßnahmen aus den Quellen', () => {
     // Wikidata und Wikipedia vorhanden → keine Maßnahme; Abfrage gescheitert → keine Aussage
     expect(ruleEntity(indexData(d), [check({ wikidata: { status: 'found', ids: ['Q1'], wikipedia: ['de'] } })])).toEqual([]);
     expect(ruleEntity(indexData(d), [check({ wikidata: { status: 'error', ids: [], wikipedia: [] } })])).toEqual([]);
+    expect(ruleEntity(indexData(d), [check({ wikidata: { status: 'found', ids: ['Q1'], wikipedia: null } })])).toEqual([]);
     expect(recommendationMetric(c, d)).toBeNull();
     expect(recMetricLabels(c, 'Synera')).toBeNull();
   });

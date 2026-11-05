@@ -65,7 +65,7 @@ export interface SiteCheckResult {
   /** Sprachversionen als Pfadpräfix (z. B. ['de', 'en']), erkannt an Links und Sitemap */
   languages?: string[];
   /** Wikidata-Eintrag mit dieser Domain als offizieller Website (P856) und Wikipedia-Artikel dazu (Sprachcodes) */
-  wikidata?: { status: 'found' | 'none' | 'error'; ids: string[]; wikipedia: string[] };
+  wikidata?: { status: 'found' | 'none' | 'error'; ids: string[]; /** Wikipedia-Sprachversionen; null = Abfrage gescheitert (unbekannt) */ wikipedia: string[] | null };
 }
 
 /** Eine abgeschlossene Messung, aufbereitet für die Regeln. */

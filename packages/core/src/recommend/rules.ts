@@ -570,13 +570,19 @@ export const CONTENT_GAP_MAX = 3;
 
 /** Aspekt einer Frage – bestimmt die Gliederung der Themenseite. */
 export type Facet = 'risk' | 'integration' | 'cost' | 'list' | 'howto' | 'explain' | 'other';
+// Unicode-Wortgrenzen (B…E), weil \b Umlaute als Grenze behandelt
+const FB = '(?<![\\p{L}\\p{N}])', FE = '(?![\\p{L}\\p{N}])';
+const fre = (src: string) => new RegExp(src.replaceAll('<B>', FB).replaceAll('<E>', FE), 'iu');
+/** Reihenfolge zählt: Fragewort-Muster („Welche …“, „Wie …“, „Was ist …“) vor den Listen-Stichwörtern im Satz,
+ * damit „Was ist eine CRM-Software?“ Grundlagen und „Wie führe ich ein Tool ein?“ Vorgehen bleibt. */
 const FACET_RE: [Facet, RegExp][] = [
-  ['risk', /risik|sicher(heit)?\b|sicher\s|datenschutz|\bip\b|compliance|dsgvo|gdpr|security|secure|risk|privacy/i],
-  ['integration', /integr|anbind|verbind|schnittstell|\bapi\b|connect|tool-landschaft|it-landschaft/i],
-  ['cost', /kostet|kosten|preis|price|pricing|cost|\broi\b|amortis|budget|lohnt|wirtschaftlich|nutzen\b.*berechn|förder/i],
-  ['list', /^(welche[srn]?|was sind die besten|beste[nr]?|top|gibt es|which|what are the best|best|are there)\b|anbieter|\btools?\b|software|plattform(en)?\b|platforms?\b|lösungen\b|solutions?\b/i],
-  ['howto', /^(wie|how)\b/i],
-  ['explain', /^(was ist|was sind|was unterscheidet|was ist der unterschied|warum|what is|what are|what's the difference|why)\b/i],
+  ['risk', fre('risik|<B>sicher(heit)?<E>|datenschutz|<B>ip<E>|compliance|dsgvo|gdpr|security|secure|<B>risks?<E>|privacy')],
+  ['integration', fre('integr|anbind|verbind|schnittstell|<B>api<E>|connect|tool-landschaft|it-landschaft')],
+  ['cost', fre('kostet|<B>kosten<E>|preis|<B>price|pricing|<B>costs?<E>|<B>roi<E>|amortis|budget|<B>lohnt|wirtschaftlich|<B>nutzen<E>.*berechn|förder(mittel|programm|ung)')],
+  ['list', fre('^(welche[srn]?|was sind die besten|beste[nr]?|top|gibt es|which|what are the best|best|are there)<E>')],
+  ['howto', fre('^(wie|how)<E>')],
+  ['explain', fre('^(was ist|was sind|was unterscheidet|was ist der unterschied|warum|what is|what are|what\'s the difference|why)<E>')],
+  ['list', fre('anbieter|<B>tools?<E>|software|<B>plattform(en)?<E>|<B>platforms?<E>|lösungen<E>|<B>solutions?<E>')],
 ];
 export const facetOf = (text: string): Facet => FACET_RE.find(([, re]) => re.test(text.trim()))?.[0] ?? 'other';
 const FACET_LABEL: Record<Lang, Record<Facet, string>> = {
@@ -1374,6 +1380,8 @@ export function ruleSearchIndex(ix: Indexed, checks: SiteCheckResult[] | undefin
   const blocked = new Set(checks.flatMap((c) => c.robots.blocked));
   const n = new Map<string, number>(), used = new Map<string, number>();
   for (const r of ix.respById.values()) {
+    // nur Antworten mit Quellen: Claude sucht z. B. nicht bei jeder Frage – ohne Suche kann keine Quelle fehlen
+    if (!(ix.allCits.get(r.id)?.length)) continue;
     n.set(r.engine, (n.get(r.engine) ?? 0) + 1);
     if (ix.ownSiteResps.has(r.id)) used.set(r.engine, (used.get(r.engine) ?? 0) + 1);
   }
@@ -1384,8 +1392,10 @@ export function ruleSearchIndex(ix: Indexed, checks: SiteCheckResult[] | undefin
   };
   const weak = Object.keys(INDEX).filter((e) => {
     const others = [...n.keys()].filter((x) => x !== e && x !== 'mock' && (n.get(x) ?? 0) >= 10);
-    const best = Math.max(0, ...others.map(share));
-    return (n.get(e) ?? 0) >= 10 && best >= 0.05 && share(e) < 0.35 * best && !INDEX[e].bots.some((b) => blocked.has(b));
+    // Vergleich mit dem Median der anderen KI-Suchen (nicht der besten – eine Ausreißer-Engine allein soll nicht auslösen)
+    const sh = others.map(share).sort((a, b) => a - b);
+    const mid = sh.length ? (sh.length % 2 ? sh[(sh.length - 1) / 2] : (sh[sh.length / 2 - 1] + sh[sh.length / 2]) / 2) : 0;
+    return (n.get(e) ?? 0) >= 10 && others.length >= 2 && mid >= 0.05 && share(e) < 0.35 * mid && !INDEX[e].bots.some((b) => blocked.has(b));
   });
   if (!weak.length) return [];
   const others = [...n.keys()].filter((x) => !weak.includes(x) && x !== 'mock' && (n.get(x) ?? 0) >= 10).sort((a, b) => share(b) - share(a));
@@ -1397,7 +1407,7 @@ export function ruleSearchIndex(ix: Indexed, checks: SiteCheckResult[] | undefin
     key: 'technical:search_index', type: 'technical',
     text: (l) => l === 'en' ? {
       title: `Check that ${domain} is indexed in ${listL(idx, 'en')}`,
-      why: `${listL(weak.map((e) => engineLabel(e)), 'en')} ${weak.length === 1 ? 'uses' : 'use'} ${domain} in ${listL(weak.map(fmt), 'en')} of answers, ${engineLabel(best)} in ${fmt(best)} – possibly an index gap.`,
+      why: `${listL(weak.map((e) => engineLabel(e)), 'en')} ${weak.length === 1 ? 'uses' : 'use'} ${domain} in ${listL(weak.map(fmt), 'en')} of answers with sources, ${engineLabel(best)} in ${fmt(best)} – possibly an index gap.`,
       steps: [
         ...(weak.includes('chatgpt') ? ['Register the site in Bing Webmaster Tools, submit the sitemap and check the indexed pages and crawl errors – ChatGPT search draws heavily on Bing.'] : []),
         ...(weak.includes('claude') ? [`Search for your key pages on search.brave.com (e.g. “site:${domain}”) – Claude’s web search uses Brave.`] : []),
@@ -1406,7 +1416,7 @@ export function ruleSearchIndex(ix: Indexed, checks: SiteCheckResult[] | undefin
       ],
     } : {
       title: `Indexierung von ${domain} in ${listL(idx, 'de')} prüfen`,
-      why: `${listL(weak.map((e) => engineLabel(e)), 'de')} ${weak.length === 1 ? 'nutzt' : 'nutzen'} ${domain} in ${listL(weak.map(fmt), 'de')} der Antworten, ${engineLabel(best)} in ${fmt(best)} – womöglich eine Index-Lücke.`,
+      why: `${listL(weak.map((e) => engineLabel(e)), 'de')} ${weak.length === 1 ? 'nutzt' : 'nutzen'} ${domain} in ${listL(weak.map(fmt), 'de')} der Antworten mit Quellen, ${engineLabel(best)} in ${fmt(best)} – womöglich eine Index-Lücke.`,
       steps: [
         ...(weak.includes('chatgpt') ? ['Website in den Bing Webmaster Tools anmelden, Sitemap einreichen und indexierte Seiten sowie Crawling-Fehler prüfen – die ChatGPT-Suche stützt sich stark auf Bing.'] : []),
         ...(weak.includes('claude') ? [`Wichtige Seiten auf search.brave.com suchen (z. B. „site:${domain}“) – die Websuche von Claude nutzt Brave.`] : []),
@@ -1570,7 +1580,8 @@ export function ruleSentiment(ix: Indexed): Candidate[] {
 // listicle: in fremde Bestenlisten und Vergleichsartikel aufgenommen werden
 // ---------------------------------------------------------------------------
 /** URL/Titel klingt nach Liste oder Vergleich („Die 10 besten …“, „X vs. Y“, „Alternativen zu …“, „Top Tools“). */
-const LIST_RE = /\b(best|beste[nrs]?|besten|top[\s-]?\d*|\d+\s*(best|top|tools|software|anbieter|alternativ\w*|plattformen|platforms|programme|lösungen|solutions)|vergleich\w*|comparison|compared|alternativ\w*|ranking|vs|versus)\b/i;
+// Wortgrenzen mit Unicode-Lookarounds: \b behandelt Umlaute als Grenze („Bestände“ wäre sonst „best“)
+const LIST_RE = /(?<![\p{L}\p{N}])(best|beste[nrs]?|besten|top[\s-]?\d*|\d+[\s-]*(best|top|tools|software|anbieter|alternativ\p{L}*|plattformen|platforms|programme|lösungen|solutions)|vergleich\p{L}*|comparison|compared|alternativ\p{L}*|ranking|vs|versus)(?![\p{L}\p{N}])/iu;
 export const LISTICLE_MAX = 6;
 
 export function ruleListicle(ix: Indexed, opts: { skipHosts?: Set<string> } = {}): Candidate[] {
@@ -1685,7 +1696,11 @@ export function ruleReviews(ix: Indexed): Candidate[] {
   const share = affected.size / ix.N;
   const compOnly = new Set(rows.flatMap(([, e]) => [...e.compResps]));
   // eigenes Profil schon von einer KI genutzt? (Markenname im Pfad, z. B. g2.com/products/synera)
-  const ownProfiles = rows.flatMap(([, e]) => [...e.urls.keys()]).filter((u) => ownKey.length >= 3 && brandKey(new URL(u).pathname).includes(ownKey));
+  const ownProfiles = rows.flatMap(([, e]) => [...e.urls.keys()]).filter((u) => ownKey.length >= 3 && new URL(u).pathname.split('/').some((seg) => {
+    // ganzes Pfadsegment oder Wortfolge darin (synera, synera-gmbh), nicht Teilwort („nova“ ≠ „innovation“)
+    const toks = seg.toLowerCase().split(/[-_.]+/).map(brandKey).filter(Boolean);
+    return toks.some((_, i) => toks.slice(i).some((__, j) => toks.slice(i, i + j + 1).join('') === ownKey));
+  }));
   const names = rows.slice(0, 3).map(([h]) => h);
   const comps = new Map<string, number>();
   for (const rid of affected) for (const m of ix.compsByResp.get(rid) ?? []) { const n = ix.compById.get(m.brandId!)!.name; comps.set(n, (comps.get(n) ?? 0) + 1); }
@@ -1757,7 +1772,9 @@ export function ruleEntity(ix: Indexed, checks: SiteCheckResult[] | undefined): 
     }
   }
   const share = wikiResps.size / ix.N;
-  const hasWikipedia = !!found?.wikipedia.length;
+  // Wikipedia-Artikel unbekannt (Sitelinks-Abfrage gescheitert): keine Aussage
+  if (found && found.wikipedia === null) return [];
+  const hasWikipedia = !!found?.wikipedia?.length;
   if (hasWikipedia) return [];
   // mit Wikidata-Eintrag, aber ohne Wikipedia: nur relevant, wenn die KIs Wikipedia hier oft nutzen
   if (found && share < 0.2) return [];
@@ -1782,7 +1799,7 @@ export function ruleEntity(ix: Indexed, checks: SiteCheckResult[] | undefined): 
       steps: [
         found
           ? `Complete the Wikidata item (${found.ids[0]}): description, official website, founding date, headquarters, industry, LinkedIn – each with a reliable source.`
-          : `Create a Wikidata item: name, one-line description (“${own.name}, …”), official website ${domain}, founding date, headquarters, industry, LinkedIn – only facts with public, reliable sources (press, register entry). Wikidata requires that the company is identifiable through such sources.`,
+          : `First search wikidata.org for “${own.name}” – an item may exist without (or with a different) official website; then add ${domain} there instead of creating a duplicate. Otherwise create a Wikidata item: name, one-line description (“${own.name}, …”), official website ${domain}, founding date, headquarters, industry, LinkedIn – only facts with public, reliable sources (press, register entry). Wikidata requires that the company is identifiable through such sources.`,
         'Disclose your conflict of interest on your user page – paid or employer-related edits must be disclosed under the Wikimedia terms of use.',
         `Don’t write or commission a Wikipedia article about ${own.name}: relevance criteria and conflict-of-interest rules make that risky. Wikipedia presence comes from independent coverage (trade press, studies, analyst reports) – work on that first.`,
         top.length
@@ -1797,7 +1814,7 @@ export function ruleEntity(ix: Indexed, checks: SiteCheckResult[] | undefined): 
       steps: [
         found
           ? `Den Wikidata-Eintrag (${found.ids[0]}) vervollständigen: Beschreibung, offizielle Website, Gründung, Sitz, Branche, LinkedIn – jeweils mit seriöser Quelle.`
-          : `Einen Wikidata-Eintrag anlegen: Name, Kurzbeschreibung („${own.name}, …“), offizielle Website ${domain}, Gründung, Sitz, Branche, LinkedIn – nur Angaben mit öffentlichen, seriösen Belegen (Presse, Handelsregister). Wikidata verlangt, dass das Unternehmen über solche Quellen identifizierbar ist.`,
+          : `Zuerst auf wikidata.org nach „${own.name}“ suchen – ein Eintrag kann existieren, aber ohne oder mit anderer Website-Angabe; dann dort die offizielle Website ${domain} ergänzen statt einen zweiten anzulegen. Sonst einen Wikidata-Eintrag anlegen: Name, Kurzbeschreibung („${own.name}, …“), offizielle Website ${domain}, Gründung, Sitz, Branche, LinkedIn – nur Angaben mit öffentlichen, seriösen Belegen (Presse, Handelsregister). Wikidata verlangt, dass das Unternehmen über solche Quellen identifizierbar ist.`,
         'Interessenkonflikt auf der Benutzerseite offenlegen – bezahlte bzw. vom Arbeitgeber veranlasste Bearbeitungen müssen laut Wikimedia-Nutzungsbedingungen offengelegt werden.',
         `Keinen Wikipedia-Artikel über ${own.name} selbst schreiben oder in Auftrag geben: Relevanzkriterien und Interessenkonflikt-Regeln machen das riskant. Wikipedia-Präsenz entsteht über unabhängige Berichterstattung (Fachmedien, Studien, Analystenberichte) – daran zuerst arbeiten.`,
         top.length
