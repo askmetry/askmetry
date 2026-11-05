@@ -1,9 +1,9 @@
 import Link from 'next/link';
-import { CATEGORIES, categoryOf, categoryText, type RecCategory } from '@askmetry/core/present';
+import { CATEGORIES, categoryOf, type RecCategory } from '@askmetry/core/present';
 import { RecCard } from '@/components/rec-card';
 import { EmptyState } from '@/components/ui';
 import { CategoryIcon } from '@/components/viz';
-import { CAT_STYLE } from '@/components/viz-style';
+import { catStyle, catText } from '@/components/viz-style';
 import { one, workspaceContext, type SP } from '@/lib/context';
 import { sortRecs } from '@/lib/recommendations';
 import { loadRecs, promptContext, recPrompt, type RecRow } from '@/lib/recs-data';
@@ -89,12 +89,13 @@ export default async function MassnahmenPage({ params, searchParams }: { params:
         <p className="rounded-2xl bg-card px-5 py-10 text-center text-sm text-muted shadow-card">{t.noneWithStatus}</p>
       ) : (
         <div className="space-y-12">
-          {CAT_ORDER.filter((c) => byCat.has(c)).map((c) => (
+          {/* bekannte Kategorien in fester Reihenfolge, neue (unbekannte) dahinter */}
+          {[...CAT_ORDER.filter((c) => byCat.has(c)), ...[...byCat.keys()].filter((c) => !CAT_ORDER.includes(c))].map((c) => (
             <section key={c} id={c} aria-labelledby={`h-${c}`} className="scroll-mt-6">
               <h2 id={`h-${c}`} className="mb-4 flex items-center gap-2 text-lg font-semibold tracking-tight">
-                <span className={`inline-flex size-7 items-center justify-center rounded-lg ${CAT_STYLE[c].bg} ${CAT_STYLE[c].text}`}><CategoryIcon cat={c} size={16} /></span>
-                {categoryText(c, locale).label}
-                <span className="text-sm font-normal text-muted">· {categoryText(c, locale).owner} · {byCat.get(c)!.length}</span>
+                <span className={`inline-flex size-7 items-center justify-center rounded-lg ${catStyle(c).bg} ${catStyle(c).text}`}><CategoryIcon cat={c} size={16} /></span>
+                {catText(c, locale).label}
+                <span className="text-sm font-normal tabular-nums text-muted">{byCat.get(c)!.length}</span>
               </h2>
               {grid(byCat.get(c)!, true)}
             </section>

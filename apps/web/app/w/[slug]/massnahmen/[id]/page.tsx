@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { notFound } from 'next/navigation';
 import { db, recommendation } from '@askmetry/db';
-import { promptDeliverable, categoryOf, categoryText, effortText, impactText, localizeRec, recMetricLabels } from '@askmetry/core/present';
+import { promptDeliverable, categoryOf, localizeRec, recMetricLabels } from '@askmetry/core/present';
 import { StatusDot } from '@/components/rec-card';
 import { AiPromptBlock, StepChecklist } from '@/components/rec-detail-client';
 import { Evidence, Progress } from '@/components/rec-evidence';
@@ -9,8 +9,8 @@ import { RecStatusMenu } from '@/components/rec-status';
 import { Back } from '@/components/ui';
 import { LinkedText } from '@/components/linked-text';
 import { linkTargets } from '@/lib/linkify';
-import { CategoryIcon } from '@/components/viz';
-import { CAT_STYLE } from '@/components/viz-style';
+import { CategoryIcon, ImpactBadge } from '@/components/viz';
+import { catStyle, catText } from '@/components/viz-style';
 import { loadBrands } from '@/lib/metrics';
 import { isUuid, metricLine, parseEvidence, parseMetric, withLabels, type RecStatus } from '@/lib/recommendations';
 import { promptContext, recPrompt } from '@/lib/recs-data';
@@ -64,14 +64,14 @@ export default async function MassnahmeDetail({ params }: { params: Promise<{ sl
       <Back href={`/w/${slug}/massnahmen`} label={t.back} />
       <header className="mb-8">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${CAT_STYLE[cat].bg} ${CAT_STYLE[cat].text}`}>
-            <CategoryIcon cat={cat} size={14} /> {categoryText(cat, locale).label}
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${catStyle(cat).bg} ${catStyle(cat).text}`}>
+            <CategoryIcon cat={cat} size={14} /> {catText(cat, locale).label}
           </span>
-          <span className="text-sm text-muted">{t.who} <b className="font-medium text-fg">{categoryText(cat, locale).owner}</b></span>
+          {catText(cat, locale).owner && <span className="text-sm text-muted">{t.who} {catText(cat, locale).owner}</span>}
           {!rec.active && <span className="text-sm text-muted">{t.inactive}</span>}
         </div>
         <h1 className="mt-3 text-2xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere]"><LinkedText text={plainTerms(rec.title, locale)} targets={targets} /></h1>
-        <p className="mt-1.5 text-sm text-muted">{impactText(rec.impact, locale)} · {effortText(rec, locale)}</p>
+        <p className="mt-2"><ImpactBadge impact={rec.impact} /></p>
         <div className="mt-4">
           {canEdit ? <RecStatusMenu slug={slug} id={rec.id} status={status} /> : <StatusDot status={status} />}
         </div>

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { eq, sql } from 'drizzle-orm';
 import { db, prompt } from '@askmetry/db';
 import { buildStatusBrief, claudeBatchWaiting, keyInsight, loadRecData, pickTopRecommendations, rankingFrom } from '@askmetry/core';
-import { CATEGORIES, categoryOf, categoryText, localizeRec, scoreVerdict, type RecCategory } from '@askmetry/core/present';
+import { CATEGORIES, categoryOf, localizeRec, scoreVerdict, type RecCategory } from '@askmetry/core/present';
 import { ActionForm } from '@/components/action-form';
 import { BrandProfileBanner } from '@/components/brand-profile';
 import { BrandMark } from '@/components/brand-mark';
@@ -10,7 +10,7 @@ import { CopyButton } from '@/components/copy-button';
 import { RecCard, RecHero } from '@/components/rec-card';
 import { EmptyState, Hint } from '@/components/ui';
 import { CategoryIcon, Dot, ScoreRing } from '@/components/viz';
-import { CAT_STYLE, toneColor } from '@/components/viz-style';
+import { catStyle, catText, toneColor } from '@/components/viz-style';
 import { startCollection } from '@/lib/actions/settings';
 import { workspaceContext } from '@/lib/context';
 import { remeasureHref, rightsFor } from '@/lib/hosted/server';
@@ -239,8 +239,8 @@ export default async function Uebersicht({ params, searchParams }: { params: Pro
             <p className="mt-4 flex flex-wrap items-center gap-2 text-sm text-muted">
               <span>{t.byKind}</span>
               {CAT_ORDER.filter((c) => catCount.get(c)).map((c) => (
-                <Link key={c} href={`/w/${slug}/massnahmen#${c}`} className={`inline-flex items-center gap-1.5 rounded-full bg-card px-2.5 py-0.5 shadow-card hover:underline ${CAT_STYLE[c].text}`}>
-                  <CategoryIcon cat={c} size={14} />{categoryText(c, locale).label} <span className="tabular-nums">{catCount.get(c)}</span>
+                <Link key={c} href={`/w/${slug}/massnahmen#${c}`} className={`inline-flex items-center gap-1.5 rounded-full bg-card px-2.5 py-0.5 shadow-card hover:underline ${catStyle(c).text}`}>
+                  <CategoryIcon cat={c} size={14} />{catText(c, locale).label} <span className="tabular-nums">{catCount.get(c)}</span>
                 </Link>
               ))}
             </p>
