@@ -14,6 +14,7 @@ import account from './account';
 import marketing from './marketing';
 import legal from './legal';
 import billing from './billing';
+import guide from './guide';
 
-export const de = { common, auth, overview, analysis, sources, recs, questions, settings, workspaces, marketing, legal, billing, check, buy, reports, account };
+export const de = { common, auth, overview, analysis, sources, recs, questions, settings, workspaces, marketing, legal, billing, check, buy, reports, account, guide };
 export type Messages = typeof de;

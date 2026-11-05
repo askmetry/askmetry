@@ -28,7 +28,10 @@ export default async function FragenPage({ params, searchParams }: { params: Pro
     <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">{t.title}</h1>
-        <p className="mt-1 text-sm text-muted">{t.intro(own?.name ?? null)}</p>
+        <p className="mt-1 text-sm text-muted">
+          {t.intro(own?.name ?? null)}{' '}
+          <Link href={`/w/${slug}/leitfaden#woher-fragen`} className="text-accent hover:underline">{msg.guide.whereQuestions}</Link>
+        </p>
       </div>
       {canEdit && <Link href={`/w/${slug}/settings/fragen`} className="btn btn-sm">{t.edit}</Link>}
     </div>

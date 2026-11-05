@@ -15,5 +15,6 @@ import account from './account';
 import marketing from './marketing';
 import legal from './legal';
 import billing from './billing';
+import guide from './guide';
 
-export const en: Messages = { common, auth, overview, analysis, sources, recs, questions, settings, workspaces, marketing, legal, billing, check, buy, reports, account };
+export const en: Messages = { common, auth, overview, analysis, sources, recs, questions, settings, workspaces, marketing, legal, billing, check, buy, reports, account, guide };

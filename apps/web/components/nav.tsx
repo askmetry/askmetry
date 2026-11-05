@@ -14,6 +14,7 @@ export function WorkspaceNav({ slug, reports = false }: { slug: string; reports?
     { href: `${base}/massnahmen`, label: t.recs },
     { href: `${base}/fragen`, label: t.questions },
     ...(reports ? [{ href: `${base}/berichte`, label: all.reports.nav, also: `${base}/bericht/` }] : []),
+    { href: `${base}/leitfaden`, label: all.guide.nav },
   ];
   const settingsActive = path.startsWith(`${base}/settings`);
   return (
