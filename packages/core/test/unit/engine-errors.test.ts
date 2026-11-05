@@ -77,12 +77,13 @@ describe('HTTP-Fehler der Adapter', () => {
     expect(r.answer).toBe('');
   });
 
-  it('DataForSEO: Kosten auch bei Fehlern, nur 40101 ist vorübergehend', async () => {
+  it('DataForSEO: Kosten auch bei Fehlern, nur 40101, 40202 und 5xxxx sind vorübergehend', async () => {
     vi.stubEnv('DATAFORSEO_LOGIN', 'x');
     vi.stubEnv('DATAFORSEO_PASSWORD', 'y');
     const fetch = stubFetch(
       reply(200, { tasks: [{ status_code: 40101, status_message: 'Internal SE Server Error', cost: 0.002 }] }),
       reply(200, { tasks: [{ status_code: 40501, status_message: 'Invalid Field', cost: 0.001 }] }),
+      reply(200, { tasks: [{ status_code: 40202, status_message: 'Rate limit per minute exceeded', cost: 0 }] }),
     );
     const e1 = await googleAio.run('frage', ctx).catch((e) => e);
     expect(e1).toBeInstanceOf(EngineError);
@@ -91,7 +92,9 @@ describe('HTTP-Fehler der Adapter', () => {
     const e2 = await googleAio.run('frage', ctx).catch((e) => e);
     expect(e2.costUsd).toBe(0.001);
     expect(e2.retryable).toBe(false);
+    const e3 = await googleAio.run('frage', ctx).catch((e) => e);
+    expect(e3.retryable).toBe(true);
     // keine Wiederholung im Adapter (der Runner ist die einzige Wiederholungsebene)
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 });

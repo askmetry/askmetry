@@ -54,6 +54,8 @@ const account: typeof de = {
     spam: 'Nothing arrived? Check your spam folder or send the email again.',
     resend: 'Resend email',
     resent: 'We’ve sent the email again.',
+    existing: 'Already have an account with this address? In that case we won’t send a new email. Just sign in – or request the confirmation again above if you haven’t clicked it yet.',
+    existingLink: 'Sign in',
     expired: 'The confirmation link has expired. Sign in and we’ll send you a new one.',
   },
   optout: {

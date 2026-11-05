@@ -53,6 +53,8 @@ const account = {
     spam: 'Nichts angekommen? Schau im Spam-Ordner nach oder schick die Mail noch einmal.',
     resend: 'Mail erneut senden',
     resent: 'Wir haben die Mail noch einmal geschickt.',
+    existing: 'Du hast schon ein Konto mit dieser Adresse? Dann schicken wir keine neue Mail. Melde dich einfach an – oder fordere die Bestätigung oben erneut an, falls du den Bestätigungslink noch nicht angeklickt hast.',
+    existingLink: 'Zur Anmeldung',
     expired: 'Der Bestätigungslink ist abgelaufen. Melde dich an, dann schicken wir dir einen neuen.',
   },
   optout: {

@@ -22,9 +22,9 @@ async function dataforseo(path: string, body: Record<string, unknown>) {
   const cost = Number(task?.cost ?? 0) || 0;
   if (task?.status_code !== 20000) {
     const code = Number(task?.status_code ?? raw.status_code);
-    // 40101 ("Internal SE Server Error") tritt sporadisch auf; 5xxxx = Serverfehler. Alles andere (Auth, Parameter) ist dauerhaft.
+    // 40101 ("Internal SE Server Error") tritt sporadisch auf, 40202 = Ratelimit; 5xxxx = Serverfehler. Alles andere (Auth, Parameter) ist dauerhaft.
     throw new EngineError(`DataForSEO ${task?.status_code ?? raw.status_code}: ${task?.status_message ?? raw.status_message}`, {
-      costUsd: cost, retryable: code === 40101 || code >= 50000,
+      costUsd: cost, retryable: code === 40101 || code === 40202 || code >= 50000,
     });
   }
   return { raw, task: { ...task, cost }, items: (task.result?.[0]?.items ?? []) as any[] };

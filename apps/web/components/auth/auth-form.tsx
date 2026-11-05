@@ -54,7 +54,7 @@ export function AuthForm({ mode, allowSignup = true, next = null, hosted = false
     router.refresh();
   }
 
-  if (sentTo) return <VerifyNotice email={sentTo} next={next} />;
+  if (sentTo) return <VerifyNotice email={sentTo} next={next} afterSignup />;
 
   return (
     <main className="relative flex min-h-screen items-center justify-center px-4">
@@ -103,8 +103,12 @@ export function Logo({ small = false }: { small?: boolean }) {
   );
 }
 
-/** „Bitte bestätige deine E-Mail-Adresse“ mit „Mail erneut senden“ (auch als eigene Seite /email-bestaetigen). */
-export function VerifyNotice({ email, next, expired = false }: { email?: string | null; next?: string | null; expired?: boolean }) {
+/**
+ * „Bitte bestätige deine E-Mail-Adresse“ mit „Mail erneut senden“ (auch als eigene Seite /email-bestaetigen).
+ * `afterSignup`: Hinweis „Schon ein Konto?“ – Better-Auth schickt bei bereits registrierter Adresse keine Mail (Schutz vor
+ * Konto-Enumeration); der Hinweis erscheint deshalb nach jeder Registrierung gleich.
+ */
+export function VerifyNotice({ email, next, expired = false, afterSignup = false }: { email?: string | null; next?: string | null; expired?: boolean; afterSignup?: boolean }) {
   const { t: all } = useI18n();
   const t = all.account.verify;
   const [state, setState] = useState<'idle' | 'busy' | 'sent'>('idle');
@@ -130,6 +134,12 @@ export function VerifyNotice({ email, next, expired = false }: { email?: string 
           <button type="submit" className="btn w-full justify-center" disabled={state === 'busy'}>{t.resend}</button>
           {state === 'sent' && <p role="status" className="text-sm text-good">{t.resent}</p>}
         </form>
+        {afterSignup && (
+          <p className="mt-6 border-t border-border pt-4 text-sm text-muted" data-testid="verify-existing">
+            {t.existing}{' '}
+            <Link className="text-accent hover:underline" href={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`}>{t.existingLink}</Link>
+          </p>
+        )}
       </div>
     </main>
   );

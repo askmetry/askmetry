@@ -26,6 +26,13 @@ export const REPORT_SCOPE: Record<ReportTier, { prompts: number; competitors: nu
 };
 
 /**
+ * Parallele Abfragen einer Berichtsmessung. Mit dem Runner-Standard (4 / 2 je Anbieter) brauchte ein
+ * Strategiebericht (840 Abfragen) gut zwei Stunden. `perProvider` gilt je Anbieter, nicht je KI: google_aio und
+ * google_ai_mode teilen sich DataForSEO (dort liegt der Engpass); Claude läuft als Batch und belegt keine Plätze.
+ */
+export const REPORT_CONCURRENCY = { total: 18, perProvider: 6 };
+
+/**
  * Umfang des Gratis-Schnell-Checks. Ziel: in 2–3 Minuten fertig (Discovery ~35 s, Messung ~45 s, Maßnahmen ~20 s).
  * Dafür misst der Check weniger Fragen als früher (8 statt 10) und fragt alle KIs gleichzeitig (`concurrency`).
  * Berichte (REPORT_SCOPE) sind davon unberührt.
@@ -38,7 +45,7 @@ export const CHECK_SCOPE = {
   engines: ['gemini', 'google_aio', 'google_ai_mode', 'chatgpt'],
   engineMaxPrompts: { chatgpt: 4 } as Record<string, number>,
   repetitions: 1,
-  /** parallele Abfragen der Check-Messung (Berichte: Standard des Runners, 4 / 2 je Anbieter) */
+  /** parallele Abfragen der Check-Messung (Berichte: REPORT_CONCURRENCY) */
   concurrency: { total: 12, perProvider: 6 },
   /** Zahl der vollständig gezeigten Maßnahmen im Teaser */
   freeRecommendations: 1,

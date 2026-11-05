@@ -4,7 +4,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, sql } from 'dr
 import crypto from 'node:crypto';
 import { mailTemplates, sendMail } from '../mail/index.ts';
 import { CollectionActiveError, createCollection, hasActiveCollection, parseCollectionPlan } from '../runner.ts';
-import { hostedConfig, publicUrl, REMEASURE_REMINDER_DAYS, REPORT_SCOPE, type PaymentProvider, type ReportKind, type ReportTier } from './config.ts';
+import { hostedConfig, publicUrl, REMEASURE_REMINDER_DAYS, REPORT_CONCURRENCY, REPORT_SCOPE, type PaymentProvider, type ReportKind, type ReportTier } from './config.ts';
 import { generateMorePrompts, type DiscoveryAsker } from './discovery.ts';
 import { trackEvent } from './funnel.ts';
 import { canStartMeasurement, estimateMeasurementUsd } from './limits.ts';
@@ -207,7 +207,7 @@ export async function startReport(reportId: string, userId: string): Promise<{ o
       .orderBy(asc(prompt.createdAt)).limit(scope.prompts)).map((p) => p.id);
     if (!promptIds.length) return { error: 'no_prompts' };
   }
-  const plan = { promptIds, engines: scope.engines, repetitions: scope.repetitions, batch: true };
+  const plan = { promptIds, engines: scope.engines, repetitions: scope.repetitions, batch: true, concurrency: REPORT_CONCURRENCY };
   const budget = await canStartMeasurement('report', estimateMeasurementUsd({ ...plan, prompts: promptIds.length }));
   if (!budget.ok) return { error: 'budget' };
 
