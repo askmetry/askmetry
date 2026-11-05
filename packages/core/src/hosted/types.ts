@@ -29,7 +29,11 @@ export interface CheckSummary {
   prompts: number;                 // gemessene Fragen (10)
   promptsMentioned: number;        // Fragen, in denen die eigene Marke mindestens einmal genannt wurde
   responses: number;               // ausgewertete Antworten
-  visibility: number;              // Anteil Antworten mit Nennung, 0..1 (Stichprobe)
+  /** Antworten mit Nennung der eigenen Marke (Zähler von `visibility`; fehlt in älteren Summaries) */
+  responsesMentioned?: number;
+  visibility: number;              // Anteil Antworten mit Nennung, 0..1 (Stichprobe) – gleiche Kennzahl wie der Score im Bericht
+  /** true = Messung lief mit simulierten Antworten (Mock-Modus) – nie als echtes Ergebnis zeigen */
+  simulated?: boolean;
   topCompetitor: { name: string; promptsMentioned: number } | null;
   competitors: { name: string; promptsMentioned: number }[];  // höchstens 5, absteigend
   topDomains: { domain: string; count: number }[];             // Top-3 zitierte Domains

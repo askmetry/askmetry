@@ -29,6 +29,8 @@ export function buildCheckSummary(input: {
   /** alle gemessenen Prompt-IDs (auch ohne Antwort) */
   measuredPromptIds: readonly string[];
   siteChecks?: readonly SiteCheckResult[];
+  /** Messung lief mit simulierten Antworten (run.model = 'mock') */
+  simulated?: boolean;
 }): CheckSummary {
   const { data } = input;
   const own = data.brands.find((b) => b.isOwn);
@@ -80,6 +82,7 @@ export function buildCheckSummary(input: {
     prompts: input.measuredPromptIds.length,
     promptsMentioned: own ? promptsFor(own.id) : 0,
     responses: data.resps.length,
+    responsesMentioned: ownResps.size,
     visibility: data.resps.length ? ownResps.size / data.resps.length : 0,
     topCompetitor: top,
     competitors,
@@ -92,5 +95,6 @@ export function buildCheckSummary(input: {
       robotsBlocksAi: robotsKnown.length ? robotsKnown.some((c) => c.robots.blocked.length > 0) : null,
       jsOnly: homeKnown.length ? homeKnown.some((c) => (c.home.textChars ?? 0) < 500) : null,
     } : null,
+    ...(input.simulated ? { simulated: true } : {}),
   };
 }

@@ -49,6 +49,8 @@ export const CHECK_SCOPE = {
   concurrency: { total: 12, perProvider: 6 },
   /** Zahl der vollständig gezeigten Maßnahmen im Teaser */
   freeRecommendations: 1,
+  /** unter so vielen ausgewerteten Antworten zeigt der Teaser keinen Sichtbarkeitswert, nur die Zählung */
+  minResponsesForScore: 12,
 };
 
 /** Version der AGB, der beim Kauf zugestimmt wird (bei Änderung der AGB hochzählen). */

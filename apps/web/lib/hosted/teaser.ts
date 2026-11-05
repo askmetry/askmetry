@@ -19,6 +19,46 @@ export function roughScore(visibility: number | null | undefined): number {
   return Math.max(5, Math.round((v * 100) / 5) * 5);
 }
 
+/** 95-%-Wilson-Intervall für k von n (wie im Bericht, packages/report wilson) – null ohne Antworten. */
+export function wilsonInterval(k: number, n: number, z = 1.96): { low: number; high: number } | null {
+  if (!(n > 0) || k < 0) return null;
+  const p = Math.min(1, k / n);
+  const z2 = z * z;
+  const d = 1 + z2 / n;
+  const center = (p + z2 / (2 * n)) / d;
+  const margin = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / d;
+  return { low: Math.max(0, center - margin), high: Math.min(1, center + margin) };
+}
+
+export interface VisibilityEstimate {
+  /** Antworten mit Nennung / ausgewertete Antworten – dieselbe Kennzahl wie der Score im Bericht */
+  mentioned: number;
+  responses: number;
+  /** grober Wert (5er-Schritte) und Spanne (nach außen auf 5er gerundet); null = Stichprobe zu klein für einen Wert */
+  score: number | null;
+  range: { low: number; high: number } | null;
+  simulated: boolean;
+}
+
+/**
+ * Sichtbarkeitsaussage des Teasers. Gleiche Kennzahl wie der Bericht (Anteil der KI-Antworten mit Nennung), aber
+ * mit Spanne statt Scheingenauigkeit; unter `minResponses` Antworten gar kein Wert.
+ * Ältere Summaries ohne `responsesMentioned`: Zähler aus visibility × responses.
+ */
+export function visibilityEstimate(
+  s: Pick<CheckSummary, 'responses' | 'visibility' | 'responsesMentioned' | 'simulated'>,
+  minResponses: number,
+): VisibilityEstimate {
+  const responses = Math.max(0, s.responses ?? 0);
+  const mentioned = Math.min(responses, Math.max(0, s.responsesMentioned ?? Math.round((s.visibility ?? 0) * responses)));
+  const w = responses >= Math.max(1, minResponses) ? wilsonInterval(mentioned, responses) : null;
+  return {
+    mentioned, responses, simulated: !!s.simulated,
+    score: w ? roughScore(mentioned / responses) : null,
+    range: w ? { low: Math.floor((w.low * 100) / 5) * 5, high: Math.ceil((w.high * 100) / 5) * 5 } : null,
+  };
+}
+
 /** Zahl der gesperrten Maßnahmen: alle außer den frei gezeigten (nie negativ). */
 export function lockedCount(summary: Pick<CheckSummary, 'recommendationsTotal'>, freeShown: number): number {
   return Math.max(0, (summary.recommendationsTotal ?? 0) - Math.max(0, freeShown));

@@ -468,7 +468,9 @@ export async function computeCheckSummary(workspaceId: string, collectionId: str
   const latestByDomain = new Map<string, SiteCheckResult>();
   for (const s of checks) { const r = s.result as SiteCheckResult; if (!latestByDomain.has(r.domain)) latestByDomain.set(r.domain, r); }
   const measured = parseCollectionPlan(plan).promptIds ?? [...new Set(data.resps.map((r) => r.promptId))];
-  return buildCheckSummary({ data, recs, measuredPromptIds: measured, siteChecks: [...latestByDomain.values()] });
+  // simulierte Antworten (Mock-Modus) kennzeichnen, damit der Teaser sie nie als echtes Ergebnis zeigt
+  const [mock] = await db.select({ id: run.id }).from(run).where(and(eq(run.collectionId, collectionId), eq(run.model, 'mock'))).limit(1);
+  return buildCheckSummary({ data, recs, measuredPromptIds: measured, siteChecks: [...latestByDomain.values()], simulated: !!mock });
 }
 
 async function finishMeasurement(c: Check, log: (m: string) => void) {

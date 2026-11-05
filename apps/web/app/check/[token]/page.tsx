@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { domainsWithLogo } from '@askmetry/core';
-import { CHECK_SCOPE } from '@askmetry/core/hosted/config';
+import { CHECK_SCOPE, REPORT_SCOPE } from '@askmetry/core/hosted/config';
 import { scoreVerdict } from '@askmetry/core/present';
 import type { CheckView } from '@askmetry/core/hosted/types';
 import { AutoRefresh } from '@/components/auto-refresh';
@@ -16,7 +16,7 @@ import { ScoreRing } from '@/components/viz';
 import { toneColor } from '@/components/viz-style';
 import { getCheckView } from '@/lib/hosted/data';
 import { contactEmail, isHosted } from '@/lib/hosted/server';
-import { agentSteps, cleanDomain, elapsedText, lockedCount, refreshSeconds, roughScore, type AgentStep } from '@/lib/hosted/teaser';
+import { agentSteps, cleanDomain, elapsedText, lockedCount, refreshSeconds, visibilityEstimate, type AgentStep } from '@/lib/hosted/teaser';
 import { getI18n, getT } from '@/lib/i18n/server';
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/;
@@ -163,8 +163,9 @@ async function Teaser({ view, canceled, verified }: { view: CheckView; canceled:
   const { t, f, locale } = await getI18n();
   const c = t.check.teaser;
   const s = view.summary!;
-  const score = roughScore(s.visibility);
-  const verdict = scoreVerdict(score, locale);
+  // gleiche Kennzahl wie der Bericht (Anteil der Antworten mit Nennung), mit Spanne; zu kleine Stichprobe → kein Wert
+  const est = visibilityEstimate(s, CHECK_SCOPE.minResponsesForScore);
+  const verdict = est.score !== null ? scoreVerdict(est.score, locale) : null;
   const free = view.freeRecommendations.slice(0, CHECK_SCOPE.freeRecommendations);
   const locked = lockedCount(s, free.length);
   const ownDomain = cleanDomain(s.brand.domain);
@@ -185,18 +186,32 @@ async function Teaser({ view, canceled, verified }: { view: CheckView; canceled:
             <p className="text-[13px] text-muted">{view.domain} · {c.sampleFrom(f.date(view.readyAt ?? view.createdAt, false))}</p>
           </div>
         </div>
+        {est.simulated && (
+          <p role="note" className="mt-4 rounded-xl bg-subtle px-4 py-3 text-sm" data-testid="teaser-simulated">{c.simulatedNote}</p>
+        )}
         <div className="mt-6 flex flex-col items-center gap-6 text-center sm:flex-row sm:gap-10 sm:text-left">
-          <div className="flex shrink-0 flex-col items-center gap-2">
-            <ScoreRing score={score} tone={verdict.tone} />
-            <span className="rounded-full bg-subtle px-2.5 py-0.5 text-[13px] font-medium text-muted">{c.sample}</span>
-          </div>
+          {est.score !== null && verdict && (
+            <div className="flex shrink-0 flex-col items-center gap-2">
+              <ScoreRing score={est.score} tone={verdict.tone} />
+              <span className="rounded-full bg-subtle px-2.5 py-0.5 text-[13px] font-medium text-muted">{est.simulated ? c.simulated : c.sample}</span>
+            </div>
+          )}
           <div className="min-w-0">
-            <p className="text-sm text-muted">{c.score} · {c.approx} {score} {c.of100}<Hint>{c.scoreHint}</Hint></p>
-            <p className="mt-1 inline-flex items-center gap-2.5 text-[1.75rem] font-semibold leading-tight tracking-tight">
-              <span aria-hidden className="inline-block size-3 rounded-full" style={{ background: toneColor(verdict.tone) }} />{verdict.label}
+            <p className="text-sm text-muted">
+              {c.score}{est.score !== null && <> · {c.approx} {est.score} {c.of100}</>}<Hint>{c.scoreHint}</Hint>
             </p>
-            <p className="mt-2 text-[17px]" data-testid="teaser-named">{c.namedIn(s.promptsMentioned, s.prompts)}</p>
-            {s.promptsMentioned === 0 && <p className="mt-1 text-sm text-muted">{c.noneNamed}</p>}
+            {verdict && (
+              <p className="mt-1 inline-flex items-center gap-2.5 text-[1.75rem] font-semibold leading-tight tracking-tight">
+                <span aria-hidden className="inline-block size-3 rounded-full" style={{ background: toneColor(verdict.tone) }} />{verdict.label}
+              </p>
+            )}
+            <p className="mt-2 text-[17px]" data-testid="teaser-named">{c.namedIn(est.mentioned, est.responses)}</p>
+            {est.range && <p className="mt-1 text-[15px]" data-testid="teaser-range">{c.range(est.range.low, est.range.high)}</p>}
+            {est.mentioned === 0 && <p className="mt-1 text-sm text-muted">{c.noneNamed}</p>}
+            {est.score === null && <p className="mt-1 text-sm text-muted">{c.tooFew}</p>}
+            <p className="mt-3 text-sm text-muted" data-testid="teaser-caveat">
+              {c.caveat(s.prompts, REPORT_SCOPE.strategy.prompts, REPORT_SCOPE.strategy.repetitions, REPORT_SCOPE.strategy.engines.length)}
+            </p>
           </div>
         </div>
       </section>

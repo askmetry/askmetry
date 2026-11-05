@@ -148,6 +148,18 @@ export function sanitizePrompts(list: unknown, brandName: string, max: number, m
   return out;
 }
 
+/**
+ * Reihenfolge für den Schnell-Check: gemessen werden die ersten CHECK_SCOPE.measured Fragen. Fragen mit dem eigenen
+ * Markennamen kommen ans Ende – sie nennen die Marke fast immer (synera.ai: 15 von 15 Antworten) und würden die kleine
+ * Stichprobe nach oben verzerren. Im Bericht bleiben sie (dort 1 von 60 Fragen).
+ */
+export function orderForCheck(prompts: readonly string[], brandName: string): string[] {
+  const b = brandName.trim().toLowerCase();
+  if (b.length < 3) return [...prompts];
+  const has = (t: string) => t.toLowerCase().includes(b);
+  return [...prompts.filter((t) => !has(t)), ...prompts.filter(has)];
+}
+
 export function sanitizeCompetitors(list: unknown, ownDomain: string, ownName: string): DiscoveredCompetitor[] {
   const out: DiscoveredCompetitor[] = [];
   const names = new Set([ownName.toLowerCase()]);
@@ -251,7 +263,7 @@ export async function discoverBrand(input: { url: string; domain: string; locale
     throw new DiscoveryError('failed', `KI-Discovery fehlgeschlagen: ${(e as Error)?.message ?? e}`.slice(0, 300), costUsd + ((e as { costUsd?: number })?.costUsd ?? 0));
   }
   const brandName = clean(json?.brand_name, 80) || provisional;
-  const prompts = sanitizePrompts(json?.prompts, brandName, CHECK_SCOPE.generated);
+  const prompts = orderForCheck(sanitizePrompts(json?.prompts, brandName, CHECK_SCOPE.generated), brandName);
   if (prompts.length < CHECK_SCOPE.measured) throw new DiscoveryError('failed', `KI-Discovery lieferte nur ${prompts.length} brauchbare Fragen`, costUsd);
   return {
     brandName, description: profile.description, kind: profile.kind,

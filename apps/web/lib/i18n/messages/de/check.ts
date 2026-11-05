@@ -85,13 +85,19 @@ const check = {
   },
   teaser: {
     sample: 'Stichprobe',
+    simulated: 'Simuliert',
+    simulatedNote: 'Testmodus: Diese Antworten sind simuliert und stammen nicht von echten KIs. Die Zahlen sagen nichts über deine Sichtbarkeit.',
     sampleFrom: (date: string) => `Stichprobe vom ${date}`,
     title: (brand: string) => `So sichtbar ist ${brand} in KI-Antworten`,
     score: 'KI-Sichtbarkeit',
     approx: 'ca.',
     of100: 'von 100',
-    scoreHint: 'Anteil der KI-Antworten, in denen deine Marke vorkommt – grob gerundet, weil die Stichprobe klein ist.',
-    namedIn: (n: number, of: number) => `In ${n} von ${of} Fragen genannt.`,
+    scoreHint: 'Anteil der KI-Antworten, in denen deine Marke vorkommt – dieselbe Kennzahl wie im Bericht. Hier aus einer kleinen Stichprobe, deshalb grob gerundet und mit Spanne.',
+    namedIn: (n: number, of: number) => `Genannt in ${n} von ${of} KI-Antworten.`,
+    range: (low: number, high: number) => `Wahrscheinlich zwischen ${low} und ${high} von 100.`,
+    tooFew: 'Für einen belastbaren Wert sind das zu wenige Antworten – der Bericht misst gründlich.',
+    caveat: (prompts: number, reportPrompts: number, reps: number, engines: number) =>
+      `Erste Stichprobe aus ${prompts} Fragen. Der Strategiebericht stellt ${reportPrompts} Fragen je ${reps}× in ${engines} KI-Suchen, auch allgemeinere Fragen und Claude – dort fällt der Wert oft niedriger aus.`,
     noneNamed: 'Noch nennt dich keine der KIs – das ist häufig und lässt sich ändern.',
     recsFound: (n: number) => (n === 1 ? '1 Verbesserungsmaßnahme gefunden' : `${n} Verbesserungsmaßnahmen gefunden`),
     recsNone: 'In dieser Stichprobe haben wir keine Maßnahmen gefunden. Der Bericht misst gründlicher.',
@@ -102,7 +108,7 @@ const check = {
     lockedCta: 'Bericht ansehen',
     method: 'So ist diese Zahl entstanden',
     methodText: (prompts: number, chatgpt: number, responses: number) =>
-      `Wir haben ${prompts} typische Kundenfragen je einmal an Gemini, Google AI Overviews und Google AI Mode gestellt, die ersten ${chatgpt} auch an ChatGPT – zusammen ${responses} Antworten. KI-Antworten schwanken von Mal zu Mal; nimm die Zahl als Richtwert. Die Berichte fragen jede Frage dreimal in fünf KI-Suchen.`,
+      `Wir haben ${prompts} typische Kundenfragen je einmal an Gemini, Google AI Overviews und Google AI Mode gestellt, die ersten ${chatgpt} auch an ChatGPT – zusammen ${responses} Antworten. Fragen, die deinen Markennamen enthalten, messen wir hier nicht, Claude fragen wir erst im Bericht. KI-Antworten schwanken von Mal zu Mal; die Spanne zeigt, wie unsicher eine so kleine Stichprobe ist.`,
   },
   buy: {
     title: 'Alle Maßnahmen und den Plan dazu holen',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CheckProgress } from '@askmetry/core/hosted/types';
-import { agentSteps, cleanDomain, elapsedText, lockedCount, refreshSeconds, roughScore } from './teaser';
+import { agentSteps, cleanDomain, elapsedText, lockedCount, refreshSeconds, roughScore, visibilityEstimate, wilsonInterval } from './teaser';
 
 describe('roughScore', () => {
   it('rundet auf 5er-Schritte', () => {
@@ -15,6 +15,40 @@ describe('roughScore', () => {
     expect(roughScore(0.01)).toBe(5);
   });
   it('klemmt Werte über 1', () => expect(roughScore(1.4)).toBe(100));
+});
+
+describe('wilsonInterval', () => {
+  it('95-%-Intervall wie im Bericht', () => {
+    const w = wilsonInterval(6, 24)!;
+    expect(w.low).toBeCloseTo(0.12, 2);
+    expect(w.high).toBeCloseTo(0.449, 2);
+    expect(wilsonInterval(0, 24)!.low).toBe(0);
+    expect(wilsonInterval(24, 24)!.high).toBe(1);
+    expect(wilsonInterval(0, 0)).toBeNull();
+  });
+});
+
+describe('visibilityEstimate (Teaser-Aussage = Kennzahl des Berichts)', () => {
+  it('synera.ai-Check: 6 von 24 Antworten → ca. 25, Spanne 10–45 (Bericht danach: 12)', () => {
+    expect(visibilityEstimate({ responses: 24, responsesMentioned: 6, visibility: 0.25 }, 12))
+      .toEqual({ mentioned: 6, responses: 24, score: 25, range: { low: 10, high: 45 }, simulated: false });
+  });
+  it('ältere Summary ohne Zähler: aus visibility × responses', () => {
+    expect(visibilityEstimate({ responses: 35, visibility: 0.6 }, 12)).toMatchObject({ mentioned: 21, score: 60 });
+  });
+  it('Wert liegt immer in der Spanne', () => {
+    for (let n = 12; n <= 40; n++) for (let k = 0; k <= n; k++) {
+      const e = visibilityEstimate({ responses: n, responsesMentioned: k, visibility: k / n }, 12);
+      expect(e.score!).toBeGreaterThanOrEqual(e.range!.low);
+      expect(e.score!).toBeLessThanOrEqual(e.range!.high);
+    }
+  });
+  it('zu kleine Stichprobe: kein Wert, keine Spanne – nur die Zählung', () => {
+    expect(visibilityEstimate({ responses: 8, responsesMentioned: 3, visibility: 0.375 }, 12)).toEqual({ mentioned: 3, responses: 8, score: null, range: null, simulated: false });
+  });
+  it('simulierte Messung wird gekennzeichnet', () => {
+    expect(visibilityEstimate({ responses: 35, responsesMentioned: 21, visibility: 0.6, simulated: true }, 12).simulated).toBe(true);
+  });
 });
 
 describe('lockedCount', () => {

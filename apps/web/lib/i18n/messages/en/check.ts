@@ -84,13 +84,19 @@ const check: typeof de = {
   },
   teaser: {
     sample: 'Sample',
+    simulated: 'Simulated',
+    simulatedNote: 'Test mode: these answers are simulated and don’t come from real AI engines. The numbers say nothing about your visibility.',
     sampleFrom: (date: string) => `Sample from ${date}`,
     title: (brand: string) => `How visible ${brand} is in AI answers`,
     score: 'AI visibility',
     approx: 'approx.',
     of100: 'out of 100',
-    scoreHint: 'Share of AI answers that mention your brand – roughly rounded because the sample is small.',
-    namedIn: (n: number, of: number) => `Mentioned in ${n} of ${of} questions.`,
+    scoreHint: 'Share of AI answers that mention your brand – the same metric as in the report. Here from a small sample, so roughly rounded and with a range.',
+    namedIn: (n: number, of: number) => `Mentioned in ${n} of ${of} AI answers.`,
+    range: (low: number, high: number) => `Likely between ${low} and ${high} out of 100.`,
+    tooFew: 'That’s too few answers for a reliable number – the report measures thoroughly.',
+    caveat: (prompts: number, reportPrompts: number, reps: number, engines: number) =>
+      `First sample from ${prompts} questions. The strategy report asks ${reportPrompts} questions ${reps}× each in ${engines} AI engines, including broader questions and Claude – the number there often turns out lower.`,
     noneNamed: 'None of the AIs mention you yet – that’s common and can be changed.',
     recsFound: (n: number) => (n === 1 ? '1 improvement found' : `${n} improvements found`),
     recsNone: 'We didn’t find any actions in this sample. The report measures more thoroughly.',
@@ -101,7 +107,7 @@ const check: typeof de = {
     lockedCta: 'See the reports',
     method: 'How this number came about',
     methodText: (prompts: number, chatgpt: number, responses: number) =>
-      `We asked ${prompts} typical customer questions once each in Gemini, Google AI Overviews and Google AI Mode, and the first ${chatgpt} in ChatGPT too – ${responses} answers in total. AI answers vary from run to run; treat the number as a guide. The reports ask every question three times in five AI engines.`,
+      `We asked ${prompts} typical customer questions once each in Gemini, Google AI Overviews and Google AI Mode, and the first ${chatgpt} in ChatGPT too – ${responses} answers in total. Questions that contain your brand name aren’t measured here, and Claude is only asked in the report. AI answers vary from run to run; the range shows how uncertain such a small sample is.`,
   },
   buy: {
     title: 'Get all actions and the plan',
