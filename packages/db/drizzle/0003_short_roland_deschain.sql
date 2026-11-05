@@ -1,0 +1,1 @@
+ALTER TABLE "check_request" ADD COLUMN "progress" jsonb;

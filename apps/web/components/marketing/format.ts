@@ -12,7 +12,7 @@ export function formatEuro(cents: number, locale: Locale): string {
 }
 
 /** Fehlerschlüssel des Schnell-Checks auf einen Text der Startseite abbilden (unbekannt → generic). */
-export const CHECK_FORM_ERRORS = ['empty', 'invalid_url', 'unreachable', 'rate_limited', 'disabled', 'generic'] as const;
+export const CHECK_FORM_ERRORS = ['empty', 'invalid_url', 'unreachable', 'rate_limited', 'disabled', 'bot_check_failed', 'generic'] as const;
 export type CheckFormError = (typeof CHECK_FORM_ERRORS)[number];
 export function checkFormError(code: string | null | undefined): CheckFormError {
   return (CHECK_FORM_ERRORS as readonly string[]).includes(code ?? '') ? (code as CheckFormError) : 'generic';

@@ -22,7 +22,7 @@ We read public pages of the given website, use AI to derive the brand profile, c
 
 ## 3. Free quick check
 
-Free of charge; scope as described on the website (currently brand profile, up to 5 competitors, 10 questions measured once per AI service, technical website check, preview of actions). No entitlement; we may limit, change, refuse or discontinue it. Email confirmation is required. The result is available via a secret link and is reused for the same domain for up to 30 days, i.e. others checking the same domain see the same result (without your contact data). Liability: section 11(5).
+Free of charge; scope as described on the website (currently brand profile, up to 5 competitors, a selection of typical customer questions measured once per AI service, technical website check, preview of actions). No entitlement; we may limit, change, refuse or discontinue it. No email address is required; an email notification is optional. The result is available via a secret link and is reused for the same domain for up to 30 days, i.e. others checking the same domain see the same result (without your contact data). Liability: section 11(5).
 
 ## 4. Paid reports
 

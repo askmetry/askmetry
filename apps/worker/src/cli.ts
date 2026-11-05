@@ -82,15 +82,31 @@ async function drainQueue() {
     if (!next) break;
     // neue Check-Arbeit wartet (Discovery/Einreihen) → Schleife freigeben, Bericht läuft im nächsten Durchgang weiter
     if (hosted && !checkWs.has(next.workspaceId) && checkWaiting) break;
+    // Schnell-Checks: bis zu CHECK_PARALLEL Messungen gleichzeitig (jeder Nutzer wartet live auf sein Ergebnis)
+    if (hosted && checkWs.has(next.workspaceId)) {
+      const group = list.filter((c) => checkWs.has(c.workspaceId)).slice(0, CHECK_PARALLEL);
+      for (const c of group) seen.add(c.id);
+      heartbeat();
+      await Promise.all(group.map(async (c) => {
+        log(`Check-Messung ${c.id} (${c.status}) wird abgearbeitet`);
+        try {
+          const s = await processCollection(c.id, { shouldStop, log });
+          log(`Check-Messung ${c.id}: ${s.status} – ${s.done} fertig, ${s.failed} fehlgeschlagen, ${s.pending} offen, ${s.costUsd.toFixed(4)} $`);
+        } catch (e) {
+          log(`Check-Messung ${c.id} abgebrochen: ${(e as Error)?.stack ?? e}`);
+        }
+      }));
+      // Teaser sofort fertigstellen (nicht erst nach den übrigen Messungen)
+      await processChecks({ log, shouldStop }).catch((e) => log(`Schnell-Checks: Fehler ${(e as Error)?.stack ?? e}`));
+      continue;
+    }
     seen.add(next.id);
     heartbeat();
     log(`Messung ${next.id} (${next.status}) wird abgearbeitet`);
     try {
       // lange Berichts-Messungen unterbrechen, sobald ein Schnell-Check wartet (keine neuen Runs; offene laufen zu Ende)
-      const stop = hosted && !checkWs.has(next.workspaceId) ? () => stopping || checkWaiting : shouldStop;
+      const stop = hosted ? () => stopping || checkWaiting : shouldStop;
       const s = await processCollection(next.id, { shouldStop: stop, log });
-      // Check-Messung fertig → Teaser sofort fertigstellen (nicht erst nach den übrigen Messungen)
-      if (checkWs.has(next.workspaceId) && !s.pending) await processChecks({ log, shouldStop }).catch((e) => log(`Schnell-Checks: Fehler ${(e as Error)?.stack ?? e}`));
       log(`Messung ${next.id}: ${s.status} – ${s.done} fertig, ${s.failed} fehlgeschlagen, ${s.skipped} übersprungen, ${s.pending} offen${s.batchPending ? ` (davon ${s.batchPending} im Claude-Batch, Abholung im nächsten Durchgang)` : ''}, ${s.costUsd.toFixed(4)} $${s.analysisPending ? `, ${s.analysisPending} Auswertungen ausstehend` : ''}`);
     } catch (e) {
       log(`Messung ${next.id} abgebrochen: ${(e as Error)?.stack ?? e}`);
@@ -128,14 +144,17 @@ async function checkWorkspaceIds(ids: string[]): Promise<Set<string>> {
   return new Set(rows.map((r) => r.id));
 }
 
-/** Gehostet: wartet ein Schnell-Check auf Discovery oder auf seine Messung? (alle 10 s aktualisiert) */
+/** Schnell-Check-Messungen, die gleichzeitig laufen (je mit CHECK_SCOPE.concurrency parallelen Abfragen) */
+const CHECK_PARALLEL = 2;
+
+/** Gehostet: wartet ein Schnell-Check auf Discovery oder auf seine Messung? (alle 3 s aktualisiert – der Nutzer schaut zu) */
 let checkWaiting = false;
 let wakeLoop: (() => void) | undefined;
 function watchChecks() {
   const t = setInterval(() => {
     // neuer Check wartet → Schlafpause der Schleife sofort beenden
     checksWaiting().then((v) => { checkWaiting = v; if (v) wakeLoop?.(); }).catch(() => {});
-  }, 10_000);
+  }, 3_000);
   t.unref();
 }
 
@@ -175,7 +194,7 @@ async function main() {
       process.on('SIGINT', () => onSignal('SIGINT'));
       let wake: (() => void) | undefined;
       const hosted = isHosted();
-      log(`Worker gestartet (Intervall 60 s${hosted ? ', gehostete Version: 10 s, solange Schnell-Checks laufen' : ''})`);
+      log(`Worker gestartet (Intervall 60 s${hosted ? ', gehostete Version: neue Schnell-Checks nach höchstens 3 s, 10 s solange welche laufen' : ''})`);
       if (hosted) { for (const p of hostedConfigProblems()) log(`Konfiguration: ${p}`); watchChecks(); }
       while (!stopping) {
         let fast = false;

@@ -8,14 +8,14 @@ Bau-Vertrag für die gehostete Beta auf askmetry.ai (Betreiber: lindotech GmbH).
 
 | Angebot | Inhalt | Preis netto (Beta) |
 |---|---|---|
-| **Schnell-Check** (gratis) | URL → Markenprofil, Wettbewerber, 10 Fragen; nach E-Mail-Bestätigung: Gemini, Google AI Overviews, Google AI Mode für alle 10 Fragen, ChatGPT für die ersten 5, je 1×; Website-Technikcheck; Maßnahmen | 0 € |
+| **Schnell-Check** (gratis, ohne E-Mail) | URL → Markenprofil, Wettbewerber, 20 Fragen (Discovery); gemessen: Gemini, Google AI Overviews, Google AI Mode für die ersten 8 Fragen, ChatGPT für die ersten 4, je 1×, alle KIs parallel; Website-Technikcheck; Maßnahmen. Ziel: 2–3 Minuten | 0 € |
 | **Standortbestimmung** (`compact`) | 20 Fragen × 3 Wiederholungen × 5 KIs, bis 3 Wettbewerber, alle Maßnahmen mit Schritten und fertigen Prompts, Quellen, **PDF + E-Mail-Versand** | 99 € (Beta 79 €) |
 | **Strategiebericht** (`strategy`) | 60 Fragen in Themen, 3 Wiederholungen × 5 KIs, bis 5 Wettbewerber, Quellen je Thema, 90-Tage-Plan, **PDF + E-Mail-Versand** | 299 € (Beta 249 €) |
 | **Nachmessung** (`kind = remeasure`) | gleiche Fragen und Einstellungen wie der vorige Bericht, Vorher/Nachher-Vergleich, PDF + E-Mail | 39 € / 119 € |
 
 - Nachmessung ist **nicht** im Preis enthalten. 8 Wochen nach einem fertigen Bericht kommt eine einmalige Erinnerungsmail mit Abmeldelink.
 - **Nur Unternehmen** (B2B): Häkchen „Ich kaufe als Unternehmer (§ 14 BGB)“ + AGB-Zustimmung vor dem Bezahlen, mit Zeitpunkt in `report`.
-- Teaser zeigt: groben Sichtbarkeitswert („Stichprobe“), „in X von 10 Fragen genannt“, stärksten Wettbewerber mit seiner Zahl, Top-3 zitierte Domains, **Anzahl der Maßnahmen je Bereich** (Eigene Inhalte · Auf anderen Seiten · Community · Technik) und **2 Maßnahmen vollständig** (möglichst 1 Technik + 1 Inhalt). Alle anderen Maßnahmen: **weder Titel noch Text** – nur die Zahl. Keine erfundenen Zahlen.
+- Teaser (Entscheidung 05.11.2026, minimal): groben Sichtbarkeitswert („Stichprobe“, Score-Ring) mit „in X von 8 Fragen genannt“, „n Verbesserungsmaßnahmen gefunden“, **genau 1 Maßnahme vollständig** (Titel, Warum, Schritte; Technik bevorzugt, sonst eigene Inhalte, sonst Priorität), die übrigen n−1 gesperrt: **weder Titel noch Text** – nur die Zahl. Dazu die Kaufoptionen, **Strategiebericht als Empfehlung** (90-Tage-Plan), Standortbestimmung als kleinere Alternative. Keine Wettbewerber-Tabelle, keine Quellen, keine Bereichs-Zahlen. Keine erfundenen Zahlen.
 - Abo, Agentur-Pakete, Perplexity: später, nicht in Paket 2.
 
 ## Umgebungsvariablen (alle optional, außer wo „Pflicht bei HOSTED“)
@@ -27,7 +27,7 @@ Bau-Vertrag für die gehostete Beta auf askmetry.ai (Betreiber: lindotech GmbH).
 | `ASKMETRY_CHECKS_ENABLED` | `0` = Notschalter für neue Schnell-Checks | an |
 | `ASKMETRY_CHECK_DAILY_BUDGET_USD` | Summe aller Check-Kosten pro Kalendertag (Europe/Berlin); darüber keine neuen Checks | 10 |
 | `ASKMETRY_CHECK_LIMIT_PER_IP` / `_PER_EMAIL` | neue Checks je 24 h | 3 / 3 |
-| `ASKMETRY_CHECK_DISCOVERIES_PER_HOUR` | neue Discoveries (kosten vor der E-Mail-Bestätigung) insgesamt pro Stunde | 30 |
+| `ASKMETRY_CHECK_DISCOVERIES_PER_HOUR` | neue (nicht gecachte) Checks insgesamt pro Stunde (jeder kostet Discovery + Messung) | 30 |
 | `ASKMETRY_CLIENT_IP_HEADER` | Header mit der Client-IP, den der eigene Proxy setzt (z. B. `cf-connecting-ip` hinter Cloudflare). Leer: letzter `x-forwarded-for`-Eintrag (Caddy) | leer |
 | `ASKMETRY_CHECK_CACHE_DAYS` | Ergebnis je Domain wiederverwenden | 30 |
 | `ASKMETRY_GLOBAL_DAILY_BUDGET_USD` | Notbremse für alle KI-Kosten pro Tag (Checks + Berichte); darüber starten keine neuen Messungen | 150 |
@@ -40,7 +40,8 @@ Bau-Vertrag für die gehostete Beta auf askmetry.ai (Betreiber: lindotech GmbH).
 | `SMTP_URL` | z. B. `smtps://user:pass@smtp-relay.brevo.com:465` | – (dann Outbox) |
 | `MAIL_FROM` | Absender, z. B. `Askmetry <hallo@askmetry.ai>` | `Askmetry <noreply@localhost>` |
 | `ASKMETRY_MAIL_OUTBOX` | Ordner: Mails als `.eml` + `.json` ablegen statt senden (Entwicklung, E2E) | ohne SMTP: `./.mail-outbox` |
-| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile beim Check; ohne Schlüssel wird übersprungen (Warnung im Log) | – |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile am URL-Feld (Start des Checks) und an der optionalen Mail-Benachrichtigung; ohne Schlüssel außerhalb der Produktion übersprungen (Warnung im Log), in Produktion fail-closed | – |
+| `ASKMETRY_MOCK_DELAY_MS` | nur Entwicklung/E2E im Mock-Modus: künstliche Wartezeit je Mock-Abfrage/Discovery-Schritt (Checkliste sichtbar) | 0 |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Betriebs-Meldungen (Kauf, Fehler, Budget) | – |
 
 Konfiguration lesen **nur** über `packages/core/src/hosted/config.ts` (eine Stelle, Standardwerte dort).
@@ -49,17 +50,18 @@ Konfiguration lesen **nur** über `packages/core/src/hosted/config.ts` (eine Ste
 
 - `workspace.hosted_kind`: `check` (Arbeitsbereich eines Schnell-Checks, **ohne Mitglieder**) | `customer` (Kunde, Messungen nur über Berichte) | null (selbst gehostet).
 - `collection.plan` (jsonb, `CollectionPlan` in runner.ts): `promptIds`, `engines`, `repetitions`, `engineMaxPrompts`, `batch`. `createCollection(wsId, trigger, plan?)`.
-- `check_request`: ein Schnell-Check (Token = Zugang zum Teaser). Status: `discovering` → `awaiting_email` → `queued` → `measuring` → `ready` | `failed` | `blocked`.
+- `check_request`: ein Schnell-Check (Token = Zugang zum Teaser). Status: `discovering` → `queued` → `measuring` → `ready` | `failed` | `blocked`; Cache-Treffer sofort `ready`. (`awaiting_email` nur Altbestand aus dem früheren E-Mail-Gate; Bestätigung reiht ihn wie früher ein.) `progress` (jsonb, Migration 0003): Discovery-Schritt `read`/`profile`/`plan` + vorläufiger Markenname für die Checkliste.
+- `collection.plan.concurrency` `{ total, perProvider }`: parallele Abfragen (Check: 20 / 8; ohne Angabe 4 / 2).
 - `report`: gekaufter Bericht. Status: `pending_payment` → `paid` → `measuring` → `ready` | `failed`; außerdem `canceled`, `refunded`.
 - `report_file`: PDF (Base64). `funnel_event`: Kennzahlen. `mail_opt_out`: Abmeldungen.
 
 ## Ablauf
 
-1. **Startseite** (`/`, nur HOSTED; sonst wie bisher Weiterleitung): URL-Feld → `POST` Server Action `startCheck(url)` → `/check/<token>`.
-2. **Discovery** (Worker, Status `discovering`): Website lesen (safe-fetch), Markenprofil (`inferBrandProfile`), dann **ein** Sonnet-Aufruf ohne Websuche: bis 5 Wettbewerber (Name + Domain) und 20 Kundenfragen (Sprache des Checks, ohne eigenen Markennamen, gemischt: Kategorie, Problem, Vergleich, Alternative, Kaufentscheidung). Legt Arbeitsbereich (`hosted_kind = check`) mit Marken, Thema und Prompts an. Kosten auf `check_request.cost_usd`. → `awaiting_email`.
-3. **E-Mail-Gate** (Web): E-Mail + Turnstile → Bestätigungsmail mit Link `/check/<token>/bestaetigen?code=…` (Code 24 h gültig). Klick → `queued`.
-4. **Messung** (Worker): Collection mit Plan `{ promptIds: erste 10, engines: [gemini, google_aio, google_ai_mode, chatgpt], repetitions: 1, engineMaxPrompts: { chatgpt: 5 } }`, Maßnahmen wie gewohnt (`finalizeCollection`). → `ready`, `summary` berechnen, Mail „Dein Schnell-Check ist fertig“ mit Link.
-5. **Teaser** (`/check/<token>`): Zahlen aus `summary` + 2 freie Maßnahmen; Kauf-Buttons für beide Berichte.
+1. **Startseite** (`/`, nur HOSTED; sonst wie bisher Weiterleitung): URL-Feld + Cloudflare Turnstile (unsichtbar, solange keine Interaktion nötig ist) → Server Action `startCheckAction` → `startCheck(url, { turnstileToken, ip })` → sofort `/check/<token>`. Schutz statt E-Mail-Gate: Turnstile (zuerst), Limit je IP (IPv6: /64-Präfix), Stundengrenze neuer Checks (Zählen + Einfügen unter `pg_advisory_xact_lock` je IP und global), Tages-Budgets inkl. Reserve für laufende Checks (offene Runs × Schätzkosten + 0,08 $ je Discovery), 30-Tage-Cache je Domain (Treffer → sofort `ready`, keine Mail). Eingereihte Checks, die 15 min keine Messung bekommen (Budget), → `blocked` (`disabled`) + Betriebsmeldung.
+2. **Discovery** (Worker, Status `discovering`, bis zu 4 parallel): Website lesen (safe-fetch), Markenprofil (`inferBrandProfile`), dann **ein** Sonnet-Aufruf ohne Websuche: bis 5 Wettbewerber (Name + Domain) und 20 Kundenfragen (Sprache des Checks, ohne eigenen Markennamen, gemischt). Zwischenstände in `check_request.progress`. Legt Arbeitsbereich (`hosted_kind = check`) mit Marken, Thema und Prompts an. Kosten auf `check_request.cost_usd`. → `queued` und im selben Durchgang Messung anlegen.
+3. **Messung** (Worker, bis zu 2 Check-Messungen gleichzeitig, vor Berichten): Collection mit Plan `{ promptIds: erste 8, engines: [gemini, google_aio, google_ai_mode, chatgpt], repetitions: 1, engineMaxPrompts: { chatgpt: 4 }, concurrency: { total: 12, perProvider: 6 } }` → `measuring`; Maßnahmen wie gewohnt (`finalizeCollection`; im Check-Arbeitsbereich KI-Formulierung in Batches à 5, bis zu 3 gleichzeitig). → `ready`, `summary` berechnen.
+4. **Warteansicht** (`/check/<token>`, aktualisiert alle 2 s): Checkliste des Agenten aus echtem Zustand – Website lesen → Marke & Angebot erkennen (Markenname) → Wettbewerber finden (Anzahl) → Kundenfragen formulieren (Anzahl) → ChatGPT / Gemini / AI Overviews / AI Mode (je „x/n Fragen“ aus den Runs) → Antworten auswerten → Maßnahmen ableiten. Optional „Benachrichtige mich per Mail“: E-Mail + Turnstile → Bestätigungsmail (`VERIFY_MAX_SENDS`, Limit je E-Mail) → Link `/check/<token>/bestaetigen?code=…` setzt nur `email_verified_at`. Fertig-Mail „Dein Schnell-Check ist fertig“ nur mit bestätigter Adresse (bei Bestätigung nach dem Fertigwerden sofort).
+5. **Teaser** (`/check/<token>`): siehe „Produkt“; Kauf-Buttons für beide Berichte.
 6. **Kauf**: angemeldet sein (sonst Registrierung; E-Mail aus dem Check vorbelegt) → Formular B2B + AGB → `createCheckout({ tier, checkId | workspaceSlug, kind })` → Stripe Checkout (`mode: payment`, Rechnung, USt-ID-Feld, Rechnungsadresse Pflicht) bzw. Fake-Checkout. Webhook `checkout.session.completed` → `markReportPaid(sessionId, …)` (idempotent).
 7. **Bericht vorbereiten** (`/w/<slug>/bericht/<id>`): Kunde prüft Fragen (20 bzw. 60, für `strategy` werden beim Bezahlen 40 weitere in Themen erzeugt) und Wettbewerber, dann „Messung starten“ → `startReport(reportId)` → Collection mit Plan (Prompts des Berichts, 5 KIs, 3 Wiederholungen, `batch: true`). Nachmessung startet direkt mit denselben Prompt-IDs.
 8. **Fertig** (Worker, nach `finalizeCollection`): PDF erzeugen → `report_file`, Mail mit PDF-Anhang und Link → `ready`. Telegram: Kauf und Fehler.

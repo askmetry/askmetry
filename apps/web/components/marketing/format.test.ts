@@ -20,6 +20,7 @@ describe('checkFormError', () => {
   it('bekannte Codes bleiben, alles andere wird generic', () => {
     expect(checkFormError('rate_limited')).toBe('rate_limited');
     expect(checkFormError('disabled')).toBe('disabled');
+    expect(checkFormError('bot_check_failed')).toBe('bot_check_failed');
     expect(checkFormError('wrong_state')).toBe('generic');
     expect(checkFormError(null)).toBe('generic');
   });

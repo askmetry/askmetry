@@ -1,6 +1,6 @@
 // Reine Darstellungslogik des Schnell-Check-Teasers (ohne DB, testbar). Zahlen kommen nur aus CheckSummary – nichts wird erfunden.
 import type { RecCategory } from '@askmetry/core/present';
-import type { CheckStatus, CheckSummary, RecArea } from '@askmetry/core/hosted/types';
+import type { CheckProgress, CheckStatus, CheckSummary, RecArea } from '@askmetry/core/hosted/types';
 
 /** Teaser-Bereiche in der Reihenfolge der Maßnahmen-Seite und ihre Kategorie (Icon/Farbe/Label aus present.ts). */
 export const AREA_ORDER: readonly RecArea[] = ['own_content', 'other_sites', 'community', 'technical'];
@@ -24,43 +24,55 @@ export function lockedCount(summary: Pick<CheckSummary, 'recommendationsTotal'>,
   return Math.max(0, (summary.recommendationsTotal ?? 0) - Math.max(0, freeShown));
 }
 
-/** Bereiche mit Anzahl, in fester Reihenfolge; leere Bereiche bleiben weg. */
-export function areaCounts(counts: Partial<Record<RecArea, number>> | null | undefined): { area: RecArea; cat: RecCategory; n: number }[] {
-  return AREA_ORDER.map((area) => ({ area, cat: AREA_CATEGORY[area], n: Math.max(0, Math.round(counts?.[area] ?? 0)) })).filter((x) => x.n > 0);
-}
+export type AgentStepKey = 'read' | 'brand' | 'competitors' | 'questions' | 'chatgpt' | 'gemini' | 'google_aio' | 'google_ai_mode' | 'analyze' | 'measures';
+export type AgentStepState = 'done' | 'current' | 'todo';
+export type AgentStepDetail =
+  | { kind: 'brand'; name: string }
+  | { kind: 'competitors'; n: number }
+  | { kind: 'questions'; n: number }
+  | { kind: 'answered'; done: number; total: number };
+export interface AgentStep { key: AgentStepKey; state: AgentStepState; detail: AgentStepDetail | null }
 
-export type TeaserRankRow = { name: string; promptsMentioned: number; own: boolean };
+/** Reihenfolge der KI-Suchen in der Checkliste (gemessen wird parallel) */
+export const AGENT_ENGINES = ['chatgpt', 'gemini', 'google_aio', 'google_ai_mode'] as const;
 
-/** Rangliste „in X von 10 Fragen“: eigene Marke + bis zu 5 Wettbewerber, absteigend; bei Gleichstand die eigene zuerst. */
-export function teaserRanking(summary: Pick<CheckSummary, 'brand' | 'promptsMentioned' | 'competitors'>, n = 5): TeaserRankRow[] {
-  const rows: TeaserRankRow[] = [
-    { name: summary.brand.name, promptsMentioned: summary.promptsMentioned, own: true },
-    ...summary.competitors.slice(0, n).map((c) => ({ name: c.name, promptsMentioned: c.promptsMentioned, own: false })),
+/**
+ * Checkliste der Warteansicht – jeder Haken entspricht einem echten Zustand in der Datenbank:
+ * Discovery-Schritt (read → profile → plan), angelegte Marken/Fragen, erledigte Runs je KI-Suche, Auswertung, Maßnahmen.
+ * Wettbewerber und Fragen entstehen in einem KI-Aufruf und laufen deshalb gleichzeitig; die KI-Suchen ebenso.
+ */
+export function agentSteps(view: { status: CheckStatus; progress: CheckProgress }): AgentStep[] {
+  const { status, progress: p } = view;
+  const ready = status === 'ready';
+  const discovered = status !== 'discovering';
+  const measuring = status === 'measuring';
+  const stage = p.stage ?? 'read';
+  const st = (done: boolean, current: boolean): AgentStepState => (done ? 'done' : current ? 'current' : 'todo');
+  const steps: AgentStep[] = [
+    { key: 'read', state: st(discovered || stage !== 'read', !discovered), detail: null },
+    { key: 'brand', state: st(discovered || stage === 'plan', stage === 'profile' && !discovered), detail: p.brandName && (discovered || stage === 'plan') ? { kind: 'brand', name: p.brandName } : null },
+    { key: 'competitors', state: st(discovered, stage === 'plan'), detail: discovered && p.competitors ? { kind: 'competitors', n: p.competitors } : null },
+    { key: 'questions', state: st(discovered, stage === 'plan'), detail: discovered && p.prompts ? { kind: 'questions', n: p.prompts } : null },
   ];
-  return rows.sort((a, b) => b.promptsMentioned - a.promptsMentioned || Number(b.own) - Number(a.own) || a.name.localeCompare(b.name, 'de'));
-}
-
-/** Stärkster Wettbewerber nur, wenn er überhaupt genannt wurde. */
-export function strongestCompetitor(summary: Pick<CheckSummary, 'topCompetitor'>): { name: string; promptsMentioned: number } | null {
-  const c = summary.topCompetitor;
-  return c && c.promptsMentioned > 0 ? c : null;
-}
-
-/** Fortschrittsschritte des Checks: 0 Website lesen · 1 E-Mail · 2 Messung · 3 Ergebnis. Liefert den aktuellen Schritt. */
-export function checkStep(status: CheckStatus): 0 | 1 | 2 | 3 {
-  switch (status) {
-    case 'discovering': return 0;
-    case 'awaiting_email': return 1;
-    case 'queued':
-    case 'measuring': return 2;
-    default: return 3;
+  for (const key of AGENT_ENGINES) {
+    const e = p.engines.find((x) => x.engine === key);
+    const done = ready || (!!e && e.done >= e.total);
+    steps.push({ key, state: st(done, !!e && measuring), detail: e && !ready ? { kind: 'answered', done: Math.min(e.done, e.total), total: e.total } : null });
   }
+  steps.push({ key: 'analyze', state: st(ready || p.recommending, p.analyzing), detail: null });
+  steps.push({ key: 'measures', state: st(ready, p.recommending), detail: null });
+  return steps;
 }
 
-/** Sekunden bis zum nächsten automatischen Aktualisieren (null = nicht nötig). */
+/** Laufzeit als „m:ss“ (für „läuft seit …“). */
+export function elapsedText(fromIso: string, now = Date.now()): string {
+  const s = Math.max(0, Math.floor((now - new Date(fromIso).getTime()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** Sekunden bis zum nächsten automatischen Aktualisieren (null = nicht nötig). Kurz, weil der Nutzer der Checkliste zuschaut. */
 export function refreshSeconds(status: CheckStatus): number | null {
-  if (status === 'discovering') return 3;
-  if (status === 'queued' || status === 'measuring') return 5;
+  if (status === 'discovering' || status === 'queued' || status === 'measuring') return 2;
   return null;
 }
 

@@ -78,16 +78,17 @@ Auf öffentlichen Webseiten können personenbezogene Daten stehen, etwa Namen im
 - **Rechtsgrundlage:** Art. 6 Abs. 1 lit. b DSGVO (Erbringung des angefragten Gratis-Dienstes); soweit Daten Dritter auf öffentlichen Seiten betroffen sind, Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Analyse öffentlich zugänglicher Informationen).
 - **Wiederverwendung:** Das Ergebnis eines Checks verwenden wir für dieselbe Domain bis zu **30 Tage** wieder. Wer in dieser Zeit dieselbe Domain prüft, sieht dasselbe Ergebnis. Es enthält Angaben zur Marke und zu KI-Antworten, aber keine Kontaktdaten des ursprünglichen Anfragenden.
 
-### 4.2 E-Mail-Adresse und Bestätigung (Double-Opt-in)
+### 4.2 Optionale Benachrichtigung per E-Mail (Double-Opt-in)
 
-Um das Ergebnis zu erhalten, geben Sie Ihre E-Mail-Adresse an. Wir senden Ihnen einen Bestätigungslink (24 Stunden gültig). Erst nach dem Klick starten wir die Messung und schicken Ihnen eine Mail, wenn das Ergebnis fertig ist. Den Bestätigungscode speichern wir nur als Hashwert.
+Für den Schnell-Check brauchen wir keine E-Mail-Adresse: Das Ergebnis erscheint direkt auf der Seite des Checks. Während der Check läuft, können Sie freiwillig eine E-Mail-Adresse angeben, damit wir Ihnen Bescheid geben, sobald das Ergebnis fertig ist. Wir speichern die Adresse zum Check und senden Ihnen einen Bestätigungslink (24 Stunden gültig). Erst nach dem Klick schicken wir die Fertig-Mail mit dem Link zu Ihrem Ergebnis. Den Bestätigungscode speichern wir nur als Hashwert. Werbung senden wir an diese Adresse nicht.
 
-- **Zweck:** Zustellung des Ergebnisses, Nachweis, dass die Adresse Ihnen gehört, Schutz vor Missbrauch und vor unnötigen Kosten.
-- **Rechtsgrundlage:** Art. 6 Abs. 1 lit. b DSGVO; für die Missbrauchsabwehr Art. 6 Abs. 1 lit. f DSGVO.
+- **Zweck:** Benachrichtigung, wenn das Ergebnis fertig ist; Nachweis, dass die Adresse Ihnen gehört; Schutz vor Missbrauch (Begrenzung je Adresse).
+- **Rechtsgrundlage:** Art. 6 Abs. 1 lit. b DSGVO (von Ihnen gewünschte Benachrichtigung); für die Missbrauchsabwehr Art. 6 Abs. 1 lit. f DSGVO.
+- **Speicherdauer:** Eine nicht bestätigte Adresse löschen wir nach **7 Tagen**. Eine bestätigte Adresse bleibt beim Check gespeichert, bis der Check gelöscht wird (**90 Tage** nach dem Check, wenn Sie keinen Bericht kaufen; siehe Abschnitt 4.5).
 
 ### 4.3 Missbrauchsschutz: IP-Hash und Begrenzungen
 
-Wir begrenzen die Zahl der Checks je IP-Adresse und je E-Mail-Adresse pro Tag. Dazu speichern wir **nicht Ihre IP-Adresse**, sondern nur einen kryptografischen Hashwert davon (mit einem geheimen Schlüssel gebildet).
+Wir begrenzen die Zahl der Checks je IP-Adresse pro Tag (und die Zahl der Benachrichtigungen je E-Mail-Adresse). Dazu speichern wir **nicht Ihre IP-Adresse**, sondern nur einen kryptografischen Hashwert davon (mit einem geheimen Schlüssel gebildet; bei IPv6-Adressen aus dem Netzpräfix, den ersten 64 Bit).
 
 - **Zweck:** Verhinderung von Massenabfragen und Kostenmissbrauch.
 - **Rechtsgrundlage:** Art. 6 Abs. 1 lit. f DSGVO.
@@ -95,7 +96,7 @@ Wir begrenzen die Zahl der Checks je IP-Adresse und je E-Mail-Adresse pro Tag. D
 
 ### 4.4 Bot-Schutz mit Cloudflare Turnstile
 
-Beim Absenden der E-Mail-Adresse prüfen wir mit **Cloudflare Turnstile**, ob ein Mensch die Anfrage stellt. Turnstile verarbeitet dazu u. a. Ihre IP-Adresse und technische Merkmale Ihres Browsers und kann dafür Informationen in Ihrem Browser lesen oder speichern. Anbieter ist Cloudflare, Inc., 101 Townsend St., San Francisco, CA 94107, USA.
+Beim Absenden der Website-Adresse und, falls Sie eine Benachrichtigung wünschen, beim Absenden der E-Mail-Adresse prüfen wir mit **Cloudflare Turnstile**, ob ein Mensch die Anfrage stellt. Turnstile verarbeitet dazu u. a. Ihre IP-Adresse und technische Merkmale Ihres Browsers und kann dafür Informationen in Ihrem Browser lesen oder speichern. Anbieter ist Cloudflare, Inc., 101 Townsend St., San Francisco, CA 94107, USA.
 
 - **Zweck:** Schutz des Gratis-Dienstes vor automatisierten Anfragen.
 - **Rechtsgrundlage:** Art. 6 Abs. 1 lit. f DSGVO; der Zugriff auf Ihr Endgerät ist nach § 25 Abs. 2 Nr. 2 TDDDG zulässig, weil er für den von Ihnen gewünschten, gegen Missbrauch geschützten Dienst unbedingt erforderlich ist.
@@ -103,8 +104,8 @@ Beim Absenden der E-Mail-Adresse prüfen wir mit **Cloudflare Turnstile**, ob ei
 
 ### 4.5 Speicherdauer beim Schnell-Check
 
-- Wird die E-Mail-Adresse nicht bestätigt, löschen wir sie nach **7 Tagen**.
-- Ohne anschließenden Kauf löschen wir E-Mail-Adresse und Check-Zugangsdaten **90 Tage** nach dem Check. Die Messergebnisse zur Marke (ohne Bezug zu Ihnen) können wir danach weiter für den 30-Tage-Cache und für zusammengefasste Statistiken nutzen.
+- Den IP-Hash löschen wir nach **7 Tagen**, eine nicht bestätigte E-Mail-Adresse (samt Bestätigungscode) ebenfalls nach **7 Tagen**.
+- Ohne anschließenden Kauf löschen wir den Check **90 Tage** nach seiner Erstellung vollständig: Zugangslink, eine bestätigte E-Mail-Adresse und die Messergebnisse. Bis dahin können die Messergebnisse zur Marke (ohne Ihre Kontaktdaten) für den 30-Tage-Cache genutzt werden (Abschnitt 4.1).
 - Kaufen Sie einen Bericht, wird der Check Teil Ihres Kundenkontos (Abschnitt 5).
 
 ## 5. Kundenkonto
@@ -183,7 +184,7 @@ Wir treffen keine Entscheidungen, die ausschließlich auf automatisierter Verarb
 
 ## 14. Pflicht zur Bereitstellung
 
-Ohne E-Mail-Adresse können wir Ihnen das Ergebnis des Schnell-Checks nicht zustellen. Ohne Konto- und Rechnungsangaben ist kein Kauf möglich. Eine gesetzliche Pflicht zur Angabe besteht nicht.
+Für den Schnell-Check ist keine E-Mail-Adresse nötig; ohne sie können wir Sie nur nicht benachrichtigen, wenn das Ergebnis fertig ist. Ohne Konto- und Rechnungsangaben ist kein Kauf möglich. Eine gesetzliche Pflicht zur Angabe besteht nicht.
 
 ## 15. Ihre Rechte
 

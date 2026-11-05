@@ -67,6 +67,29 @@ describe('KI-Formulierung in Batches', () => {
     expect(r.texts.size).toBe(0);
   });
 
+  it('parallel (Schnell-Check): kleinere Batches gleichzeitig, gleiche Obergrenzen', async () => {
+    const items = Array.from({ length: 12 }, (_, i) => cand(i));
+    let active = 0, peak = 0;
+    const calls: number[] = [];
+    const phraser: Phraser = async (batch) => {
+      active++; peak = Math.max(peak, active); calls.push(batch.length);
+      await new Promise((r) => setTimeout(r, 5));
+      active--;
+      return { ...allTexts(batch), costUsd: 0.001, model: 'm' };
+    };
+    const r = await phraseInBatches(items, ctx, { phraser, budgetLeft: 100, batchSize: 5, parallel: MAX_PHRASE_CALLS });
+    expect(calls).toEqual([5, 5, 2]);
+    expect(peak).toBe(3);
+    expect(r.texts.size).toBe(12);
+    expect(r.deferred).toBe(0);
+    // abgeschnitten → dieselben Maßnahmen mit halber Größe in der nächsten Runde (nur solange Aufrufe übrig sind)
+    const t = fakePhraser((b) => (b.length > 3 ? { truncated: true } : allTexts(b)));
+    const r2 = await phraseInBatches(items.slice(0, 8), ctx, { phraser: t.phraser, budgetLeft: 100, batchSize: 4, parallel: 2 });
+    expect(t.calls.map((c) => c.length)).toEqual([4, 4, 2]);
+    expect(r2.texts.size).toBe(2);
+    expect(r2.deferred).toBe(6);
+  });
+
   it('nach MAX_PHRASE_ATTEMPTS gescheiterten Versuchen mit gleicher Evidenz keine neue Formulierung', () => {
     const c = cand(1);
     expect(needsPhrasing(c, undefined)).toBe(true);

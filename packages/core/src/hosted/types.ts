@@ -1,6 +1,7 @@
 // Gemeinsame Typen der gehosteten Version (Web ↔ Kern). Siehe HOSTED.md.
 import type { ReportKind, ReportTier } from './config.ts';
 
+/** awaiting_email: nur noch Altbestand (früheres E-Mail-Gate); neue Checks gehen nach der Discovery direkt in queued. */
 export type CheckStatus = 'discovering' | 'awaiting_email' | 'queued' | 'measuring' | 'ready' | 'failed' | 'blocked';
 
 export type CheckError =
@@ -50,11 +51,27 @@ export interface CheckView {
   createdAt: string;
   readyAt: string | null;
   error: string | null;            // nutzerfreundlicher Fehlerschlüssel (CheckError) oder null
-  /** vor dem Ende: erkannte Marke/Wettbewerber/Fragen zur Anzeige während des Wartens */
-  discovered: { brandName: string; description: string | null; competitors: string[]; prompts: string[] } | null;
+  /** Arbeitsstand für die Checkliste der Warteansicht – nur echte Zustände aus der Datenbank, keine Texte der Discovery außer dem Markennamen */
+  progress: CheckProgress;
   summary: CheckSummary | null;
-  freeRecommendations: TeaserRecommendation[];   // nur die freien (höchstens 2)
+  freeRecommendations: TeaserRecommendation[];   // nur die freien (CHECK_SCOPE.freeRecommendations)
   turnstileSiteKey: string | null;
+}
+
+export interface CheckProgress {
+  /** Discovery-Schritt (nur während discovering): read → profile → plan */
+  stage: 'read' | 'profile' | 'plan' | null;
+  /** erkannte (während der Discovery: vorläufige) Marke */
+  brandName: string | null;
+  competitors: number;
+  /** gemessene Fragen (erste CHECK_SCOPE.measured) */
+  prompts: number;
+  /** Fortschritt je KI-Suche der Check-Messung (Reihenfolge wie CHECK_SCOPE.engines); leer, solange keine Messung angelegt ist */
+  engines: { engine: string; done: number; total: number }[];
+  /** alle Abfragen beendet, Auswertung der Antworten läuft noch */
+  analyzing: boolean;
+  /** Antworten ausgewertet, Maßnahmen werden abgeleitet */
+  recommending: boolean;
 }
 
 export interface ReportView {

@@ -41,6 +41,22 @@ export interface DiscoveryOptions {
   mock?: boolean;
   fetch?: FetchLike; resolve?: Resolver; transport?: Transport;
   signal?: AbortSignal;
+  /** Zwischenstand für die Warteansicht: Website gelesen → Marke erkannt (vorläufiger Name) → Wettbewerber und Fragen */
+  onProgress?: (p: DiscoveryProgress) => Promise<void> | void;
+}
+
+/** read = Website wird gelesen · profile = Marke & Angebot werden erkannt · plan = Wettbewerber + Kundenfragen (ein KI-Aufruf) */
+export interface DiscoveryProgress { stage: 'read' | 'profile' | 'plan'; brandName?: string }
+
+/** Mock-Modus: künstliche Wartezeit je Schritt (ASKMETRY_MOCK_DELAY_MS, nur Entwicklung/E2E – zeigt die Warteansicht realistisch) */
+export const mockDelay = (factor = 1) => {
+  const ms = Number(process.env.ASKMETRY_MOCK_DELAY_MS ?? 0);
+  return Number.isFinite(ms) && ms > 0 ? new Promise<void>((r) => setTimeout(r, Math.min(ms * factor, 60_000))) : Promise.resolve();
+};
+
+/** Fortschritt melden, ohne dass ein Fehler dabei die Discovery abbricht */
+async function report(opts: DiscoveryOptions, p: DiscoveryProgress) {
+  try { await opts.onProgress?.(p); } catch { /* nur Anzeige */ }
 }
 
 const clean = (s: unknown, max = 200) => typeof s === 'string'
@@ -206,16 +222,25 @@ async function fetchHome(url: string, lang: Lang, opts: DiscoveryOptions): Promi
 
 export async function discoverBrand(input: { url: string; domain: string; locale: Lang }, opts: DiscoveryOptions = {}): Promise<DiscoveryResult> {
   const lang = input.locale;
-  if (opts.mock ?? (!opts.ask && isMockMode())) return fakeDiscovery(input.domain, lang);
+  if (opts.mock ?? (!opts.ask && isMockMode())) {
+    const fake = fakeDiscovery(input.domain, lang);
+    await mockDelay(); await report(opts, { stage: 'profile' });
+    await mockDelay(); await report(opts, { stage: 'plan', brandName: fake.brandName });
+    await mockDelay(3);
+    return fake;
+  }
 
+  await report(opts, { stage: 'read' });
   const home = await fetchHome(input.url, lang, opts);
   const page = summarizeHtml(home.html, home.url);
   if (page.text.length < 40 && !page.metaDescription && !page.title) throw new DiscoveryError('unreachable', 'Website liefert ohne JavaScript kaum Text');
   // Markenprofil auf Basis derselben Seite (kein zweiter Abruf)
   const cachedFetch: FetchLike = async () => ({ status: 200, url: home.url, text: async () => home.html }) as any;
   const provisional = page.title?.split(/[|–—:-]/)[0]?.trim() || nameFromDomain(input.domain);
+  await report(opts, { stage: 'profile' });
   const profile = await inferBrandProfile({ name: provisional, domains: [input.domain], lang }, { fetch: cachedFetch, ask: opts.profileAsk, signal: opts.signal });
   let costUsd = profile.costUsd;
+  await report(opts, { stage: 'plan', brandName: provisional });
 
   let json: any;
   try {

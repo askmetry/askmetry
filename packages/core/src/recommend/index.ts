@@ -172,6 +172,8 @@ export function needsPhrasing(c: Candidate, existing: Pick<RecRow, 'evidence' | 
 export const MAX_PHRASE_ATTEMPTS = 2;
 /** Höchstens so viele KI-Aufrufe je Generierung (Rest beim nächsten Mal). */
 export const MAX_PHRASE_CALLS = 3;
+/** Schnell-Check: Maßnahmen je Aufruf (bis zu MAX_PHRASE_CALLS Aufrufe gleichzeitig) */
+export const CHECK_PHRASE_BATCH_SIZE = 5;
 
 // Sprache gehört zum Textstand (KI schreibt in der Workspace-Sprache); für de bleibt der Hash wie bisher (keine Neuformulierung).
 export const hashOf = (c: Candidate) => signatureHash({ key: c.key, signature: [c.signature, phraseVersion(c.type), ...(c.lang === 'en' ? ['en'] : [])] });
@@ -337,26 +339,49 @@ function siteCheckDefault() {
  */
 export async function phraseInBatches(
   items: Candidate[], ctx: PhraseContext,
-  opts: { phraser: Phraser; budgetLeft: number; onCall?: (res: PhraseResult) => Promise<void> | void },
+  opts: {
+    phraser: Phraser; budgetLeft: number; onCall?: (res: PhraseResult) => Promise<void> | void;
+    /** Maßnahmen je Aufruf (Standard PHRASE_BATCH_SIZE) */
+    batchSize?: number;
+    /** so viele Aufrufe gleichzeitig (Standard 1; Schnell-Check: kleinere Batches parallel, damit der Teaser schneller fertig ist) */
+    parallel?: number;
+  },
 ) {
   const queue = [...items];
-  let size = PHRASE_BATCH_SIZE;
+  let size = Math.max(1, opts.batchSize ?? PHRASE_BATCH_SIZE);
+  const parallel = Math.max(1, opts.parallel ?? 1);
   const texts = new Map<string, PhraseText>();
   const attempted = new Set<string>();
   const errors: string[] = [];
   let costUsd = 0, calls = 0, budgetHit = false;
   while (queue.length && calls < MAX_PHRASE_CALLS) {
-    const batch = queue.slice(0, size);
-    if (costUsd + estimatePhraseCost(batch) > opts.budgetLeft) { budgetHit = true; break; }
-    calls++;
-    const res = await opts.phraser(batch, ctx);
-    costUsd += res.costUsd;
-    await opts.onCall?.(res);
-    for (const [k, v] of res.texts) texts.set(k, v);
-    if (res.truncated && batch.length > 1) { size = Math.ceil(batch.length / 2); continue; }
-    queue.splice(0, batch.length);
-    for (const c of batch) attempted.add(c.key);
-    if (res.error) { errors.push(res.error); if (!res.texts.size) break; }
+    // eine Runde: bis zu `parallel` Batches, jeder nur, wenn seine Kostenobergrenze (samt den anderen der Runde) ins Budget passt
+    const round: Candidate[][] = [];
+    let off = 0, reserved = 0;
+    while (round.length < parallel && off < queue.length && calls + round.length < MAX_PHRASE_CALLS) {
+      const batch = queue.slice(off, off + size);
+      const est = estimatePhraseCost(batch);
+      if (costUsd + reserved + est > opts.budgetLeft) { budgetHit = true; break; }
+      round.push(batch); off += batch.length; reserved += est;
+    }
+    if (!round.length) break;
+    calls += round.length;
+    const results = await Promise.all(round.map((b) => opts.phraser(b, ctx)));
+    const back: Candidate[] = [];
+    let stop = false, truncatedLen = 0;
+    for (let i = 0; i < round.length; i++) {
+      const res = results[i], batch = round[i];
+      costUsd += res.costUsd;
+      await opts.onCall?.(res);
+      for (const [k, v] of res.texts) texts.set(k, v);
+      if (res.truncated && batch.length > 1) { back.push(...batch); truncatedLen = Math.max(truncatedLen, batch.length); continue; }
+      for (const c of batch) attempted.add(c.key);
+      if (res.error) { errors.push(res.error); if (!res.texts.size) stop = true; }
+    }
+    queue.splice(0, off);
+    queue.unshift(...back);
+    if (truncatedLen) size = Math.ceil(truncatedLen / 2);
+    if (stop || budgetHit) break;
   }
   return { texts, costUsd, calls, attempted, errors, budgetHit, deferred: queue.length };
 }
@@ -455,6 +480,8 @@ async function generateUnlocked(workspaceId: string, opts: GenerateOptions): Pro
       {
         phraser: opts.phraser ?? phraseWithLlm,
         budgetLeft: budget - spent,
+        // Schnell-Check (gehostet): kleinere Batches gleichzeitig – der Teaser wartet auf die Formulierung
+        ...(ws.hostedKind === 'check' && { batchSize: CHECK_PHRASE_BATCH_SIZE, parallel: MAX_PHRASE_CALLS }),
         // jeder Aufruf wird sofort gebucht – auch wenn er scheitert
         onCall: async (r) => {
           if (r.costUsd > 0 || r.texts.size) {

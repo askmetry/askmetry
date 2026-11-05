@@ -19,7 +19,9 @@ export async function startCheckAction(_prev: CheckFormState, formData: FormData
   try {
     const [h, locale] = await Promise.all([headers(), getLocale()]);
     const ip = clientIp(h);
-    const res = await startCheck({ url, locale, ipHash: ip ? hashIp(ip) : null });
+    // Bot-Schutz (Cloudflare Turnstile) statt E-Mail-Gate; die Prüfung macht startCheck (in Produktion Pflicht)
+    const turnstileToken = String(formData.get('cf-turnstile-response') ?? '').slice(0, 4000) || null;
+    const res = await startCheck({ url, locale, ipHash: ip ? hashIp(ip) : null }, { turnstileToken, ip });
     if ('error' in res) return { error: checkFormError(res.error), url };
     token = res.token;
   } catch (e) {

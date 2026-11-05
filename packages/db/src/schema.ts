@@ -276,6 +276,8 @@ export const checkRequest = pgTable('check_request', {
   error: text('error'),
   // Teaser-Zusammenfassung, beim Fertigstellen berechnet (Zahlen, keine gesperrten Texte)
   summary: jsonb('summary'),
+  // Fortschritt der Discovery für die Warteansicht ({ stage: 'read' | 'profile' | 'plan', brandName? }), nur Anzeige
+  progress: jsonb('progress'),
   readyAt: timestamp('ready_at', { withTimezone: true }),
   readyMailSentAt: timestamp('ready_mail_sent_at', { withTimezone: true }),
   createdAt: createdAt(),

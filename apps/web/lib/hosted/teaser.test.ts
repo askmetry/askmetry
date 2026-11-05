@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { areaCounts, checkStep, cleanDomain, lockedCount, refreshSeconds, roughScore, strongestCompetitor, teaserRanking } from './teaser';
+import type { CheckProgress } from '@askmetry/core/hosted/types';
+import { agentSteps, cleanDomain, elapsedText, lockedCount, refreshSeconds, roughScore } from './teaser';
 
 describe('roughScore', () => {
   it('rundet auf 5er-Schritte', () => {
@@ -24,44 +25,50 @@ describe('lockedCount', () => {
   });
 });
 
-describe('areaCounts', () => {
-  it('feste Reihenfolge, leere Bereiche fehlen', () => {
-    expect(areaCounts({ technical: 2, own_content: 5, community: 0, other_sites: 3 })).toEqual([
-      { area: 'own_content', cat: 'content', n: 5 },
-      { area: 'other_sites', cat: 'offsite', n: 3 },
-      { area: 'technical', cat: 'technical', n: 2 },
-    ]);
-    expect(areaCounts(null)).toEqual([]);
+const base: CheckProgress = { stage: null, brandName: null, competitors: 0, prompts: 0, engines: [], analyzing: false, recommending: false };
+const states = (steps: ReturnType<typeof agentSteps>) => Object.fromEntries(steps.map((x) => [x.key, x.state]));
+
+describe('agentSteps (Checkliste aus echtem Zustand)', () => {
+  it('Discovery: Website lesen → Marke → Wettbewerber und Fragen gleichzeitig', () => {
+    expect(states(agentSteps({ status: 'discovering', progress: { ...base, stage: 'read' } }))).toMatchObject({ read: 'current', brand: 'todo', competitors: 'todo', chatgpt: 'todo', measures: 'todo' });
+    expect(states(agentSteps({ status: 'discovering', progress: { ...base, stage: 'profile' } }))).toMatchObject({ read: 'done', brand: 'current', competitors: 'todo' });
+    const plan = agentSteps({ status: 'discovering', progress: { ...base, stage: 'plan', brandName: 'Paylindo' } });
+    expect(states(plan)).toMatchObject({ read: 'done', brand: 'done', competitors: 'current', questions: 'current', gemini: 'todo' });
+    expect(plan.find((x) => x.key === 'brand')!.detail).toEqual({ kind: 'brand', name: 'Paylindo' });
+  });
+
+  it('Messung: Zähler je KI-Suche, fertige Suchen abgehakt, Auswertung danach', () => {
+    const progress: CheckProgress = {
+      ...base, brandName: 'Paylindo', competitors: 5, prompts: 8,
+      engines: [{ engine: 'gemini', done: 8, total: 8 }, { engine: 'google_aio', done: 3, total: 8 }, { engine: 'google_ai_mode', done: 0, total: 8 }, { engine: 'chatgpt', done: 1, total: 4 }],
+    };
+    const s = agentSteps({ status: 'measuring', progress });
+    expect(states(s)).toMatchObject({ read: 'done', brand: 'done', competitors: 'done', questions: 'done', gemini: 'done', google_aio: 'current', google_ai_mode: 'current', chatgpt: 'current', analyze: 'todo', measures: 'todo' });
+    expect(s.find((x) => x.key === 'chatgpt')!.detail).toEqual({ kind: 'answered', done: 1, total: 4 });
+    expect(s.find((x) => x.key === 'competitors')!.detail).toEqual({ kind: 'competitors', n: 5 });
+    expect(s.find((x) => x.key === 'questions')!.detail).toEqual({ kind: 'questions', n: 8 });
+    expect(states(agentSteps({ status: 'measuring', progress: { ...progress, analyzing: true } }))).toMatchObject({ analyze: 'current', measures: 'todo' });
+    expect(states(agentSteps({ status: 'measuring', progress: { ...progress, recommending: true } }))).toMatchObject({ analyze: 'done', measures: 'current' });
+  });
+
+  it('eingereiht ohne Messung: nichts läuft vor; fertig: alles erledigt', () => {
+    const q = states(agentSteps({ status: 'queued', progress: { ...base, competitors: 5, prompts: 8 } }));
+    expect(Object.values(q).filter((v) => v === 'current')).toHaveLength(0);
+    expect(q.questions).toBe('done');
+    expect(Object.values(states(agentSteps({ status: 'ready', progress: base }))).every((v) => v === 'done')).toBe(true);
   });
 });
 
-describe('teaserRanking', () => {
-  const s = { brand: { name: 'Paylindo', domain: 'paylindo.de', description: null }, promptsMentioned: 3, competitors: [{ name: 'SumUp', promptsMentioned: 8 }, { name: 'Zettle', promptsMentioned: 3 }] };
-  it('sortiert absteigend, eigene Marke bei Gleichstand zuerst', () => {
-    expect(teaserRanking(s).map((r) => [r.name, r.own])).toEqual([['SumUp', false], ['Paylindo', true], ['Zettle', false]]);
-  });
-  it('höchstens n Wettbewerber', () => {
-    expect(teaserRanking(s, 1)).toHaveLength(2);
-  });
-});
-
-describe('strongestCompetitor', () => {
-  it('nur wenn genannt', () => {
-    expect(strongestCompetitor({ topCompetitor: { name: 'SumUp', promptsMentioned: 0 } })).toBeNull();
-    expect(strongestCompetitor({ topCompetitor: null })).toBeNull();
-    expect(strongestCompetitor({ topCompetitor: { name: 'SumUp', promptsMentioned: 4 } })?.name).toBe('SumUp');
-  });
-});
-
-describe('Status', () => {
-  it('Schritte und Aktualisierung', () => {
-    expect(checkStep('discovering')).toBe(0);
-    expect(checkStep('awaiting_email')).toBe(1);
-    expect(checkStep('measuring')).toBe(2);
-    expect(checkStep('ready')).toBe(3);
-    expect(refreshSeconds('awaiting_email')).toBeNull();
+describe('Aktualisierung und Laufzeit', () => {
+  it('kurz, solange der Check läuft', () => {
+    expect(refreshSeconds('discovering')).toBe(2);
+    expect(refreshSeconds('measuring')).toBe(2);
     expect(refreshSeconds('ready')).toBeNull();
-    expect(refreshSeconds('queued')).toBe(5);
+    expect(refreshSeconds('failed')).toBeNull();
+  });
+  it('m:ss', () => {
+    expect(elapsedText('2026-11-05T10:00:00Z', Date.parse('2026-11-05T10:01:07Z'))).toBe('1:07');
+    expect(elapsedText('2026-11-05T10:00:00Z', Date.parse('2026-11-05T09:59:00Z'))).toBe('0:00');
   });
 });
 

@@ -43,8 +43,8 @@ Stand: 5. November 2026 · Fassung 2026-11-05
 
 ## § 3 Gratis-Schnell-Check
 
-1. Der Schnell-Check ist kostenlos. Er umfasst derzeit: Markenprofil, bis zu 5 Wettbewerber, 10 gemessene Fragen bei mehreren KI-Diensten mit je einer Abfrage, einen technischen Website-Check und eine Vorschau auf Maßnahmen. Der genaue Umfang ergibt sich aus der Beschreibung auf der Website.
-2. Ein Anspruch auf den Schnell-Check besteht nicht. Wir können ihn begrenzen (z. B. Anzahl je Tag, E-Mail- oder IP-Adresse), ändern, ablehnen oder einstellen. Die Bestätigung der E-Mail-Adresse ist Voraussetzung.
+1. Der Schnell-Check ist kostenlos. Er umfasst derzeit: Markenprofil, bis zu 5 Wettbewerber, eine Auswahl typischer Kundenfragen, gemessen bei mehreren KI-Diensten mit je einer Abfrage, einen technischen Website-Check und eine Vorschau auf Maßnahmen. Der genaue Umfang ergibt sich aus der Beschreibung auf der Website.
+2. Ein Anspruch auf den Schnell-Check besteht nicht. Wir können ihn begrenzen (z. B. Anzahl je Tag, E-Mail- oder IP-Adresse), ändern, ablehnen oder einstellen. Eine E-Mail-Adresse ist dafür nicht erforderlich; eine Benachrichtigung per E-Mail ist optional.
 3. Das Ergebnis ist über einen geheimen Link abrufbar. Für dieselbe Domain verwenden wir ein Ergebnis bis zu 30 Tage wieder; andere, die in dieser Zeit dieselbe Domain prüfen, sehen dasselbe Ergebnis (ohne Ihre Kontaktdaten).
 4. Für den Schnell-Check haften wir nur nach § 11 Abs. 5.
 

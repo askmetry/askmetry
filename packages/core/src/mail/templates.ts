@@ -31,20 +31,20 @@ export const mailTemplates = {
     const domain = oneLine(i.domain, 100);
     if (lang === 'en') {
       return build({
-        lang, preheader: `One click and we’ll start measuring ${domain}.`,
+        lang, preheader: `One click and we’ll email you the result for ${domain}.`,
         heading: 'Confirm your email address',
         intro: [
-          { text: `You started a free quick check for ${domain} on Askmetry. Please confirm your email address – then we’ll ask the AI search engines and send you the result.` },
+          { text: `You started a free quick check for ${domain} on Askmetry. You asked us to email you when it’s ready. Please confirm your email address – then we’ll send you the result as soon as it’s done.` },
         ],
         button: { label: 'Confirm email', url: i.verifyUrl },
         outro: [{ text: 'The link is valid for 24 hours. If you didn’t start this check, just ignore this email.', muted: true }],
       }, `Confirm your quick check for ${domain}`);
     }
     return build({
-      lang, preheader: `Ein Klick, dann messen wir ${domain}.`,
+      lang, preheader: `Ein Klick, dann schicken wir dir das Ergebnis für ${domain}.`,
       heading: 'Bestätige deine E-Mail-Adresse',
       intro: [
-        { text: `Du hast für ${domain} einen kostenlosen Schnell-Check bei Askmetry gestartet. Bestätige bitte kurz deine E-Mail-Adresse – dann fragen wir die KI-Suchen und schicken dir das Ergebnis.` },
+        { text: `Du hast für ${domain} einen kostenlosen Schnell-Check bei Askmetry gestartet. Du möchtest per Mail Bescheid bekommen, wenn er fertig ist. Bestätige bitte kurz deine E-Mail-Adresse – dann schicken wir dir das Ergebnis, sobald es da ist.` },
       ],
       button: { label: 'E-Mail bestätigen', url: i.verifyUrl },
       outro: [{ text: 'Der Link ist 24 Stunden gültig. Wenn du den Check nicht gestartet hast, ignoriere diese Mail einfach.', muted: true }],

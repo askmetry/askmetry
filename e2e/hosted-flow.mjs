@@ -1,7 +1,9 @@
 // End-to-End-Test der gehosteten Version als Testkunde (Chrome via playwright-core, Mock-KIs, Fake-Zahlung, Mail-Outbox):
-// Startseite → URL → E-Mail bestätigen → Teaser → Registrieren + bestätigen → Kaufformular → Test-Kasse → Bericht starten
-// → PDF + Mail → Nachmessung kaufen, messen, PDF. Prüft unterwegs, dass gesperrte Maßnahmen nicht im Teaser-HTML stehen.
-// Voraussetzung: scripts/dev-hosted.sh web UND scripts/dev-hosted.sh worker laufen (Repo-Root).
+// Startseite → URL → sofort /check/<token> mit Agent-Checkliste (ohne E-Mail) → optional „per Mail benachrichtigen“ +
+// bestätigen → Teaser (1 freie Maßnahme) + Fertig-Mail → Registrieren + bestätigen → Kaufformular → Test-Kasse → Bericht
+// starten → PDF + Mail → Nachmessung kaufen, messen, PDF. Prüft unterwegs, dass gesperrte Maßnahmen nicht im Teaser-HTML stehen.
+// Voraussetzung: scripts/dev-hosted.sh web UND scripts/dev-hosted.sh worker laufen (Repo-Root). Für Screenshots der
+// laufenden Checkliste den Worker mit Wartezeit starten: ASKMETRY_MOCK_DELAY_MS=2500 scripts/dev-hosted.sh worker
 // Aufruf (Repo-Root): node e2e/hosted-flow.mjs   ·  Umgebung: E2E_BASE, E2E_URL (zu prüfende Website), E2E_SHOTS, ASKMETRY_MAIL_OUTBOX
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
@@ -86,28 +88,49 @@ try {
   ok(`Check gestartet (${domain})`);
   await shot(page, 'check-start');
 
-  // 2. E-Mail eintragen + bestätigen
-  await page.locator('#check-email').waitFor({ timeout: 60_000 });
+  // 2. Agent-Checkliste ohne E-Mail-Gate; optional per Mail benachrichtigen lassen
+  await page.locator('[data-testid="agent-checklist"]').waitFor({ timeout: 15_000 });
+  if (await page.locator('#check-email').count() === 0) fail('Benachrichtigungs-Feld fehlt in der Warteansicht');
   await page.locator('#check-email').fill(email);
   await page.locator('[data-testid="check-email-form"] button[type="submit"]').click();
+  await page.locator('[data-testid="check-email-sent"]').waitFor({ timeout: 15_000 });
   const verifyMail = await waitMail(email, (m) => m.links.some((l) => l.includes('/bestaetigen')));
-  ok(`Bestätigungsmail: „${verifyMail.subject}“`);
+  ok(`Benachrichtigung angefordert, Bestätigungsmail: „${verifyMail.subject}“`);
+  // Checkliste mitten in der Messung festhalten (läuft, sobald eine KI-Suche Antworten hat)
+  const t0 = Date.now();
+  let midShot = false;
+  while (Date.now() - t0 < 180_000) {
+    const status = (await sql(`select status from check_request where token = $1`, [token]))[0]?.status;
+    if (status === 'ready') break;
+    const current = await page.locator('[data-testid="agent-checklist"] li[data-state="current"]').count();
+    const answered = await page.locator('[data-testid="agent-checklist"] li[data-step="gemini"] span.tabular-nums').first().textContent().catch(() => null);
+    if (status === 'measuring' && current > 0 && answered && !answered.startsWith('0/')) { await shot(page, 'check-agent-messung'); midShot = true; break; }
+    const discovering = await page.locator('[data-testid="agent-checklist"] li[data-step="brand"][data-state="current"], [data-testid="agent-checklist"] li[data-step="competitors"][data-state="current"]').count();
+    if (discovering && step === 1) await shot(page, 'check-agent-discovery');
+    await page.waitForTimeout(700);
+  }
+  ok(midShot ? 'Agent-Checkliste während der Messung festgehalten' : 'Messung war zu schnell für einen Zwischen-Screenshot (Worker ohne ASKMETRY_MOCK_DELAY_MS?)');
   await page.goto(local(linkWith(verifyMail, '/bestaetigen')), { waitUntil: 'domcontentloaded' });
-  ok('E-Mail bestätigt');
+  ok('E-Mail bestätigt (Check lief unabhängig davon weiter)');
 
   // 3. Teaser
   await until(page, async () => (await sql(`select status from check_request where token = $1`, [token]))[0]?.status === 'ready', 300_000, 'Teaser fertig');
+  ok(`Check fertig nach ${Math.round((Date.now() - t0) / 1000)} s (Mock)`);
   await page.goto(checkUrl, { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-testid="buy-compact"]').waitFor({ timeout: 30_000 });
+  await page.locator('[data-testid="buy-strategy"]').waitFor({ timeout: 30_000 });
   await shot(page, 'teaser');
   const [chk] = await sql(`select workspace_id, summary from check_request where token = $1`, [token]);
   const free = new Set(chk.summary.freeRecommendationIds);
+  if (free.size !== 1) fail(`Teaser soll genau 1 freie Maßnahme zeigen, hat ${free.size}`);
   const recs = await sql(`select id, title, why from recommendation where workspace_id = $1 and active`, [chk.workspace_id]);
   const html = await page.content();
   const leaked = recs.filter((r) => !free.has(r.id) && (html.includes(r.title) || html.includes(r.why)));
   if (leaked.length) fail(`${leaked.length} gesperrte Maßnahmen im Teaser-HTML sichtbar`);
-  if (free.size && ![...free].every((id) => html.includes(recs.find((r) => r.id === id)?.title ?? '§§'))) fail('freie Maßnahmen fehlen im Teaser');
-  ok(`Teaser: ${recs.length} Maßnahmen, ${free.size} frei, keine gesperrten Texte im HTML`);
+  if (![...free].every((id) => html.includes(recs.find((r) => r.id === id)?.title ?? '§§'))) fail('freie Maßnahme fehlt im Teaser');
+  if (await page.locator('[data-rec]').count() !== 1) fail('Teaser zeigt nicht genau eine Maßnahmen-Karte');
+  if (await page.locator('[data-testid="teaser-ranking"], [data-testid="teaser-domains"], [data-testid="teaser-areas"]').count()) fail('Teaser zeigt noch Wettbewerber/Quellen/Bereiche');
+  if (!(await page.locator('article[data-tier="strategy"][data-recommended]').count())) fail('Strategiebericht ist nicht als empfohlen markiert');
+  ok(`Teaser: ${recs.length} Maßnahmen, 1 frei, keine gesperrten Texte im HTML, Strategiebericht empfohlen`);
   const readyMail = await waitMail(email, (m) => m.links.some((l) => l.includes(`/check/${token}`)) && !m.links.some((l) => l.includes('/bestaetigen')));
   ok(`Fertig-Mail: „${readyMail.subject}“`);
 

@@ -5,18 +5,19 @@ import {
   session, topic, user, workspace, workspaceMember,
 } from '@askmetry/db';
 import { and, eq, inArray, like, sql } from 'drizzle-orm';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deleteUserData } from '../../src/hosted/account.ts';
-import { getCheckView, processChecks, startCheck, submitCheckEmail, verifyCheckEmail } from '../../src/hosted/checks.ts';
-import { canStartMeasurement, globalSpendToday } from '../../src/hosted/limits.ts';
+import { checksWaiting, getCheckView, processChecks, QUEUED_STALE_MS, startCheck, submitCheckEmail, verifyCheckEmail } from '../../src/hosted/checks.ts';
+import { CHECK_SCOPE } from '../../src/hosted/config.ts';
+import { canStartMeasurement, checkReservedUsd, checkSpendToday, DISCOVERY_ESTIMATE_USD, globalSpendToday } from '../../src/hosted/limits.ts';
 import { decodeOptOutParam, isOptedOut, optOut, verifyOptOut } from '../../src/hosted/optout.ts';
 import { attachCheckoutSession, getReport, getReportPdf, markReportCanceled, markReportPaid, markReportRefunded, prepareReport, processReports, reportsForWorkspace, startReport } from '../../src/hosted/reports.ts';
 import { purgeExpiredData } from '../../src/hosted/retention.ts';
 import { funnelStats } from '../../src/hosted/stats.ts';
-import { parseCollectionPlan, processCollection } from '../../src/runner.ts';
+import { createCollection, parseCollectionPlan, processCollection } from '../../src/runner.ts';
 import { createDueScheduledCollections } from '../../src/scheduler.ts';
 
 const P = 'ithosted';
@@ -57,20 +58,15 @@ afterAll(async () => {
   rmSync(outbox, { recursive: true, force: true });
 });
 beforeEach(() => {
-  for (const k of ['ASKMETRY_CHECKS_ENABLED', 'ASKMETRY_CHECK_LIMIT_PER_IP', 'ASKMETRY_CHECK_LIMIT_PER_EMAIL', 'ASKMETRY_CHECK_DAILY_BUDGET_USD', 'ASKMETRY_GLOBAL_DAILY_BUDGET_USD', 'ASKMETRY_CHECK_DISCOVERIES_PER_HOUR']) delete process.env[k];
+  for (const k of ['TURNSTILE_SECRET_KEY', 'ASKMETRY_CHECKS_ENABLED', 'ASKMETRY_CHECK_LIMIT_PER_IP', 'ASKMETRY_CHECK_LIMIT_PER_EMAIL', 'ASKMETRY_CHECK_DAILY_BUDGET_USD', 'ASKMETRY_GLOBAL_DAILY_BUDGET_USD', 'ASKMETRY_CHECK_DISCOVERIES_PER_HOUR']) delete process.env[k];
 });
 
 const tokenOf = (r: { token: string } | { error: string }) => { if (!('token' in r)) throw new Error(`erwartet Token, bekam ${r.error}`); return r.token; };
 const row = async (token: string) => (await db.select().from(checkRequest).where(eq(checkRequest.token, token)))[0];
 
-/** Check bis „ready“ durchlaufen lassen (Mock-Messung direkt abarbeiten). */
-async function runCheck(domain: string, email: string, ipHash = `${P}-ip-${domain}`): Promise<string> {
+/** Check bis „ready“ durchlaufen lassen (Mock-Messung direkt abarbeiten) – ohne E-Mail, wie im Produkt. */
+async function runCheck(domain: string, _email?: string, ipHash = `${P}-ip-${domain}`): Promise<string> {
   const token = tokenOf(await startCheck({ url: `https://www.${domain}/`, locale: 'de', ipHash }));
-  await processChecks();
-  expect(await submitCheckEmail(token, email)).toEqual({ ok: true });
-  const m = mails(email).at(-1)!;
-  const code = new URL(linkWith(m, '/bestaetigen')!).searchParams.get('code')!;
-  expect(await verifyCheckEmail(token, code)).toEqual({ ok: true });
   await processChecks();
   const c = await row(token);
   expect(c.status).toBe('measuring');
@@ -115,6 +111,19 @@ describe('Schnell-Check', () => {
     expect(await startCheck({ url: `${P}-hour.de`, locale: 'de', ipHash: `${P}-ip-hour` })).toEqual({ error: 'rate_limited' });
   });
 
+  it('gleichzeitige Anfragen überschreiten Limit je IP und Stundengrenze nicht (Advisory-Locks)', async () => {
+    process.env.ASKMETRY_CHECK_LIMIT_PER_IP = '2';
+    const ip = `${P}-ip-race`;
+    const res = await Promise.all(Array.from({ length: 6 }, (_, i) => startCheck({ url: `${P}-race-${i}.de`, locale: 'de', ipHash: ip })));
+    expect(res.filter((r) => 'token' in r)).toHaveLength(2);
+    expect(res.filter((r) => 'error' in r && r.error === 'rate_limited')).toHaveLength(4);
+    process.env.ASKMETRY_CHECK_LIMIT_PER_IP = '10';
+    const lastHour = await db.$count(checkRequest, sql`${checkRequest.reusedFromId} is null and ${checkRequest.createdAt} >= now() - interval '1 hour'`);
+    process.env.ASKMETRY_CHECK_DISCOVERIES_PER_HOUR = String(lastHour + 1);
+    const res2 = await Promise.all(Array.from({ length: 5 }, (_, i) => startCheck({ url: `${P}-race-h${i}.de`, locale: 'de', ipHash: `${P}-ip-race-h${i}` })));
+    expect(res2.filter((r) => 'token' in r)).toHaveLength(1);
+  });
+
   it('Website nicht erreichbar → unreachable (Prüfung über safe-fetch)', async () => {
     const resolve = async () => [{ address: '93.184.216.34', family: 4 as const }];
     const transport = async () => ({ status: 503, headers: {}, body: (async function* () { yield ''; })(), destroy() {} });
@@ -122,22 +131,52 @@ describe('Schnell-Check', () => {
     expect(await startCheck({ url: `${P}-intern.de`, locale: 'de', ipHash: `${P}-ip-down2` }, { reachability: true, resolve: async () => [{ address: '192.168.1.1', family: 4 as const }] })).toEqual({ error: 'unreachable' });
   });
 
-  it('Discovery legt Check-Arbeitsbereich ohne Mitglieder an → awaiting_email', async () => {
-    await processChecks();
+  it('Turnstile: mit Schlüssel ohne gültiges Token kein Check', async () => {
+    process.env.TURNSTILE_SECRET_KEY = 'test-secret';
+    expect(await startCheck({ url: `${P}-bot.de`, locale: 'de', ipHash: `${P}-ip-bot` })).toEqual({ error: 'bot_check_failed' });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: false })));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      expect(await startCheck({ url: `${P}-bot.de`, locale: 'de', ipHash: `${P}-ip-bot` }, { turnstileToken: 'falsch', ip: '203.0.113.9' })).toEqual({ error: 'bot_check_failed' });
+      fetchMock.mockImplementation(async () => new Response(JSON.stringify({ success: true })));
+      expect('token' in (await startCheck({ url: `${P}-bot.de`, locale: 'de', ipHash: `${P}-ip-bot` }, { turnstileToken: 'gut' }))).toBe(true);
+      expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain('challenges.cloudflare.com');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('Discovery legt Check-Arbeitsbereich ohne Mitglieder an und startet die Messung sofort (ohne E-Mail)', async () => {
+    const before = await getCheckView(token);
+    expect(before!.progress).toMatchObject({ stage: 'read', engines: [], competitors: 0 });
+    const stages: string[] = [];
+    await processChecks({ discovery: { onProgress: (p) => { stages.push(p.stage); } } });
+    // Mock: Website lesen entfällt, die übrigen Zwischenstände werden gemeldet (alle wartenden Checks laufen parallel)
+    expect(new Set(stages)).toEqual(new Set(['profile', 'plan']));
     const c = await row(token);
-    expect(c.status).toBe('awaiting_email');
+    expect(c.status).toBe('measuring');
+    expect(c.emailVerifiedAt).toBeNull();
+    expect(c.progress).toMatchObject({ queuedAt: expect.any(String) });
+    expect(c.progress).not.toHaveProperty('stage');
     const [ws] = await db.select().from(workspace).where(eq(workspace.id, c.workspaceId!));
     expect(ws).toMatchObject({ hostedKind: 'check', scheduleEnabled: false, monthlyBudgetUsd: '3.00' });
     expect(await db.$count(workspaceMember, eq(workspaceMember.workspaceId, ws.id))).toBe(0);
     expect(await db.$count(prompt, eq(prompt.workspaceId, ws.id))).toBe(20);
     expect(await db.$count(brand, eq(brand.workspaceId, ws.id))).toBe(6);
-    const v = await getCheckView(token);
-    expect(v!.discovered!.prompts).toHaveLength(10);
-    expect(v!.discovered!.competitors).toHaveLength(5);
-    expect(v!.summary).toBeNull();
+    const v = (await getCheckView(token))!;
+    expect(v.progress).toMatchObject({ stage: null, brandName: `${P[0].toUpperCase()}${P.slice(1)}-paylindo`, competitors: 5, prompts: CHECK_SCOPE.measured, analyzing: false, recommending: false });
+    expect(v.progress.engines).toEqual([
+      { engine: 'gemini', done: 0, total: 8 }, { engine: 'google_aio', done: 0, total: 8 },
+      { engine: 'google_ai_mode', done: 0, total: 8 }, { engine: 'chatgpt', done: 0, total: 4 },
+    ]);
+    expect(v.summary).toBeNull();
+    // keine Wettbewerber-Namen oder Fragen in der Warteansicht
+    const json = JSON.stringify(v);
+    expect(json).not.toContain('Alpha Solutions');
+    expect(json).not.toContain('kleine Unternehmen');
   });
 
-  it('E-Mail: Prüfung, Code nur gehasht, erneutes Senden frühestens nach 60 s', async () => {
+  it('Benachrichtigung per Mail (optional): Prüfung, Code nur gehasht, erneutes Senden frühestens nach 60 s', async () => {
     expect(await submitCheckEmail(token, 'kein-mail')).toEqual({ error: 'invalid_email' });
     expect(await submitCheckEmail('x'.repeat(43), email)).toEqual({ error: 'not_found' });
     expect(await submitCheckEmail(token, email)).toEqual({ ok: true });
@@ -159,35 +198,41 @@ describe('Schnell-Check', () => {
     expect(await verifyCheckEmail(token, code)).toEqual({ error: 'code_invalid' });
     expect(await verifyCheckEmail(token, code2)).toEqual({ ok: true });
     expect(await verifyCheckEmail(token, code2)).toEqual({ ok: true }); // zweiter Klick
-    expect((await row(token)).status).toBe('queued');
+    // Bestätigung ändert am Ablauf nichts – die Messung läuft ohnehin
+    expect((await row(token))).toMatchObject({ status: 'measuring' });
+    expect((await row(token)).emailVerifiedAt).not.toBeNull();
     expect(await submitCheckEmail(token, email)).toEqual({ error: 'wrong_state' });
   });
 
   it('Messung mit Check-Plan → ready mit Summary, Fertig-Mail, gesperrte Maßnahmen nicht in der Ansicht', async () => {
-    await processChecks();
     const c = await row(token);
     expect(c.status).toBe('measuring');
     const [col] = await db.select().from(collection).where(eq(collection.id, c.collectionId!));
     const plan = parseCollectionPlan(col.plan);
-    expect(plan).toMatchObject({ engines: ['gemini', 'google_aio', 'google_ai_mode', 'chatgpt'], repetitions: 1, engineMaxPrompts: { chatgpt: 5 } });
-    expect(plan.promptIds).toHaveLength(10);
+    expect(plan).toMatchObject({
+      engines: ['gemini', 'google_aio', 'google_ai_mode', 'chatgpt'], repetitions: 1, engineMaxPrompts: { chatgpt: 4 },
+      concurrency: CHECK_SCOPE.concurrency,
+    });
+    expect(plan.promptIds).toHaveLength(8);
     await processCollection(col.id, { retryDelayMs: 1 });
+    const mid = (await getCheckView(token))!;
+    expect(mid.progress.engines.every((e) => e.done === e.total)).toBe(true);
+    expect(mid.progress.analyzing || mid.progress.recommending).toBe(true);
     await db.update(collection).set({ finishedAt: new Date(Date.now() - 5 * 60_000) }).where(eq(collection.id, col.id));
     await processChecks();
     const done = await row(token);
     expect(done.status).toBe('ready');
     const view = (await getCheckView(token))!;
     const s = view.summary!;
-    expect(s.prompts).toBe(10);
+    expect(s.prompts).toBe(8);
     expect(s.responses).toBeGreaterThan(20);
     expect(s.brand.name).toBe(`${P[0].toUpperCase()}${P.slice(1)}-paylindo`);
-    expect(s.promptsMentioned).toBeLessThanOrEqual(10);
-    expect(s.topDomains.length).toBeLessThanOrEqual(3);
+    expect(s.promptsMentioned).toBeLessThanOrEqual(8);
+    expect(view.progress.engines).toEqual([]);
     const recs = await db.select().from(recommendation).where(and(eq(recommendation.workspaceId, done.workspaceId!), eq(recommendation.active, true)));
-    expect(recs.length).toBeGreaterThan(2);
+    expect(recs.length).toBeGreaterThan(1);
     expect(s.recommendationsTotal).toBe(recs.length);
-    expect(Object.values(s.recommendationCounts).reduce((a, b) => a + b, 0)).toBe(recs.length);
-    expect(view.freeRecommendations).toHaveLength(2);
+    expect(view.freeRecommendations).toHaveLength(1);
     expect(view.freeRecommendations.map((r) => r.id)).toEqual(s.freeRecommendationIds);
     const json = JSON.stringify(view);
     for (const r of recs.filter((x) => !s.freeRecommendationIds.includes(x.id))) {
@@ -195,7 +240,7 @@ describe('Schnell-Check', () => {
       expect(json).not.toContain(r.why);
     }
     expect(json).not.toContain(email);
-    // Fertig-Mail mit Teaser-Link
+    // Fertig-Mail mit Teaser-Link (Adresse wurde bestätigt)
     const ready = mails(email).at(-1)!;
     expect(linkWith(ready, `/check/${token}`)).toBeTruthy();
     expect(done.readyMailSentAt).not.toBeNull();
@@ -203,19 +248,51 @@ describe('Schnell-Check', () => {
     expect(mails(email).filter((m) => m.subject === ready.subject)).toHaveLength(1);
   });
 
-  it('30-Tage-Cache je Domain: neuer Check mit reused_from_id, nach Bestätigung sofort fertig', async () => {
+  it('ohne bestätigte Adresse keine Fertig-Mail; Bestätigung nach dem Fertigwerden holt sie nach', async () => {
+    const t = await runCheck(`${P}-spaet.de`);
+    expect((await row(t)).readyMailSentAt).toBeNull();
+    expect(await submitCheckEmail(t, `spaet@${P}-firma.de`)).toEqual({ error: 'wrong_state' }); // fertig: kein Formular mehr
+    // Adresse während der Messung angegeben, Link erst nach dem Fertigwerden geklickt
+    const t2 = tokenOf(await startCheck({ url: `${P}-spaet2.de`, locale: 'de', ipHash: `${P}-ip-spaet2` }));
+    const who = `spaet2@${P}-firma.de`;
+    expect(await submitCheckEmail(t2, who)).toEqual({ ok: true });
+    await processChecks();
+    const c2 = await row(t2);
+    await processCollection(c2.collectionId!, { retryDelayMs: 1 });
+    await db.update(collection).set({ finishedAt: new Date(Date.now() - 5 * 60_000) }).where(eq(collection.id, c2.collectionId!));
+    await processChecks();
+    expect((await row(t2)).status).toBe('ready');
+    expect(mails(who)).toHaveLength(1); // nur die Bestätigungsmail
+    const code = new URL(linkWith(mails(who)[0], '/bestaetigen')!).searchParams.get('code')!;
+    expect(await verifyCheckEmail(t2, code)).toEqual({ ok: true });
+    // Fertig-Mail direkt beim Bestätigen, nicht doppelt durch den Worker
+    expect(mails(who)).toHaveLength(2);
+    await processChecks();
+    expect(mails(who)).toHaveLength(2);
+    expect(linkWith(mails(who)[1], `/check/${t2}`)).toBeTruthy();
+  });
+
+  it('Altbestand awaiting_email: Bestätigung reiht wie früher ein', async () => {
+    const [c] = await db.insert(checkRequest).values({ token: `${P}-legacy-${'x'.repeat(30)}`, url: `https://${P}-legacy.de/`, domain: `${P}-legacy.de`, status: 'awaiting_email', workspaceId: (await row(token)).workspaceId }).returning();
+    expect(await submitCheckEmail(c.token, `alt@${P}-firma.de`)).toEqual({ ok: true });
+    const code = new URL(linkWith(mails(`alt@${P}-firma.de`).at(-1)!, '/bestaetigen')!).searchParams.get('code')!;
+    expect(await verifyCheckEmail(c.token, code)).toEqual({ ok: true });
+    expect((await row(c.token)).status).toBe('queued');
+    await db.update(checkRequest).set({ status: 'failed' }).where(eq(checkRequest.id, c.id));
+  });
+
+  it('30-Tage-Cache je Domain: neuer Check sofort fertig (ohne E-Mail, ohne neue Messung)', async () => {
     const orig = await row(token);
+    const before = mails().length;
     const t2 = tokenOf(await startCheck({ url: `https://${orig.domain}`, locale: 'de', ipHash: `${P}-ip-n3` }));
     const c2 = await row(t2);
-    expect(c2).toMatchObject({ status: 'awaiting_email', reusedFromId: orig.id, workspaceId: orig.workspaceId });
-    const other = `erika@${P}-firma.de`;
-    expect(await submitCheckEmail(t2, other)).toEqual({ ok: true });
-    const code = new URL(linkWith(mails(other).at(-1)!, '/bestaetigen')!).searchParams.get('code')!;
-    expect(await verifyCheckEmail(t2, code)).toEqual({ ok: true });
+    expect(c2).toMatchObject({ status: 'ready', reusedFromId: orig.id, workspaceId: orig.workspaceId, collectionId: orig.collectionId });
     const v = (await getCheckView(t2))!;
     expect(v.status).toBe('ready');
     expect(v.summary).toEqual(orig.summary);
-    expect(v.freeRecommendations).toHaveLength(2);
+    expect(v.freeRecommendations).toHaveLength(1);
+    await processChecks();
+    expect(mails().length).toBe(before);
     // andere Sprache → kein Cache
     expect((await row(tokenOf(await startCheck({ url: orig.domain, locale: 'en', ipHash: `${P}-ip-n4` })))).status).toBe('discovering');
   });
@@ -242,6 +319,93 @@ describe('Schnell-Check', () => {
     } finally {
       await db.delete(recommendationGeneration).where(eq(recommendationGeneration.id, g.id));
     }
+  });
+
+  it('Altbestand awaiting_email ohne Klick: Ansicht wie eingereiht, Worker gibt ihn frei', async () => {
+    const [c] = await db.insert(checkRequest).values({ token: `${P}-legacy2-${'x'.repeat(30)}`, url: `https://${P}-legacy2.de/`, domain: `${P}-legacy2.de`, status: 'awaiting_email', workspaceId: (await row(token)).workspaceId }).returning();
+    try {
+      expect((await getCheckView(c.token))!.status).toBe('queued');
+      await processChecks();
+      const r = await row(c.token);
+      expect(r.status).toBe('queued');
+      expect(r.progress).toMatchObject({ queuedAt: expect.any(String) });
+    } finally {
+      await db.update(checkRequest).set({ status: 'failed' }).where(eq(checkRequest.id, c.id));
+      const [active] = await db.select().from(collection).where(and(eq(collection.workspaceId, c.workspaceId!), inArray(collection.status, ['queued', 'running'])));
+      if (active) await db.delete(collection).where(eq(collection.id, active.id));
+    }
+  });
+
+  it('eingereiht ohne Messung (Budget): nach 15 min blocked, Berichte warten nicht mehr', async () => {
+    const wsId = (await row(token)).workspaceId!;
+    const old = new Date(Date.now() - QUEUED_STALE_MS - 60_000).toISOString();
+    const [stale] = await db.insert(checkRequest).values({ token: `${P}-stale-${'x'.repeat(30)}`, url: `https://${P}-stale.de/`, domain: `${P}-stale.de`, status: 'queued', workspaceId: wsId, progress: { queuedAt: old } }).returning();
+    const [fresh] = await db.insert(checkRequest).values({ token: `${P}-fresh-${'x'.repeat(30)}`, url: `https://${P}-fresh.de/`, domain: `${P}-fresh.de`, status: 'queued', workspaceId: wsId, progress: { queuedAt: new Date().toISOString() } }).returning();
+    const [g] = await db.insert(recommendationGeneration).values({ workspaceId: wsId, model: 'test', costUsd: '5.0000' }).returning();
+    process.env.ASKMETRY_CHECK_DAILY_BUDGET_USD = '4';
+    try {
+      expect(await checksWaiting()).toBe(true);
+      await processChecks();
+      expect(await row(stale.token)).toMatchObject({ status: 'blocked', collectionId: null });
+      expect((await row(stale.token)).error).toMatch(/^disabled\|/);
+      expect((await getCheckView(stale.token))!.error).toBe('disabled');
+      expect((await row(fresh.token)).status).toBe('queued');
+      await processChecks(); // zweiter Durchgang: bleibt blocked, keine zweite Meldung nötig
+      expect((await row(stale.token)).status).toBe('blocked');
+    } finally {
+      await db.delete(recommendationGeneration).where(eq(recommendationGeneration.id, g.id));
+      await db.update(checkRequest).set({ status: 'failed' }).where(inArray(checkRequest.id, [stale.id, fresh.id]));
+    }
+  });
+
+  it('Fertig-Mail: gleichzeitige Durchgänge senden nur einmal; Versandfehler gibt den Anspruch zurück', async () => {
+    const t = await runCheck(`${P}-claim.de`);
+    const who = `claim@${P}-firma.de`;
+    await db.update(checkRequest).set({ email: who, emailVerifiedAt: new Date() }).where(eq(checkRequest.token, t));
+    const prevOutbox = process.env.ASKMETRY_MAIL_OUTBOX;
+    // Outbox unterhalb einer Datei → Schreiben schlägt fehl (ENOTDIR)
+    const blocker = path.join(outbox, 'keine-outbox.txt');
+    writeFileSync(blocker, 'x');
+    process.env.ASKMETRY_MAIL_OUTBOX = path.join(blocker, 'sub');
+    try {
+      await processChecks();
+    } finally {
+      process.env.ASKMETRY_MAIL_OUTBOX = prevOutbox;
+    }
+    expect((await row(t)).readyMailSentAt).toBeNull();
+    await Promise.all([processChecks(), processChecks(), processChecks()]);
+    expect(mails(who)).toHaveLength(1);
+    expect((await row(t)).readyMailSentAt).not.toBeNull();
+  });
+
+  it('Tagesbudget reserviert Kosten laufender Checks (offene Runs + Discoveries)', async () => {
+    const wsId = (await row(token)).workspaceId!;
+    const prevMock = process.env.ASKMETRY_MOCK_ENGINES;
+    // nur Budget-Abfragen ohne Mock (keine Engine-Aufrufe): Schätzkosten statt 0
+    process.env.ASKMETRY_MOCK_ENGINES = '0';
+    let colId: string | null = null;
+    const [disc] = await db.insert(checkRequest).values({ token: `${P}-resv-${'x'.repeat(30)}`, url: `https://${P}-resv.de/`, domain: `${P}-resv.de`, status: 'discovering' }).returning();
+    try {
+      const base = await checkReservedUsd();
+      expect(base).toBeGreaterThanOrEqual(DISCOVERY_ESTIMATE_USD);
+      const ps = await db.select({ id: prompt.id }).from(prompt).where(eq(prompt.workspaceId, wsId)).limit(CHECK_SCOPE.measured);
+      colId = (await createCollection(wsId, 'manual', { promptIds: ps.map((p) => p.id), engines: CHECK_SCOPE.engines, repetitions: 1, engineMaxPrompts: CHECK_SCOPE.engineMaxPrompts })).id;
+      const withRuns = await checkReservedUsd();
+      // 8 × (Gemini 0,012 + 2 × Google 0,004) + 4 × ChatGPT 0,08 = 0,48 $
+      expect(withRuns - base).toBeCloseTo(0.48, 6);
+      const spend = await checkSpendToday();
+      process.env.ASKMETRY_CHECK_DAILY_BUDGET_USD = String(spend + 0.3);
+      // ohne Reserve wäre Platz (spend < Budget), mit Reserve nicht
+      expect(await canStartMeasurement('check')).toEqual({ ok: false, reason: 'check_budget' });
+      expect(await startCheck({ url: `${P}-resv2.de`, locale: 'de', ipHash: `${P}-ip-resv` })).toEqual({ error: 'disabled' });
+      process.env.ASKMETRY_CHECK_DAILY_BUDGET_USD = String(spend + withRuns + 1);
+      expect(await canStartMeasurement('check')).toEqual({ ok: true });
+    } finally {
+      process.env.ASKMETRY_MOCK_ENGINES = prevMock;
+      if (colId) await db.delete(collection).where(eq(collection.id, colId));
+      await db.delete(checkRequest).where(eq(checkRequest.id, disc.id));
+    }
+    expect(await checkReservedUsd()).toBe(0); // Mock-Modus
   });
 
   it('gehostete Arbeitsbereiche nie über den Zeitplan messen', async () => {

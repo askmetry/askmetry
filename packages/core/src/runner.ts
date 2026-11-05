@@ -86,6 +86,8 @@ export interface CollectionPlan {
   engineMaxPrompts?: Record<string, number>;
   /** Claude über die Batches API (wie geplante Messungen), auch wenn trigger = manual */
   batch?: boolean;
+  /** parallele Abfragen dieser Collection (z. B. Schnell-Check: schneller fertig); sonst ProcessOptions bzw. 4 / 2 je Anbieter */
+  concurrency?: { total: number; perProvider: number };
 }
 
 export function parseCollectionPlan(raw: unknown): CollectionPlan {
@@ -102,6 +104,9 @@ export function parseCollectionPlan(raw: unknown): CollectionPlan {
     plan.engineMaxPrompts = m;
   }
   if (typeof r.batch === 'boolean') plan.batch = r.batch;
+  const cc = r.concurrency as Record<string, unknown> | undefined;
+  const lim = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 1 ? Math.min(v, 32) : null);
+  if (cc && typeof cc === 'object' && lim(cc.total) && lim(cc.perProvider)) plan.concurrency = { total: lim(cc.total)!, perProvider: lim(cc.perProvider)! };
   return plan;
 }
 
@@ -341,7 +346,8 @@ export async function processCollection(collectionId: string, opts: ProcessOptio
       .where(eq(collection.id, c.id));
 
     const brands = await loadWorkspaceBrands(ws.id);
-    const planBatch = parseCollectionPlan(c.plan).batch;
+    const plan = parseCollectionPlan(c.plan);
+    const planBatch = plan.batch;
     const batchMode = useClaudeBatch(c.trigger, planBatch !== undefined && opts.batch === undefined ? { batch: planBatch && !isMockMode() } : opts);
     const transport = opts.batchTransport ?? anthropicBatchTransport();
     // Budget serverseitig gedeckelt (ASKMETRY_MAX_BUDGET_USD)
@@ -506,7 +512,7 @@ export async function processCollection(collectionId: string, opts: ProcessOptio
       };
     });
 
-    await runLimited(tasks, { total: opts.concurrency ?? 4, perProvider: opts.perProvider ?? 2 });
+    await runLimited(tasks, { total: opts.concurrency ?? plan.concurrency?.total ?? 4, perProvider: opts.perProvider ?? plan.concurrency?.perProvider ?? 2 });
 
     if (budgetHit) {
       await db.update(run).set({ status: 'skipped', error: 'Monatsbudget erreicht', finishedAt: new Date() })

@@ -76,6 +76,9 @@ export const mock: Engine = {
   enabled: () => true,
   async run(prompt, ctx) {
     const engine = ctx.engineKey ?? 'mock';
+    // Entwicklung/E2E: realistische Wartezeit (ASKMETRY_MOCK_DELAY_MS, Standard 0), leicht gestreut
+    const delay = Number(process.env.ASKMETRY_MOCK_DELAY_MS ?? 0);
+    if (Number.isFinite(delay) && delay > 0) await new Promise((r) => setTimeout(r, Math.min(60_000, delay * (0.6 + Math.random() * 0.8))));
     const { answer, citations, noAiAnswer } = mockAnswer(prompt, ctx.brands ?? [], { engine, repetition: ctx.repetition ?? 1 });
     const o = (ctx.options ?? {}) as { costUsd?: number };
     const costUsd = o.costUsd ?? Number(process.env.ASKMETRY_MOCK_COST_USD ?? 0);

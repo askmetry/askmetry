@@ -105,14 +105,21 @@ export function OverviewPreview({ t, pct }: { t: M; pct: (x: number) => string }
         })}
       </ol>
 
-      <p className="mt-5 rounded-xl bg-accent-soft px-3.5 py-2.5 text-sm text-fg">
-        <span className="font-semibold">→ </span>{p.insight}
-      </p>
+      <div className="mt-5 rounded-xl bg-accent-soft px-3.5 py-3 text-sm text-fg">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 text-xs font-semibold text-accent-fg">
+            <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+            {p.found}
+          </span>
+          <span className="text-xs font-medium text-muted">{p.topLabel}:</span>
+        </p>
+        <p className="mt-1.5"><span className="font-semibold">→ </span>{p.insight}</p>
+      </div>
     </figure>
   );
 }
 
-const CAT_STYLE: Record<string, { color: string; soft: string; icon: React.ReactNode }> = {
+export const CAT_STYLE: Record<string, { color: string; soft: string; icon: React.ReactNode }> = {
   content: { color: 'var(--cat-content)', soft: 'var(--cat-content-soft)', icon: <path d="M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5" /> },
   external: { color: 'var(--cat-external)', soft: 'var(--cat-external-soft)', icon: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" /></> },
   community: { color: 'var(--cat-community)', soft: 'var(--cat-community-soft)', icon: <path d="M4 5h16v11H9l-5 4z" /> },
@@ -120,10 +127,10 @@ const CAT_STYLE: Record<string, { color: string; soft: string; icon: React.React
 };
 
 /** Drei Maßnahmen-Karten eines Beispielberichts. */
-export function MeasuresPreview({ t }: { t: M }) {
+export function MeasuresPreview({ t, onCard = false }: { t: M; onCard?: boolean }) {
   const g = t.get;
   return (
-    <figure aria-label={t.preview.badge} className="rounded-3xl bg-card p-5 shadow-card sm:p-6">
+    <figure aria-label={t.preview.badge} className={`rounded-3xl p-5 sm:p-6 ${onCard ? 'bg-bg' : 'bg-card shadow-card'}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-lg font-semibold">{g.measures}</p>
         <ExampleBadge>{t.preview.badge}</ExampleBadge>
@@ -133,7 +140,7 @@ export function MeasuresPreview({ t }: { t: M }) {
           const cat = r.cat as keyof typeof g.cats;
           const s = CAT_STYLE[cat]!;
           return (
-            <li key={r.title} className="relative overflow-hidden rounded-2xl bg-bg py-3 pl-4 pr-3">
+            <li key={r.title} className={`relative overflow-hidden rounded-2xl py-3 pl-4 pr-3 ${onCard ? 'bg-card' : 'bg-bg'}`}>
               <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: s.color }} />
               <p className="flex items-center gap-1.5 text-xs font-medium" style={{ color: s.color }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round">{s.icon}</svg>

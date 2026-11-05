@@ -25,17 +25,23 @@ export const REPORT_SCOPE: Record<ReportTier, { prompts: number; competitors: nu
   strategy: { prompts: 60, competitors: 5, repetitions: 3, engines: ['chatgpt', 'claude', 'gemini', 'google_aio', 'google_ai_mode'] },
 };
 
-/** Umfang des Gratis-Schnell-Checks. */
+/**
+ * Umfang des Gratis-Schnell-Checks. Ziel: in 2–3 Minuten fertig (Discovery ~35 s, Messung ~45 s, Maßnahmen ~20 s).
+ * Dafür misst der Check weniger Fragen als früher (8 statt 10) und fragt alle KIs gleichzeitig (`concurrency`).
+ * Berichte (REPORT_SCOPE) sind davon unberührt.
+ */
 export const CHECK_SCOPE = {
   /** so viele Fragen erzeugt die Discovery (= Standortbestimmung), gemessen werden die ersten `measured` */
   generated: 20,
-  measured: 10,
+  measured: 8,
   competitors: 5,
   engines: ['gemini', 'google_aio', 'google_ai_mode', 'chatgpt'],
-  engineMaxPrompts: { chatgpt: 5 } as Record<string, number>,
+  engineMaxPrompts: { chatgpt: 4 } as Record<string, number>,
   repetitions: 1,
+  /** parallele Abfragen der Check-Messung (Berichte: Standard des Runners, 4 / 2 je Anbieter) */
+  concurrency: { total: 12, perProvider: 6 },
   /** Zahl der vollständig gezeigten Maßnahmen im Teaser */
-  freeRecommendations: 2,
+  freeRecommendations: 1,
 };
 
 /** Version der AGB, der beim Kauf zugestimmt wird (bei Änderung der AGB hochzählen). */

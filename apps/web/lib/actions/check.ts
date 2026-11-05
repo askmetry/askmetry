@@ -1,5 +1,5 @@
 'use server';
-// Schnell-Check: E-Mail-Gate. Alles Weitere (Mail, Ratenbegrenzung, Turnstile-Prüfung) macht submitCheckEmail im Kern.
+// Schnell-Check: optionale Benachrichtigung per Mail. Alles Weitere (Mail, Ratenbegrenzung, Turnstile-Prüfung) macht submitCheckEmail im Kern.
 import { revalidatePath } from 'next/cache';
 import { getI18n } from '@/lib/i18n/server';
 import { submitCheckEmail } from '@/lib/hosted/data';
@@ -24,7 +24,7 @@ export async function submitEmail(_prev: CheckEmailState, f: FormData): Promise<
   } catch {
     return { error: e.generic }; // z. B. Mailversand fehlgeschlagen – der Kern meldet es dem Betrieb
   }
-  if ('error' in r) return { error: r.error === 'rate_limited' ? t.check.email.rateLimited : e[r.error] ?? e.generic };
+  if ('error' in r) return { error: r.error === 'rate_limited' ? t.check.notify.rateLimited : e[r.error] ?? e.generic };
   revalidatePath(`/check/${token}`);
   return { ok: true };
 }

@@ -1,6 +1,6 @@
 // Gehostete Version: reine Helfer, Discovery mit injizierter KI, Teaser-Summary, Telegram (ohne DB, ohne Netz).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { hashIp, normalizeCheckUrl } from '../../src/hosted/checks.ts';
+import { hashIp, ipLimitKey, normalizeCheckUrl } from '../../src/hosted/checks.ts';
 import { DiscoveryError, discoverBrand, fakeDiscovery, sanitizeCompetitors, sanitizePrompts } from '../../src/hosted/discovery.ts';
 import { notifyOps, resetNotifyDedupe } from '../../src/hosted/notify.ts';
 import { decodeOptOutParam, optOutUrl, verifyOptOut } from '../../src/hosted/optout.ts';
@@ -30,6 +30,18 @@ describe('Helfer', () => {
     expect(hashIp('1.2.3.4')).toBe(hashIp('1.2.3.4'));
     expect(hashIp('1.2.3.4')).not.toBe(hashIp('1.2.3.5'));
     expect(hashIp('1.2.3.4')).not.toContain('1.2.3.4');
+  });
+
+  it('ipLimitKey/hashIp: IPv6 nach /64-Präfix, IPv4 (auch gemappt) vollständig', () => {
+    expect(ipLimitKey(' 203.0.113.9 ')).toBe('203.0.113.9');
+    expect(ipLimitKey('::ffff:203.0.113.9')).toBe('203.0.113.9');
+    expect(ipLimitKey('2001:db8:1:2:aaaa::1')).toBe('2001:db8:1:2::/64');
+    expect(ipLimitKey('2001:0DB8:0001:0002:ffff:ffff:ffff:ffff')).toBe('2001:db8:1:2::/64');
+    expect(ipLimitKey('[2001:db8::5]')).toBe('2001:db8:0:0::/64');
+    expect(ipLimitKey('fe80::1%en0')).toBe('fe80:0:0:0::/64');
+    expect(ipLimitKey('2001:db8:1::')).toBe('2001:db8:1:0::/64');
+    expect(hashIp('2001:db8:1:2::1')).toBe(hashIp('2001:db8:1:2:ffff::9'));
+    expect(hashIp('2001:db8:1:2::1')).not.toBe(hashIp('2001:db8:1:3::1'));
   });
 
   it('normalizeCheckUrl: Startseite, Domain ohne www, unzulässige Ziele abgelehnt', () => {
@@ -110,9 +122,11 @@ describe('Teaser-Summary', () => {
 
   it('freie Maßnahmen: 1 Technik + 1 eigene Inhalte, sonst nach Priorität', () => {
     const recs = [rec('a', 'outreach', 9), rec('b', 'content_gap', 5), rec('c', 'technical', 1), rec('d', 'community', 7)];
-    expect(pickFreeRecommendations(recs).map((r) => r.id)).toEqual(['c', 'b']);
-    expect(pickFreeRecommendations([rec('a', 'outreach', 9), rec('d', 'community', 7), rec('e', 'outreach', 1)]).map((r) => r.id)).toEqual(['a', 'd']);
-    expect(pickFreeRecommendations([rec('x', 'technical', 3, { status: 'dismissed' }), rec('y', 'content_gap', 2)]).map((r) => r.id)).toEqual(['y']);
+    expect(pickFreeRecommendations(recs, 2).map((r) => r.id)).toEqual(['c', 'b']);
+    expect(pickFreeRecommendations([rec('a', 'outreach', 9), rec('d', 'community', 7), rec('e', 'outreach', 1)], 2).map((r) => r.id)).toEqual(['a', 'd']);
+    expect(pickFreeRecommendations([rec('x', 'technical', 3, { status: 'dismissed' }), rec('y', 'content_gap', 2)], 2).map((r) => r.id)).toEqual(['y']);
+    // Standard (Teaser): genau eine
+    expect(pickFreeRecommendations(recs).map((r) => r.id)).toEqual(['c']);
   });
 
   it('Kennzahlen nach CONTRACT.md: Fragen mit Nennung, Quellen cited-sonst-searched, Bereiche', () => {
@@ -144,7 +158,7 @@ describe('Teaser-Summary', () => {
       // r1 zählt nur cited (test.de), r2 hat nur searched (reddit.com); test.de in r1 + r3 je einmal
       topDomains: [{ domain: 'test.de', count: 2 }, { domain: 'reddit.com', count: 1 }],
       recommendationCounts: { own_content: 1, other_sites: 1, community: 0, technical: 1 }, recommendationsTotal: 3,
-      freeRecommendationIds: ['t', 'n'], technical: null,
+      freeRecommendationIds: ['t'], technical: null,
     });
     expect(s.engines).toEqual([{ engine: 'gemini', responses: 3, mentioned: 1 }, { engine: 'chatgpt', responses: 1, mentioned: 1 }]);
   });

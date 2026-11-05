@@ -1,8 +1,8 @@
 // Tagesbudgets der gehosteten Version (Kalendertag Europe/Berlin).
 // Gezählt werden alle KI-Kosten: Runs (nach Abschluss), recommendation_generation (Formulierung, Markenprofil, Discovery)
 // sowie Discovery-Kosten fehlgeschlagener Checks ohne Arbeitsbereich (stehen nur auf check_request.cost_usd).
-import { checkRequest, db, recommendationGeneration, run, workspace } from '@askmetry/db';
-import { and, inArray, isNull, sql } from 'drizzle-orm';
+import { checkRequest, collection, db, recommendationGeneration, run, workspace } from '@askmetry/db';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { estimatedCostPerRun } from '../engine-config.ts';
 import { isMockMode } from '../engines/index.ts';
 import { hostedConfig } from './config.ts';
@@ -28,6 +28,30 @@ export const globalSpendToday = () => sumToday(false);
 /** KI-Kosten der Schnell-Checks heute (Arbeitsbereiche mit hosted_kind = 'check'). */
 export const checkSpendToday = () => sumToday(true);
 
+/** Reserve je laufender Discovery (Markenprofil + ein Sonnet-Aufruf; gebucht erst nach Abschluss). */
+export const DISCOVERY_ESTIMATE_USD = 0.08;
+
+/**
+ * Noch nicht gebuchte, aber schon zugesagte Check-Kosten: offene Runs (pending/running) wartender oder laufender
+ * Check-Messungen × geschätzte Kosten je Engine, plus eine feste Reserve je Discovery in Arbeit. Ohne diese Reserve
+ * könnten viele gleichzeitig gestartete Checks das Tagesbudget weit überschreiten (Kosten zählen erst nach Abschluss).
+ * Im Mock-Modus 0 (wie estimateMeasurementUsd).
+ */
+export async function checkReservedUsd(): Promise<number> {
+  if (isMockMode()) return 0;
+  const [open, [disc]] = await Promise.all([
+    db.select({ engine: run.engine, n: sql<number>`count(*)::int` }).from(run)
+      .innerJoin(collection, eq(collection.id, run.collectionId))
+      .innerJoin(workspace, eq(workspace.id, collection.workspaceId))
+      .where(and(eq(workspace.hostedKind, 'check'), inArray(collection.status, ['queued', 'running']), inArray(run.status, ['pending', 'running'])))
+      .groupBy(run.engine),
+    db.select({ n: sql<number>`count(*)::int` }).from(checkRequest).where(eq(checkRequest.status, 'discovering')),
+  ]);
+  let total = (disc?.n ?? 0) * DISCOVERY_ESTIMATE_USD;
+  for (const r of open) total += r.n * (estimatedCostPerRun[r.engine] ?? 0);
+  return total;
+}
+
 export type BudgetBlock = 'global_budget' | 'check_budget';
 
 /**
@@ -36,13 +60,15 @@ export type BudgetBlock = 'global_budget' | 'check_budget';
  */
 export async function canStartMeasurement(kind: 'check' | 'report', estimateUsd = 0): Promise<{ ok: true } | { ok: false; reason: BudgetBlock }> {
   const cfg = hostedConfig();
-  const global = await globalSpendToday();
+  // zugesagte, noch nicht gebuchte Check-Kosten zählen gegen beide Budgets
+  const reserved = await checkReservedUsd();
+  const global = (await globalSpendToday()) + reserved;
   if (global + estimateUsd > cfg.globalDailyBudgetUsd + 1e-9) {
     void notifyOps(`Globales Tagesbudget erreicht (${global.toFixed(2)} $ von ${cfg.globalDailyBudgetUsd} $) – neue ${kind === 'check' ? 'Checks' : 'Berichte'} warten`);
     return { ok: false, reason: 'global_budget' };
   }
   if (kind === 'check') {
-    const check = await checkSpendToday();
+    const check = (await checkSpendToday()) + reserved;
     if (check + estimateUsd > cfg.checkDailyBudgetUsd + 1e-9) {
       void notifyOps(`Check-Tagesbudget erreicht (${check.toFixed(2)} $ von ${cfg.checkDailyBudgetUsd} $)`);
       return { ok: false, reason: 'check_budget' };
