@@ -10,6 +10,8 @@ import {
 import { toLang, type Lang } from '@askmetry/core/present';
 import { collection, db, recommendation, report, response, run, siteCheck, workspace } from '@askmetry/db';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { loadBrandLogos, type PdfLogo } from './logos.ts';
+import { loadGuide, type ReportGuide } from './guide.ts';
 
 export type ReportTier = 'compact' | 'strategy';
 export type ReportKind = 'initial' | 'remeasure';
@@ -51,6 +53,10 @@ export interface ReportInput {
   current: MeasurementInput;
   previous?: (MeasurementInput & { date: Date }) | null;
   recs: RecInput[];
+  /** Markenlogos je brand.id (aus der DB, siehe logos.ts); fehlt → Initiale */
+  logos?: Record<string, PdfLogo>;
+  /** GEO-Leitfaden/FAQ in der Berichtssprache (guide.ts); fehlt → Kapitel entfällt */
+  guide?: ReportGuide | null;
 }
 
 export interface Interval { lo: number; hi: number }
@@ -128,8 +134,18 @@ export interface ReportModel {
   recs: ReportRec[];
   topRecs: ReportRec[];
   topics: TopicRow[];
-  plan: { month: 1 | 2 | 3; items: ReportRec[] }[];
+  /** 30-Tage-Plan (Strategiebericht): die wichtigsten Maßnahmen auf vier Wochen verteilt, der Rest danach */
+  plan: Plan30 | null;
   comparison: Comparison | null;
+  /** Markenlogos je brand.id */
+  logos: Record<string, PdfLogo>;
+  guide: ReportGuide | null;
+}
+
+export interface Plan30 {
+  weeks: { week: 1 | 2 | 3 | 4; items: ReportRec[] }[];
+  /** nicht eingeplante (weniger wichtige) offene Maßnahmen */
+  later: ReportRec[];
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +188,16 @@ export function brandStat(b: Pick<BrandLike, 'id' | 'name' | 'isOwn'>, respIds: 
   };
 }
 
+/** Kategorie-Texte; neue/unbekannte Kategorien (z. B. aus einer neueren Maßnahmen-Erzeugung) dürfen den Bericht nicht kippen. */
+function safeCategoryText(cat: RecCategory, lang: Lang, type: string): { label: string; owner: string } {
+  try {
+    const t = categoryText(cat, lang);
+    if (t?.label) return { label: t.label, owner: t.owner ?? '' };
+  } catch { /* unten */ }
+  const label = String(cat || type || '').replace(/[_-]+/g, ' ').trim();
+  return { label: label ? label[0].toUpperCase() + label.slice(1) : (lang === 'en' ? 'Other' : 'Sonstiges'), owner: '' };
+}
+
 const UNKNOWN_MODEL = new Set(['google', 'mock', 'test']);
 
 /** Maßnahmen für den Bericht: aktiv, nicht ausgeblendet, nach Priorität; Texte in der Berichtssprache, Prompt wie in der Web-App. */
@@ -182,7 +208,7 @@ export function reportRecs(recs: RecInput[], ctx: PromptContext, lang: Lang): Re
     .map((r) => {
       const l = localizeRec(r, lang);
       const cat = categoryOf(r.type);
-      const ct = categoryText(cat, lang);
+      const ct = safeCategoryText(cat, lang, r.type);
       return {
         key: r.key, type: r.type, category: cat, categoryLabel: ct.label, owner: ct.owner,
         title: l.title, why: l.why, steps: l.steps, impact: r.impact, effort: r.effort, priority: Number(r.priority),
@@ -192,36 +218,59 @@ export function reportRecs(recs: RecInput[], ctx: PromptContext, lang: Lang): Re
     });
 }
 
+/** So viele Maßnahmen kommen höchstens in den 30-Tage-Plan (zwei je Woche) – der Plan soll schlank bleiben. */
+export const PLAN_MAX = 8;
+
+const lexLess = (a: number[], b: number[]) => {
+  const i = a.findIndex((v, j) => v !== b[j]);
+  return i >= 0 && a[i] < b[i];
+};
+
+const MAX_PREREQ = 3;
+
+/** Voraussetzung: Technik mit mindestens mittlerer Wirkung (z. B. gesperrte KI-Crawler) – kommt zuerst. */
+const isPrereq = (r: ReportRec) => r.category === 'technical' && r.impact >= 2;
+
 /**
- * 90-Tage-Plan: Maßnahmen nach Priorität und Aufwand auf drei Monate verteilt.
- * Voraussetzungen (Technik, außer Grundpflege mit kleiner Wirkung) kommen in Monat 1, danach wird der Aufwand
- * (1/2/3) möglichst gleichmäßig verteilt – wichtigste zuerst. Mindestens eine Maßnahme je Monat, solange es genug gibt.
+ * 30-Tage-Plan: die wichtigsten offenen Maßnahmen (höchstens `max`) in Wochen 1–4.
+ * Reihenfolge: Voraussetzungen zuerst, dann nach Priorität. Die Liste wird in dieser Reihenfolge in bis zu vier
+ * zusammenhängende Wochen geteilt, sodass die stärkste Woche möglichst wenig Aufwand hat (Aufwand 1–3 bleibt intern) –
+ * eine wichtigere Maßnahme landet so nie später als eine unwichtigere. Keine Woche bleibt leer, solange es genug gibt.
  */
-export function planMonths(recs: ReportRec[]): { month: 1 | 2 | 3; items: ReportRec[] }[] {
-  const months: ReportRec[][] = [[], [], []];
-  const load = [0, 0, 0];
-  const prereq = recs.filter((r) => r.category === 'technical' && r.impact >= 2);
-  const rest = recs.filter((r) => !prereq.includes(r)).sort((a, b) => b.priority - a.priority);
-  const total = recs.reduce((s, r) => s + Math.max(1, r.effort), 0);
-  const cap = Math.max(1, Math.ceil(total / 3));
-  for (const r of prereq) { months[0].push(r); load[0] += Math.max(1, r.effort); }
-  for (const r of rest) {
-    const e = Math.max(1, r.effort);
-    let m = load.findIndex((l) => l + e <= cap);
-    if (m < 0) m = load.indexOf(Math.min(...load));
-    // nie eine wichtigere Maßnahme später einplanen als eine unwichtigere: Monat nicht vor dem zuletzt genutzten
-    const last = months.reduce((acc, xs, i) => (xs.some((x) => !prereq.includes(x)) ? i : acc), 0);
-    if (m < last && load[last] + e <= cap + 1) m = last;
-    months[m].push(r);
-    load[m] += e;
-  }
-  // leere Monate auffüllen (aus dem vollsten Monat die unwichtigste Maßnahme nachrücken lassen)
-  for (let i = 1; i < 3; i++) {
-    if (months[i].length || recs.length < 3) continue;
-    const from = months[i - 1].length > 1 ? i - 1 : months.findIndex((xs) => xs.length > 1);
-    if (from >= 0) months[i].push(months[from].pop()!);
-  }
-  return months.map((items, i) => ({ month: (i + 1) as 1 | 2 | 3, items }));
+export function planWeeks(recs: ReportRec[], max = PLAN_MAX): Plan30 {
+  // höchstens drei Voraussetzungen vorziehen, damit Technik den Plan nicht allein füllt
+  const prereqs = recs.filter(isPrereq).sort((a, b) => b.priority - a.priority).slice(0, MAX_PREREQ);
+  const ordered = [
+    ...prereqs,
+    ...recs.filter((r) => !prereqs.includes(r)).sort((a, b) => b.priority - a.priority),
+  ];
+  const picked = ordered.slice(0, Math.max(0, max));
+  const later = ordered.slice(picked.length);
+  const load = picked.map((r) => Math.max(1, Math.min(3, Math.round(r.effort || 2))));
+  const k = Math.min(4, picked.length);
+  let best: number[] = []; // Startindizes der Wochen 2..k
+  let bestScore: number[] | null = null;
+  // alle Aufteilungen in k zusammenhängende, nicht leere Teile (n ≤ 8 → höchstens 35 Möglichkeiten)
+  const walk = (from: number, left: number, cuts: number[]) => {
+    if (left === 0) {
+      const bounds = [0, ...cuts, picked.length];
+      const sums = bounds.slice(0, -1).map((b, i) => load.slice(b, bounds[i + 1]).reduce((a, x) => a + x, 0));
+      // kleinste Höchstlast, dann möglichst gleichmäßig; bei Gleichstand lieber früh mehr (die wichtigsten zuerst)
+      const score = [Math.max(...sums), sums.reduce((a, x) => a + x * x, 0), ...sums.map((x) => -x)];
+      if (!bestScore || lexLess(score, bestScore)) {
+        bestScore = score;
+        best = cuts;
+      }
+      return;
+    }
+    for (let i = from; i <= picked.length - left; i++) walk(i + 1, left - 1, [...cuts, i]);
+  };
+  if (k > 0) walk(1, k - 1, []);
+  const bounds = k > 0 ? [0, ...best, picked.length] : [0];
+  const weeks = ([1, 2, 3, 4] as const).map((week, i) => ({
+    week, items: i < bounds.length - 1 ? picked.slice(bounds[i], bounds[i + 1]) : [],
+  }));
+  return { weeks, later };
 }
 
 function engineStats(m: MeasurementInput, own: BrandLike | undefined, comps: BrandLike[]): EngineStat[] {
@@ -432,8 +481,10 @@ export function buildReportModel(input: ReportInput): ReportModel {
     recs,
     topRecs: pickTopRecommendations(recs.filter((r) => r.status !== 'done'), 3),
     topics,
-    plan: input.tier === 'strategy' ? planMonths(recs.filter((r) => r.status !== 'done')) : [],
+    plan: input.tier === 'strategy' ? planWeeks(recs.filter((r) => r.status !== 'done')) : null,
     comparison,
+    logos: input.logos ?? {},
+    guide: input.guide ?? null,
   };
 }
 
@@ -490,9 +541,11 @@ export async function loadReportInput(reportId: string): Promise<ReportInput> {
       previous = { ...m, date: p.readyAt ?? m.collection.finishedAt ?? m.collection.createdAt };
     }
   }
+  const lang = toLang(ws.language);
   return {
-    reportId: r.id, lang: toLang(ws.language), tier: r.tier === 'strategy' ? 'strategy' : 'compact', kind: r.kind === 'remeasure' ? 'remeasure' : 'initial',
+    reportId: r.id, lang, tier: r.tier === 'strategy' ? 'strategy' : 'compact', kind: r.kind === 'remeasure' ? 'remeasure' : 'initial',
     workspaceName: ws.name, date: r.readyAt ?? current.collection.finishedAt ?? new Date(), current, previous, recs: ownRecs,
+    logos: await loadBrandLogos(r.workspaceId), guide: loadGuide(lang),
   };
 }
 
@@ -521,9 +574,11 @@ export async function loadWorkspaceInput(slug: string, opts: { tier: ReportTier;
     const m = await loadMeasurement(w.id, opts.previousCollectionId);
     previous = { ...m, date: m.collection.finishedAt ?? m.collection.createdAt };
   }
+  const lang = opts.lang ?? toLang(ws.language);
   return {
-    reportId: null, lang: opts.lang ?? toLang(ws.language), tier: opts.tier, kind: previous ? 'remeasure' : 'initial',
+    reportId: null, lang, tier: opts.tier, kind: previous ? 'remeasure' : 'initial',
     workspaceName: ws.name, date: current.collection.finishedAt ?? new Date(), current, previous, recs: recInputs,
+    logos: await loadBrandLogos(w.id), guide: loadGuide(lang),
   };
 }
 

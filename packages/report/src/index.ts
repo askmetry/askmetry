@@ -4,6 +4,8 @@ import { renderModelPdf } from './pdf.tsx';
 import type { Lang } from '@askmetry/core/present';
 
 export * from './data.ts';
+export { toPdfLogo, icoToPng, encodePng, loadBrandLogos, type PdfLogo } from './logos.ts';
+export { parseGuide, loadGuide, guidePath, type ReportGuide, type GuideBlock } from './guide.ts';
 export { tierLabel } from './text.ts';
 export { renderModelPdf } from './pdf.tsx';
 
