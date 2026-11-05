@@ -93,6 +93,7 @@ const reports = {
     measuring: 'Gerade läuft eine Messung für einen Bericht. Fragen und Wettbewerber lassen sich ändern, sobald sie fertig ist.',
     remeasure: 'Deine Nachmessung misst genau die Fragen und Wettbewerber des ersten Berichts. Bis sie gestartet und fertig ist, bleiben sie unverändert.',
     notAvailable: 'Messungen laufen hier über Berichte.',
+    promptText: 'Gemessene Fragen bleiben im Wortlaut gleich, damit die Nachmessung vergleichbar ist. Leg für eine neue Formulierung eine neue Frage an.',
     tooManyPrompts: (max: number) => `Dein Bericht misst höchstens ${max} Fragen. Deaktiviere zuerst eine andere.`,
     tooManyCompetitors: (max: number) => `Dein Bericht vergleicht höchstens ${max} Wettbewerber.`,
     noNewWorkspace: 'Neue Workspaces entstehen hier über einen Schnell-Check.',

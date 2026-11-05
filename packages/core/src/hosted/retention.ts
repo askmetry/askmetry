@@ -2,13 +2,14 @@
 // - IP-Hash in check_request nach 7 Tagen entfernen
 // - unbestätigte E-Mail (+ Code-Hash) nach 7 Tagen entfernen
 // - Checks ohne Kauf (kein report mit check_id) nach 90 Tagen löschen, samt Arbeitsbereich mit hosted_kind = 'check'
-//   (Kunden-Arbeitsbereiche nie)
+//   (Kunden-Arbeitsbereiche nie). Abgebrochene Checkouts zählen nicht als Kauf.
+// - Kunden-Arbeitsbereiche nur aus abgebrochenen Checkouts (kein Bericht je bezahlt) nach 30 Tagen löschen
 // - funnel_event nach 24 Monaten löschen
 import { checkRequest, db, funnelEvent, report, workspace } from '@askmetry/db';
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { DAY_MS } from './util.ts';
 
-export const RETENTION = { ipHashDays: 7, unverifiedEmailDays: 7, unpurchasedCheckDays: 90, funnelEventMonths: 24 };
+export const RETENTION = { ipHashDays: 7, unverifiedEmailDays: 7, unpurchasedCheckDays: 90, abandonedWorkspaceDays: 30, funnelEventMonths: 24 };
 
 export interface PurgeSummary { ipHashes: number; emails: number; checks: number; workspaces: number; funnelEvents: number }
 
@@ -22,7 +23,7 @@ export async function purgeExpiredData(now = new Date()): Promise<PurgeSummary> 
   // Checks ohne Kauf (kein Bericht verweist auf den Check)
   const old = await db.select({ id: checkRequest.id, workspaceId: checkRequest.workspaceId }).from(checkRequest)
     .where(and(lt(checkRequest.createdAt, before(RETENTION.unpurchasedCheckDays)),
-      sql`not exists (select 1 from ${report} where ${report.checkId} = ${checkRequest.id})`));
+      sql`not exists (select 1 from ${report} where ${report.checkId} = ${checkRequest.id} and ${report.status} not in ('pending_payment', 'canceled'))`));
   let workspaces = 0;
   if (old.length) {
     const ids = old.map((c) => c.id);
@@ -38,6 +39,15 @@ export async function purgeExpiredData(now = new Date()): Promise<PurgeSummary> 
       workspaces = del.length;
     }
   }
+  // Kopien aus abgebrochenen Checkouts: Kunden-Arbeitsbereich, in dem nie ein Bericht bezahlt wurde
+  const abandoned = await db.delete(workspace).where(and(
+    eq(workspace.hostedKind, 'customer'), lt(workspace.createdAt, before(RETENTION.abandonedWorkspaceDays)),
+    sql`exists (select 1 from ${report} where ${report.workspaceId} = ${workspace.id})`,
+    sql`not exists (select 1 from ${report} where ${report.workspaceId} = ${workspace.id} and ${report.status} not in ('pending_payment', 'canceled'))`,
+    // kein laufender Checkout: jüngster Bericht ebenfalls älter als die Frist
+    sql`not exists (select 1 from ${report} where ${report.workspaceId} = ${workspace.id} and ${report.createdAt} >= ${before(RETENTION.abandonedWorkspaceDays).toISOString()}::timestamptz)`,
+  )).returning({ id: workspace.id });
+  workspaces += abandoned.length;
   const fe = await db.delete(funnelEvent).where(lt(funnelEvent.createdAt, sql`${now.toISOString()}::timestamptz - interval '${sql.raw(String(RETENTION.funnelEventMonths))} months'`)).returning({ id: funnelEvent.id });
   return { ipHashes: ip.length, emails: mail.length, checks: old.length, workspaces, funnelEvents: fe.length };
 }

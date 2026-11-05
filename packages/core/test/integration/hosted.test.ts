@@ -260,7 +260,7 @@ describe('Berichte', () => {
   let checkToken: string;
   let reportId: string, wsId: string;
 
-  it('prepareReport: Check-Arbeitsbereich übernehmen, Wettbewerber kürzen; zweiter Käufer bekommt eine Kopie', async () => {
+  it('prepareReport: jeder Käufer bekommt eine eigene Kopie ohne Messdaten, Check bleibt unverändert, Wettbewerber gekürzt', async () => {
     buyer = await addUser('buyer'); other = await addUser('other'); stranger = await addUser('stranger');
     checkToken = await runCheck(`${P}-shop.de`, `buyer@${P}-kunde.de`);
     const c = await row(checkToken);
@@ -270,7 +270,14 @@ describe('Berichte', () => {
 
     const r = await prepareReport({ ...base, userId: buyer, tier: 'compact', kind: 'initial', checkId: c.id });
     reportId = r.reportId; wsId = r.workspaceId;
-    expect(wsId).toBe(c.workspaceId);
+    expect(wsId).not.toBe(c.workspaceId);
+    // Check-Schnappschuss unverändert: weiterhin Check, ohne Mitglieder
+    const [src] = await db.select().from(workspace).where(eq(workspace.id, c.workspaceId!));
+    expect(src.hostedKind).toBe('check');
+    expect(await db.$count(workspaceMember, eq(workspaceMember.workspaceId, src.id))).toBe(0);
+    // vor der Zahlung: keine Messungen und keine Maßnahmen im Kunden-Arbeitsbereich
+    expect(await db.$count(collection, eq(collection.workspaceId, wsId))).toBe(0);
+    expect(await db.$count(recommendation, eq(recommendation.workspaceId, wsId))).toBe(0);
     const [ws] = await db.select().from(workspace).where(eq(workspace.id, wsId));
     expect(ws).toMatchObject({ hostedKind: 'customer', repetitions: 3, scheduleEnabled: false, monthlyBudgetUsd: '40.00' });
     expect(ws.engines).toHaveLength(5);
@@ -287,7 +294,8 @@ describe('Berichte', () => {
     expect(copy.workspaceId).not.toBe(wsId);
     expect(await db.$count(prompt, eq(prompt.workspaceId, copy.workspaceId))).toBe(20);
     expect(await db.$count(collection, eq(collection.workspaceId, copy.workspaceId))).toBe(0);
-    expect(await db.$count(brand, and(eq(brand.workspaceId, copy.workspaceId), eq(brand.isOwn, false)))).toBe(3); // nach Übernahme schon gekürzt
+    const srcComps = await db.$count(brand, and(eq(brand.workspaceId, c.workspaceId!), eq(brand.isOwn, false)));
+    expect(await db.$count(brand, and(eq(brand.workspaceId, copy.workspaceId), eq(brand.isOwn, false)))).toBe(Math.min(srcComps, 5));
     expect(await db.$count(workspaceMember, and(eq(workspaceMember.workspaceId, copy.workspaceId), eq(workspaceMember.userId, other)))).toBe(1);
   });
 
@@ -459,7 +467,14 @@ describe('Löschfristen', () => {
     const kept = await mk(`${P}-ret-kunde.de`, { createdAt: old(91), workspaceId: kws.id });
     const u = await addUser('ret');
     const bought = await mk(`${P}-ret-bought.de`, { createdAt: old(91), workspaceId: kws.id });
-    await db.insert(report).values({ workspaceId: kws.id, userId: u, tier: 'compact', amountCents: 1, checkId: bought.id });
+    await db.insert(report).values({ workspaceId: kws.id, userId: u, tier: 'compact', amountCents: 1, checkId: bought.id, status: 'paid' });
+    // abgebrochener Checkout: Kopie nach 30 Tagen weg, der Check zählt nicht als gekauft
+    const [aws] = await db.insert(workspace).values({ name: `${P}-ret-a`, slug: `${P}-ret-abbruch`, hostedKind: 'customer', createdAt: old(31) }).returning();
+    const abandonedCheck = await mk(`${P}-ret-abbruch.de`, { createdAt: old(91) });
+    await db.insert(report).values({ workspaceId: aws.id, userId: u, tier: 'compact', amountCents: 1, checkId: abandonedCheck.id, status: 'canceled', createdAt: old(31) });
+    // alte Kopie, aber gerade läuft ein neuer Checkout → bleibt
+    const [lws] = await db.insert(workspace).values({ name: `${P}-ret-l`, slug: `${P}-ret-laufend`, hostedKind: 'customer', createdAt: old(31) }).returning();
+    await db.insert(report).values({ workspaceId: lws.id, userId: u, tier: 'compact', amountCents: 1, status: 'pending_payment' });
     const [fe] = await db.insert(funnelEvent).values({ name: 'check_started', createdAt: new Date(Date.now() - 25 * 30 * DAY) }).returning();
     const [fe2] = await db.insert(funnelEvent).values({ name: 'check_started', createdAt: old(300) }).returning();
 
@@ -475,6 +490,10 @@ describe('Löschfristen', () => {
     expect(await get(kept.id)).toBeUndefined();
     expect(await db.$count(workspace, eq(workspace.id, kws.id))).toBe(1); // Kunden-Arbeitsbereich nie
     expect(await get(bought.id)).toBeDefined();
+    expect(await db.$count(workspace, eq(workspace.id, aws.id))).toBe(0);
+    expect(await db.$count(workspace, eq(workspace.id, lws.id))).toBe(1);
+    await db.delete(workspace).where(eq(workspace.id, lws.id));
+    expect(await get(abandonedCheck.id)).toBeUndefined();
     expect(await db.$count(funnelEvent, eq(funnelEvent.id, fe.id))).toBe(0);
     expect(await db.$count(funnelEvent, eq(funnelEvent.id, fe2.id))).toBe(1);
     await db.delete(workspace).where(eq(workspace.id, kws.id));

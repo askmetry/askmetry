@@ -24,6 +24,14 @@ function all(lang: 'de' | 'en', brandName = 'Paylindo', domain = 'paylindo.de'):
 }
 
 describe('mailTemplates', () => {
+  beforeEach(() => { process.env.ASKMETRY_HOSTED = '1'; });
+  afterEach(() => { delete process.env.ASKMETRY_HOSTED; });
+  it('Selbsthosting: keine Betreiberadresse in der Fußzeile', () => {
+    delete process.env.ASKMETRY_HOSTED;
+    const m = mailTemplates.authVerify({ lang: 'de', url: 'https://example.org/v' });
+    expect(m.text).not.toContain('lindotech');
+    expect(m.html).not.toContain('lindotech');
+  });
   for (const lang of LANGS) {
     it(`rendert alle Vorlagen (${lang}) ohne undefined/NaN, mit Fußzeile, Impressum und Fallback-Link`, () => {
       for (const [name, m] of Object.entries(all(lang))) {

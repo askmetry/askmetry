@@ -19,15 +19,13 @@ export function checkFormError(code: string | null | undefined): CheckFormError 
 }
 
 /**
- * Client-IP für das Check-Limit. Nur Header, die der eigene Proxy setzt bzw. überschreibt: cf-connecting-ip (Cloudflare),
- * x-real-ip (Reverse-Proxy), sonst der LETZTE x-forwarded-for-Eintrag (vom nächsten Proxy angehängt). Der erste
- * XFF-Eintrag kommt vom Client und ist fälschbar.
+ * Client-IP für das Check-Limit. Nur ein Header, den der eigene Proxy setzt bzw. überschreibt, ist vertrauenswürdig:
+ * ASKMETRY_CLIENT_IP_HEADER (z. B. cf-connecting-ip hinter Cloudflare, x-real-ip, wenn der Proxy ihn überschreibt).
+ * Ohne Einstellung: der LETZTE x-forwarded-for-Eintrag (vom eigenen Reverse-Proxy, z. B. Caddy, angehängt) – alle
+ * anderen Header und frühere XFF-Einträge kommen vom Client und sind fälschbar.
  */
-export function clientIp(h: { get(name: string): string | null }): string | null {
-  const cf = h.get('cf-connecting-ip')?.trim();
-  if (cf) return cf;
-  const real = h.get('x-real-ip')?.trim();
-  if (real) return real;
+export function clientIp(h: { get(name: string): string | null }, header = process.env.ASKMETRY_CLIENT_IP_HEADER?.trim().toLowerCase()): string | null {
+  if (header && header !== 'x-forwarded-for') return h.get(header)?.split(',')[0]?.trim() || null;
   return h.get('x-forwarded-for')?.split(',').map((s) => s.trim()).filter(Boolean).at(-1) ?? null;
 }
 

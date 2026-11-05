@@ -34,6 +34,9 @@ const euro = (cents: number) => `${(cents / 100).toFixed(2).replace('.', ',')} �
 /** so oft PDF-Erzeugung versuchen, dann Bericht als fehlgeschlagen buchen */
 export const PDF_MAX_ATTEMPTS = 3;
 const pdfAttempts = new Map<string, number>();
+/** Versandversuche der Bericht-Mail je Worker-Lauf; danach Hinweis an Ops und keine weiteren Versuche */
+export const MAIL_MAX_ATTEMPTS = 5;
+const mailAttempts = new Map<string, number>();
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -78,16 +81,20 @@ export async function prepareReport(input: PrepareReportInput): Promise<{ report
       const [c] = await tx.select().from(checkRequest).where(eq(checkRequest.id, input.checkId));
       if (!c) throw new Error('Schnell-Check nicht gefunden');
       if (c.status !== 'ready' || !c.workspaceId) throw new Error('Schnell-Check ist nicht fertig – Kauf erst nach dem Ergebnis möglich');
-      // Zeile sperren: zwei Käufe aus demselben Check gleichzeitig dürfen nicht beide übernehmen
+      // Der Check-Arbeitsbereich bleibt ein unveränderlicher Schnappschuss (auch für spätere Checks derselben Domain aus
+      // dem Cache). Jeder Käufer bekommt eine eigene Kopie OHNE Mess- und Maßnahmendaten – vor der Zahlung gibt es dort
+      // nichts, was der Teaser nicht ohnehin zeigt. Zeile sperren: zwei Käufe gleichzeitig legen nur eine Kopie an.
       const [src] = await tx.select().from(workspace).where(eq(workspace.id, c.workspaceId)).for('update');
-      const members = await tx.select().from(workspaceMember).where(eq(workspaceMember.workspaceId, src.id));
-      if (src.hostedKind === 'check' && members.length === 0) {
-        [ws] = await tx.update(workspace).set({ hostedKind: 'customer', scheduleEnabled: false }).where(eq(workspace.id, src.id)).returning();
-        await tx.insert(workspaceMember).values({ workspaceId: ws.id, userId: input.userId, role: 'owner' });
-        fromCheck = true;
-      } else if (members.some((m) => m.userId === input.userId && m.role === 'owner')) {
-        ws = src; // derselbe Käufer kauft erneut aus seinem Check
+      // derselbe Käufer kauft erneut aus diesem Check → seine Kopie weiterverwenden
+      const [mine] = await tx.select({ w: workspace }).from(report)
+        .innerJoin(workspace, eq(workspace.id, report.workspaceId))
+        .innerJoin(workspaceMember, and(eq(workspaceMember.workspaceId, workspace.id), eq(workspaceMember.userId, input.userId), eq(workspaceMember.role, 'owner')))
+        .where(and(eq(report.checkId, c.id), eq(report.userId, input.userId), eq(workspace.hostedKind, 'customer')))
+        .orderBy(desc(report.createdAt)).limit(1);
+      if (mine) {
+        ws = mine.w;
       } else {
+        if (!src || src.hostedKind !== 'check') throw new Error('Schnell-Check-Daten nicht mehr vorhanden');
         ws = await copyWorkspace(tx, src);
         await tx.insert(workspaceMember).values({ workspaceId: ws.id, userId: input.userId, role: 'owner' });
         fromCheck = true;
@@ -132,7 +139,8 @@ export async function prepareReport(input: PrepareReportInput): Promise<{ report
 }
 
 export async function attachCheckoutSession(reportId: string, sessionId: string): Promise<void> {
-  await db.update(report).set({ checkoutSessionId: sessionId }).where(and(eq(report.id, reportId), eq(report.status, 'pending_payment')));
+  // auch an einen inzwischen abgebrochenen Bericht (Doppelklick): wird die Session doch bezahlt, findet der Webhook ihn
+  await db.update(report).set({ checkoutSessionId: sessionId }).where(and(eq(report.id, reportId), inArray(report.status, ['pending_payment', 'canceled']), isNull(report.checkoutSessionId)));
 }
 
 /** Zahlung bestätigt (nur aus dem Webhook bzw. Fake-Checkout). Idempotent: gleiche Session erneut → already: true. */
@@ -292,9 +300,13 @@ async function emailReport(r: Report, log: (m: string) => void) {
       attachments: [{ filename: `askmetry-${(info.domain || 'bericht').replace(/[^a-z0-9.-]/gi, '')}-${r.readyAt?.toISOString().slice(0, 10) ?? 'bericht'}.pdf`, content: Buffer.from(f.data, 'base64'), contentType: f.contentType }],
     });
   } catch (e) {
-    log(`Bericht ${r.id}: Mail an ${maskEmail(u.email)} fehlgeschlagen – ${errText(e)}`);
+    const n = (mailAttempts.get(r.id) ?? 0) + 1;
+    mailAttempts.set(r.id, n);
+    log(`Bericht ${r.id}: Mail an ${maskEmail(u.email)} fehlgeschlagen (Versuch ${n}/${MAIL_MAX_ATTEMPTS}) – ${errText(e)}`);
+    if (n === MAIL_MAX_ATTEMPTS) void notifyOps(`Bericht-Mail nach ${n} Versuchen nicht versendet (Bericht ${r.id}) – PDF liegt im Konto`);
     return;
   }
+  mailAttempts.delete(r.id);
   await db.update(report).set({ emailedAt: new Date() }).where(eq(report.id, r.id));
   await trackEvent('report_emailed', { reportId: r.id, workspaceId: r.workspaceId, userId: r.userId });
 }
@@ -350,6 +362,7 @@ export async function processReports(opts: ProcessReportsOptions = {}): Promise<
   // 3. Mail mit PDF (wiederholt sich nach Versandfehlern)
   for (const r of await db.select().from(report).where(and(eq(report.status, 'ready'), isNull(report.emailedAt), isNotNull(report.pdfGeneratedAt)))) {
     if (stop()) return;
+    if ((mailAttempts.get(r.id) ?? 0) >= MAIL_MAX_ATTEMPTS) continue;
     await step(r, 'Mail', () => emailReport(r, log));
   }
   // 4. Erinnerung an die Nachmessung

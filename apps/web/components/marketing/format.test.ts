@@ -26,13 +26,16 @@ describe('checkFormError', () => {
 });
 
 describe('clientIp', () => {
-  it('bevorzugt cf-connecting-ip, dann x-real-ip', () => {
-    expect(clientIp(h({ 'cf-connecting-ip': '203.0.113.9', 'x-real-ip': '10.0.0.2', 'x-forwarded-for': '1.1.1.1' }))).toBe('203.0.113.9');
-    expect(clientIp(h({ 'x-real-ip': '198.51.100.2', 'x-forwarded-for': '1.1.1.1' }))).toBe('198.51.100.2');
+  it('ohne Einstellung: cf-connecting-ip/x-real-ip vom Client werden ignoriert', () => {
+    expect(clientIp(h({ 'cf-connecting-ip': '203.0.113.9', 'x-real-ip': '10.0.0.2', 'x-forwarded-for': '1.1.1.1' }), undefined)).toBe('1.1.1.1');
+  });
+  it('mit ASKMETRY_CLIENT_IP_HEADER: nur dieser Header zählt', () => {
+    expect(clientIp(h({ 'cf-connecting-ip': '203.0.113.9', 'x-forwarded-for': '1.1.1.1' }), 'cf-connecting-ip')).toBe('203.0.113.9');
+    expect(clientIp(h({ 'x-forwarded-for': '1.1.1.1' }), 'cf-connecting-ip')).toBeNull();
   });
   it('nimmt sonst den letzten (vom Proxy angehängten) x-forwarded-for-Eintrag – der erste ist fälschbar', () => {
-    expect(clientIp(h({ 'x-forwarded-for': ' 6.6.6.6, 203.0.113.7' }))).toBe('203.0.113.7');
-    expect(clientIp(h({}))).toBeNull();
+    expect(clientIp(h({ 'x-forwarded-for': ' 6.6.6.6, 203.0.113.7' }), undefined)).toBe('203.0.113.7');
+    expect(clientIp(h({}), undefined)).toBeNull();
   });
 });
 

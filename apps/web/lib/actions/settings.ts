@@ -177,6 +177,11 @@ export async function savePrompt(_p: FormState, f: FormData): Promise<FormState>
     const [was] = id ? await db.select({ active: prompt.active }).from(prompt).where(and(eq(prompt.id, id), eq(prompt.workspaceId, g.ws.id))) : [];
     if (!was?.active) { const lim = await overLimit(g, 'prompts'); if (lim) return lim; }
   }
+  if (id && g.rights.promptTextLocked) {
+    // nach dem ersten fertigen Bericht: Wortlaut fest (sonst wäre die Nachmessung eine neue Messung zum halben Preis)
+    const [cur] = await db.select({ text: prompt.text }).from(prompt).where(and(eq(prompt.id, id), eq(prompt.workspaceId, g.ws.id)));
+    if (cur && cur.text !== text) return { error: g.tr.lock.promptText };
+  }
   if (id) {
     const r = await db.update(prompt).set(values).where(and(eq(prompt.id, id), eq(prompt.workspaceId, g.ws.id))).returning({ id: prompt.id });
     if (!r.length) return { error: g.t.errors.promptNotFound };

@@ -3,12 +3,16 @@ import { isHiddenWorkspace, scopeLimits, startProblem, strategyPreparing, worksp
 
 describe('workspaceRights', () => {
   it('selbst gehostet: alles wie bisher', () => {
-    expect(workspaceRights({ hosted: false, hostedKind: 'customer' })).toEqual({ measureNow: true, measureSettings: true, costs: true, editPromptsAndCompetitors: true, reports: false, lockReason: null });
+    expect(workspaceRights({ hosted: false, hostedKind: 'customer' })).toEqual({ measureNow: true, measureSettings: true, costs: true, editPromptsAndCompetitors: true, reports: false, lockReason: null, promptTextLocked: false });
     expect(workspaceRights({ hosted: true, hostedKind: null }).measureNow).toBe(true);
   });
   it('Kunden-Workspace: Messen nur über Berichte', () => {
-    const r = workspaceRights({ hosted: true, hostedKind: 'customer', reportStatuses: ['ready'] });
-    expect(r).toEqual({ measureNow: false, measureSettings: false, costs: false, editPromptsAndCompetitors: true, reports: true, lockReason: null });
+    const r = workspaceRights({ hosted: true, hostedKind: 'customer', reportStatuses: ['paid'] });
+    expect(r).toEqual({ measureNow: false, measureSettings: false, costs: false, editPromptsAndCompetitors: true, reports: true, lockReason: null, promptTextLocked: false });
+  });
+  it('nach dem ersten fertigen Bericht: Wortlaut der Fragen fest', () => {
+    expect(workspaceRights({ hosted: true, hostedKind: 'customer', reportStatuses: ['ready'] }).promptTextLocked).toBe(true);
+    expect(workspaceRights({ hosted: false, hostedKind: 'customer', reportStatuses: ['ready'] }).promptTextLocked).toBe(false);
   });
   it('Fragen/Wettbewerber gesperrt, solange ein Bericht misst', () => {
     expect(workspaceRights({ hosted: true, hostedKind: 'customer', reportStatuses: ['ready', 'measuring'] }).editPromptsAndCompetitors).toBe(false);

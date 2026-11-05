@@ -2,8 +2,11 @@
 // (Gmail, Outlook, Apple Mail), Dunkelmodus über color-scheme + Media-Query, ein Button, Fallback-Link als Text.
 // Alle Nutzereingaben (Markenname, Domain, URLs) werden hier escaped – Vorlagen geben nur Rohtext hinein.
 import type { Lang } from '../i18n.ts';
+import { isHosted, OPERATOR_LINE } from '../hosted/config.ts';
 
-export const SENDER_LINE = 'Askmetry · lindotech GmbH · Eppendorfer Weg 151 · 20253 Hamburg';
+export const SENDER_LINE = `Askmetry · ${OPERATOR_LINE}`;
+/** Absenderzeile: Betreiberadresse nur in der gehosteten Version */
+const senderLine = () => (isHosted() ? SENDER_LINE : 'Askmetry');
 
 /** HTML-Sonderzeichen ersetzen (Text und Attributwerte). */
 export function escapeHtml(s: string): string {
@@ -100,7 +103,7 @@ ${(i.outro ?? []).map(p).join('\n')}
 </td></tr>
 <tr><td style="padding:20px 4px 0 4px;">
 ${note}
-<p style="margin:0;font-family:${FONT};font-size:13px;line-height:1.5;color:${C.muted};" class="m-muted">${escapeHtml(SENDER_LINE)} · <a href="${escapeHtml(imp)}" style="color:${C.muted};text-decoration:underline;" class="m-muted">${impLabel}</a></p>
+<p style="margin:0;font-family:${FONT};font-size:13px;line-height:1.5;color:${C.muted};" class="m-muted">${escapeHtml(senderLine())} · <a href="${escapeHtml(imp)}" style="color:${C.muted};text-decoration:underline;" class="m-muted">${impLabel}</a></p>
 </td></tr>
 </table>
 </td></tr>
@@ -114,6 +117,6 @@ ${note}
   for (const b of i.outro ?? []) lines.push(b.text, '');
   lines.push('-- ');
   if (i.footerNote) lines.push(i.footerNote.link ? `${i.footerNote.text} ${i.footerNote.link.label}: ${safeLink(i.footerNote.link.url)}` : i.footerNote.text, '');
-  lines.push(SENDER_LINE, `${impLabel}: ${imp}`);
+  lines.push(senderLine(), `${impLabel}: ${imp}`);
   return { html, text: lines.join('\n') };
 }

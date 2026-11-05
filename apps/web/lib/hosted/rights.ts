@@ -17,6 +17,8 @@ export interface WorkspaceRights {
   reports: boolean;
   /** Warum Fragen/Wettbewerber gesperrt sind (null = nicht gesperrt) */
   lockReason: 'measuring' | 'remeasure' | null;
+  /** Wortlaut bestehender Fragen fest (nach dem ersten fertigen Bericht: die Nachmessung misst dieselben Fragen) */
+  promptTextLocked: boolean;
 }
 
 /**
@@ -26,10 +28,11 @@ export interface WorkspaceRights {
  */
 export function workspaceRights(i: { hosted: boolean; hostedKind: string | null | undefined; reportStatuses?: readonly string[]; remeasurePaid?: boolean }): WorkspaceRights {
   if (!i.hosted || i.hostedKind !== 'customer') {
-    return { measureNow: true, measureSettings: true, costs: true, editPromptsAndCompetitors: true, reports: false, lockReason: null };
+    return { measureNow: true, measureSettings: true, costs: true, editPromptsAndCompetitors: true, reports: false, lockReason: null, promptTextLocked: false };
   }
   const lockReason = (i.reportStatuses ?? []).includes('measuring') ? 'measuring' : i.remeasurePaid ? 'remeasure' : null;
-  return { measureNow: false, measureSettings: false, costs: false, editPromptsAndCompetitors: !lockReason, reports: true, lockReason };
+  const promptTextLocked = (i.reportStatuses ?? []).includes('ready');
+  return { measureNow: false, measureSettings: false, costs: false, editPromptsAndCompetitors: !lockReason, reports: true, lockReason, promptTextLocked };
 }
 
 /** Check-Workspaces gehören niemandem und sind nie für Nutzer sichtbar. */

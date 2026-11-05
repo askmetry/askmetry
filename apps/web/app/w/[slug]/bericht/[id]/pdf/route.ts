@@ -18,7 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
     .where(eq(workspace.slug, slug)).limit(1);
   if (!ws) return notFound();
   const rep = await getReport(id);
-  if (!rep || rep.workspaceId !== ws.id) return notFound();
+  if (!rep || rep.workspaceId !== ws.id || rep.status !== 'ready') return notFound(); // nach Erstattung kein Download
   const pdf = await getReportPdf(id);
   if (!pdf) return notFound();
   const date = (rep.readyAt ?? rep.createdAt).slice(0, 10);

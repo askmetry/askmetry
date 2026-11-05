@@ -2,7 +2,10 @@
 // Schrift: Inter (SIL OFL 1.1, eingebettet und automatisch auf die genutzten Zeichen reduziert) – Umlaute, €, →, ± sicher.
 import { createRequire } from 'node:module';
 import { Circle, Document, Font, Page, StyleSheet, Svg, Text, View, renderToBuffer } from '@react-pdf/renderer';
-import type { ComponentProps, ReactNode } from 'react';
+// React ausdrücklich importieren: Aufrufer (z. B. der Worker mit tsx) kompilieren JSX evtl. mit ihrer eigenen tsconfig (klassisch)
+import React, { type ComponentProps, type ReactNode } from 'react';
+void React;
+import { isHosted, OPERATOR_LINE } from '@askmetry/core/hosted/config';
 import type { DomainRow, ReportModel, ReportRec } from './data.ts';
 import {
   baseTierLabel, ciLine, comparisonSentence, engineExtremesLine, fmt, heroSentence, kindLabel, labels, methodParagraphs, placeLine, scopeLine, scopeNote, tierLabel,
@@ -164,7 +167,7 @@ export function Cover({ m }: { m: ReportModel }) {
       </View>
       <View style={{ position: 'absolute', bottom: 56, left: 56, right: 56 }}>
         <T style={S.small}>{L.createdWith}</T>
-        <T style={S.small}>askmetry.ai · lindotech GmbH · Eppendorfer Weg 151 · 20253 Hamburg</T>
+        <T style={S.small}>{isHosted() ? `askmetry.ai · ${OPERATOR_LINE}` : 'askmetry.ai'}</T>
       </View>
     </Page>
   );

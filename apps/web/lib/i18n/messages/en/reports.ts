@@ -94,6 +94,7 @@ const reports: typeof de = {
     measuring: 'A report is being measured right now. You can change questions and competitors once it’s finished.',
     remeasure: 'Your follow-up measurement uses exactly the questions and competitors of your first report. They stay unchanged until it has started and finished.',
     notAvailable: 'Measurements here run through reports.',
+    promptText: 'Measured questions keep their wording so the follow-up measurement stays comparable. Add a new question for a different wording.',
     tooManyPrompts: (max: number) => `Your report measures at most ${max} questions. Deactivate another one first.`,
     tooManyCompetitors: (max: number) => `Your report compares at most ${max} competitors.`,
     noNewWorkspace: 'New workspaces are created here through a quick check.',

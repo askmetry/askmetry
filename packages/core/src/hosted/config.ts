@@ -11,6 +11,9 @@ export type PaymentProvider = 'stripe' | 'fake';
 /** Gehostete Version an? (ASKMETRY_HOSTED=1) */
 export const isHosted = () => flag('ASKMETRY_HOSTED', false);
 
+/** Betreiber der gehosteten Version (Fußzeile in Mails und PDF). Selbsthosting zeigt ihn nicht. */
+export const OPERATOR_LINE = 'lindotech GmbH · Eppendorfer Weg 151 · 20253 Hamburg';
+
 /** Öffentliche Basis-URL ohne Schrägstrich am Ende. */
 export function publicUrl(): string {
   return (env('ASKMETRY_PUBLIC_URL') ?? env('BETTER_AUTH_URL') ?? 'http://localhost:3010').replace(/\/+$/, '');

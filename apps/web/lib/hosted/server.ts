@@ -5,6 +5,7 @@ import { cookies, headers } from 'next/headers';
 import { and, desc, eq } from 'drizzle-orm';
 import { checkRequest, db, report } from '@askmetry/db';
 import { hostedConfig, isHosted } from '@askmetry/core/hosted/config';
+import { clientIp as clientIpFrom } from '@/components/marketing/format';
 import { scopeLimits, workspaceRights, type WorkspaceRights } from './rights';
 
 export { isHosted };
@@ -63,6 +64,5 @@ export function contactEmail(): string {
 
 /** Client-IP aus den Proxy-Headern (nur für Ratenbegrenzung/Turnstile; nie speichern oder loggen). */
 export async function clientIp(): Promise<string | null> {
-  const h = await headers();
-  return h.get('cf-connecting-ip') ?? h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? h.get('x-real-ip') ?? null;
+  return clientIpFrom(await headers());
 }

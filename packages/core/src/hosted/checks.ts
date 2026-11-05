@@ -1,5 +1,5 @@
 // Gratis-Schnell-Check (HOSTED.md „Ablauf“ 1–5): starten, E-Mail-Gate, Worker-Verarbeitung, Teaser-Ansicht.
-import { brand, checkRequest, collection, db, prompt, recommendation, recommendationGeneration, siteCheck, topic, workspace } from '@askmetry/db';
+import { brand, checkRequest, collection, db, funnelEvent, prompt, recommendation, recommendationGeneration, siteCheck, topic, workspace } from '@askmetry/db';
 import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { validateBrandDomain } from '../domains.ts';
@@ -28,6 +28,8 @@ type Lang = 'de' | 'en';
 export const VERIFY_CODE_TTL_MS = DAY_MS;
 /** erneutes Senden frühestens nach */
 export const VERIFY_RESEND_MS = 60 * 1000;
+/** höchstens so viele Bestätigungsmails je Check */
+export const VERIFY_MAX_SENDS = 3;
 /** hängende Discovery (Worker abgestürzt o. Ä.) nach dieser Zeit als Fehler buchen */
 export const DISCOVERY_STALE_MS = 30 * 60 * 1000;
 /** Monatsbudget eines Check-Arbeitsbereichs (USD; Messung ~0,6 $ + Formulierung) */
@@ -95,6 +97,8 @@ export async function startCheck(input: { url: string; locale: 'de' | 'en'; ipHa
   const [orig] = cfg.checkCacheDays > 0 ? await db.select().from(checkRequest).where(and(
     eq(checkRequest.domain, target.domain), eq(checkRequest.locale, locale), eq(checkRequest.status, 'ready'),
     isNull(checkRequest.reusedFromId), sql`${checkRequest.summary} is not null`, sql`${checkRequest.workspaceId} is not null`,
+    // nur unveränderte Check-Schnappschüsse wiederverwenden (nie einen Kunden-Arbeitsbereich)
+    sql`exists (select 1 from ${workspace} w where w.id = ${checkRequest.workspaceId} and w.hosted_kind = 'check')`,
     gte(checkRequest.readyAt, since(cfg.checkCacheDays * DAY_MS)),
   )).orderBy(desc(checkRequest.readyAt)).limit(1) : [];
   if (!orig) {
@@ -123,7 +127,8 @@ async function byToken(token: string): Promise<Check | null> {
 /** Turnstile serverseitig prüfen (nur mit TURNSTILE_SECRET_KEY; sonst übersprungen). */
 export async function verifyTurnstile(tokenFromClient: string | null | undefined, ip?: string | null): Promise<boolean> {
   const secret = hostedConfig().turnstile.secretKey;
-  if (!secret) return true;
+  // in Produktion Pflicht: ohne Schlüssel kein Mailversand (sonst unbegrenzter Versand an fremde Adressen)
+  if (!secret) return process.env.NODE_ENV !== 'production';
   if (!tokenFromClient) return false;
   try {
     const body = new URLSearchParams({ secret, response: tokenFromClient, ...(ip ? { remoteip: ip } : {}) });
@@ -146,6 +151,9 @@ export async function submitCheckEmail(token: string, email: string, opts: { tur
   const e = normalizeEmail(email);
   if (!e) return { error: 'invalid_email' };
   if (c.verifySentAt && Date.now() - c.verifySentAt.getTime() < VERIFY_RESEND_MS) return { error: 'rate_limited' };
+  // höchstens VERIFY_MAX_SENDS Bestätigungsmails je Check (auch bei wechselnder Adresse)
+  const sent = await db.$count(funnelEvent, and(eq(funnelEvent.checkId, c.id), eq(funnelEvent.name, 'check_email_submitted')));
+  if (sent >= VERIFY_MAX_SENDS) return { error: 'rate_limited' };
   const others = await db.$count(checkRequest, and(eq(checkRequest.email, e), ne(checkRequest.id, c.id), gte(checkRequest.createdAt, since(DAY_MS))));
   if (others >= cfg.checkLimitPerEmail) return { error: 'rate_limited' };
   if (!cfg.turnstile.secretKey && !turnstileWarned) { turnstileWarned = true; console.warn('[hosted] TURNSTILE_SECRET_KEY fehlt – Bot-Schutz beim Check übersprungen'); }

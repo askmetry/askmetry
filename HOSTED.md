@@ -28,6 +28,7 @@ Bau-Vertrag für die gehostete Beta auf askmetry.ai (Betreiber: lindotech GmbH).
 | `ASKMETRY_CHECK_DAILY_BUDGET_USD` | Summe aller Check-Kosten pro Kalendertag (Europe/Berlin); darüber keine neuen Checks | 10 |
 | `ASKMETRY_CHECK_LIMIT_PER_IP` / `_PER_EMAIL` | neue Checks je 24 h | 3 / 3 |
 | `ASKMETRY_CHECK_DISCOVERIES_PER_HOUR` | neue Discoveries (kosten vor der E-Mail-Bestätigung) insgesamt pro Stunde | 30 |
+| `ASKMETRY_CLIENT_IP_HEADER` | Header mit der Client-IP, den der eigene Proxy setzt (z. B. `cf-connecting-ip` hinter Cloudflare). Leer: letzter `x-forwarded-for`-Eintrag (Caddy) | leer |
 | `ASKMETRY_CHECK_CACHE_DAYS` | Ergebnis je Domain wiederverwenden | 30 |
 | `ASKMETRY_GLOBAL_DAILY_BUDGET_USD` | Notbremse für alle KI-Kosten pro Tag (Checks + Berichte); darüber starten keine neuen Messungen | 150 |
 | `ASKMETRY_REPORT_BUDGET_USD_COMPACT` / `_STRATEGY` | Budget-Deckel je Bericht-Arbeitsbereich und Monat | 40 / 120 |
