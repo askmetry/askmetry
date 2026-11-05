@@ -14,6 +14,12 @@ describe('Wörterbücher', () => {
   const de = new Map(leaves(messages.de));
   const en = new Map(leaves(messages.en));
 
+  it('Belege-Überschrift für jeden Maßnahmen-Typ mit URL-Liste', () => {
+    for (const type of ['community', 'name_on_own_page', 'outreach', 'technical', 'comparison', 'listicle', 'reviews', 'entity']) {
+      for (const l of ['de', 'en'] as const) expect((messages[l].recs.evidence.urlHeading as Record<string, string>)[type], `${l}.${type}`).toBeTruthy();
+    }
+  });
+
   it('Englisch hat genau dieselben Schlüssel wie Deutsch', () => {
     expect([...en.keys()].sort()).toEqual([...de.keys()].sort());
   });

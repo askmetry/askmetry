@@ -79,6 +79,26 @@ describe('Leitfaden aus core', () => {
       expect(loadGuide(lang)).not.toBeNull();
     }
   });
+
+  it('Selbsthosting: neutrale Fassung ohne Schnell-Check, Bericht-Sperren und Erinnerung', () => {
+    const self = JSON.stringify(guideFromCore('de', { hosted: false }).blocks);
+    const hosted = JSON.stringify(guideFromCore('de', { hosted: true }).blocks);
+    expect(hosted).toMatch(/Schnell-Check/);
+    expect(hosted).toMatch(/erinnert dich acht Wochen/);
+    expect(self).not.toMatch(/Schnell-Check|Strategiebericht|Nachmessung|erinnert dich/);
+    expect(self).toMatch(/Welche Fragen sollte ich messen\?/);
+    expect(JSON.stringify(guideFromCore('en', { hosted: false }).blocks)).not.toMatch(/quick check|strategy report|re-measurement|reminds you/i);
+    // Standard folgt ASKMETRY_HOSTED
+    const prev = process.env.ASKMETRY_HOSTED;
+    try {
+      process.env.ASKMETRY_HOSTED = '0';
+      expect(JSON.stringify(guideFromCore('de').blocks)).toBe(self);
+      process.env.ASKMETRY_HOSTED = '1';
+      expect(JSON.stringify(guideFromCore('de').blocks)).toBe(hosted);
+    } finally {
+      if (prev === undefined) delete process.env.ASKMETRY_HOSTED; else process.env.ASKMETRY_HOSTED = prev;
+    }
+  });
 });
 
 describe('parseGuide', () => {

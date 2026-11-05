@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { indexData, type Cit, type Ment, type PageCheck, type RecData, type Resp, type SiteCheckResult } from '../../src/recommend/data.ts';
 import {
-  buildCandidates, CONTENT_GAP_MAX, facetOf, ruleComparison, ruleContentGap, ruleEntity, ruleListicle, ruleReviews, ruleSearchIndex, ruleTechnical,
+  buildCandidates, comparisonPagesChecked, CONTENT_GAP_MAX, facetOf, ruleComparison, ruleContentGap, ruleEntity, ruleListicle, ruleReviews, ruleSearchIndex, ruleTechnical,
 } from '../../src/recommend/rules.ts';
 import {
   checkDomain, languagePrefixes, pageFacts, pageKindOf, parseSitemap, pickKeyPages, wikidataLookup, type FetchLike,
@@ -286,7 +286,22 @@ describe('Themen-Cluster statt einer Seite je Testfrage', () => {
     expect(c.key).toBe('comparison:pages');
     expect(c.evidence.promptIds?.sort()).toEqual(['v1', 'v2']);
     expect(c.evidence.targets).toEqual(['Altair', 'Neural Concept']);
-    expect(c.title).toBe('Vergleichsseiten anlegen: Synera vs. Altair und Neural Concept');
+    // ohne Website-Check ist nicht geprüft, ob es schon eine Vergleichsseite gibt: neutral formulieren
+    expect(c.evidence.checked).toBe(false);
+    expect(c.title).toBe('Vergleichsseiten: Synera vs. Altair und Neural Concept');
+    expect(c.texts.en.title).toMatch(/^Comparison pages: Synera vs\./);
+    expect(c.steps[0]).toMatch(/^Prüfe, ob es auf synera\.ai schon eine Vergleichsseite gibt/);
+    const ctx = { brand: { name: 'Synera', description: null, domains: ['synera.ai'], kind: 'provider' }, competitors: ['Altair'], workspaceName: 'Synera' };
+    expect(buildClaudePrompt(c, ctx)).not.toMatch(/gibt es noch nicht \(geprüft/);
+    expect(buildClaudePrompt(c, ctx)).toMatch(/Ob synera\.ai schon eine Vergleichsseite hat, ist nicht geprüft/);
+    expect(buildClaudePrompt(c, ctx, 'en')).toMatch(/was not checked/);
+    // vollständiger Check (Startseite, Sitemap, Unterseiten) ohne Vergleichsseite: „anlegen“ ist belegt
+    const checkedRec = ruleComparison(ix, { ...d, siteChecks: [check()] })[0];
+    expect(checkedRec.evidence.checked).toBe(true);
+    expect(checkedRec.title).toBe('Vergleichsseiten anlegen: Synera vs. Altair und Neural Concept');
+    expect(checkedRec.steps[0]).toMatch(/^Eine Übersichtsseite/);
+    expect(buildClaudePrompt(checkedRec, ctx)).toMatch(/gibt es noch nicht \(geprüft: Links der Startseite und Sitemap\)/);
+    expect(checkedRec.signature).not.toEqual(c.signature);
     const all = c.steps.join(' ');
     expect(all).toMatch(/Absender, Stand-Datum/);
     expect(all).toMatch(/Keine scheinbar unabhängigen Vergleichsseiten auf Extra-Domains/);
@@ -295,6 +310,34 @@ describe('Themen-Cluster statt einer Seite je Testfrage', () => {
     const withPage = ruleComparison(ix, { ...d, siteChecks: [check({ pages: [page('comparison', 'https://synera.ai/vergleich')] })] })[0];
     expect(withPage.title).toMatch(/ausbauen/);
     expect(withPage.evidence.basePage).toBe('https://synera.ai/vergleich');
+    // Belege-Ansicht zeigt die vorhandenen Vergleichsseiten (urlHeading.comparison)
+    expect(withPage.evidence.urls?.map((u) => u.url)).toEqual(['https://synera.ai/vergleich']);
+    expect(c.evidence.urls).toEqual([]);
+  });
+
+  it('comparisonPagesChecked: nur bei vollständigem Check mit Unterseiten und sicherem Sitemap-Status', () => {
+    expect(comparisonPagesChecked(undefined)).toBe(false);
+    expect(comparisonPagesChecked([])).toBe(false);
+    expect(comparisonPagesChecked([check()])).toBe(true);
+    // Sitemap eindeutig nicht vorhanden (404) zählt als geprüft
+    expect(comparisonPagesChecked([check({ sitemap: { status: 404, found: false, url: null, source: null, urls: 0, newest: null, hreflang: false } })])).toBe(true);
+    // alter Check ohne pages/sitemap, abgebrochener Check, gescheiterte Startseite
+    expect(comparisonPagesChecked([check({ pages: undefined })])).toBe(false);
+    expect(comparisonPagesChecked([check({ sitemap: undefined })])).toBe(false);
+    expect(comparisonPagesChecked([check({ partial: true })])).toBe(false);
+    expect(comparisonPagesChecked([check({ home: { ...check().home, status: null } })])).toBe(false);
+    // Sitemap unlesbar (Netzfehler, 401/403, .gz → status null), Rate-Limit, Serverfehler, Index ohne lesbare Teil-Sitemap
+    for (const status of [null, 429, 503]) {
+      expect(comparisonPagesChecked([check({ sitemap: { status, found: false, url: null, source: null, urls: 0, newest: null, hreflang: false } })]), String(status)).toBe(false);
+    }
+    expect(comparisonPagesChecked([check({ sitemap: { ...check().sitemap!, urls: 0 } })])).toBe(false);
+    // Sitemap-Index: nur eine Teil-Sitemap gelesen (z. B. ohne /blog/) – nicht sicher
+    expect(comparisonPagesChecked([check({ sitemap: { ...check().sitemap!, index: true } })])).toBe(false);
+    // eine Domain der Marke ohne Check (z. B. Gesamtfrist erreicht) → nicht geprüft
+    expect(comparisonPagesChecked([check()], ['synera.ai'])).toBe(true);
+    expect(comparisonPagesChecked([check()], ['https://www.synera.ai/', 'synera.de'])).toBe(false);
+    // mehrere Domains: alle müssen geprüft sein
+    expect(comparisonPagesChecked([check(), check({ domain: 'synera.de', pages: undefined })])).toBe(false);
   });
 });
 

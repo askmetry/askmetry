@@ -25,7 +25,7 @@ export interface PhraseContext {
 }
 
 /** Version von Prompt/Standardtexten je Typ – erhöhen, wenn diese Maßnahmen neu formuliert werden sollen. */
-export const PHRASE_VERSION: Record<string, number> = { default: 5, content_gap: 7 };
+export const PHRASE_VERSION: Record<string, number> = { default: 5, content_gap: 7, comparison: 6 };
 export const phraseVersion = (type: string) => PHRASE_VERSION[type] ?? PHRASE_VERSION.default;
 
 /** Hash der Kernzahlen: ändert er sich, wird neu formuliert. */

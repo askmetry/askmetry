@@ -3,6 +3,7 @@ import { EmptyState, Hint } from '@/components/ui';
 import { Dot } from '@/components/viz';
 import { one, workspaceContext, type SP } from '@/lib/context';
 import { engineName } from '@askmetry/core/present';
+import { isHosted } from '@askmetry/core/hosted/config';
 import { findGaps, loadBase, promptEngineMatrix, sortEngines } from '@/lib/metrics';
 import { getI18n } from '@/lib/i18n/server';
 import { loadPromptsAndTopics } from '@/lib/prompts';
@@ -30,7 +31,7 @@ export default async function FragenPage({ params, searchParams }: { params: Pro
         <h1 className="text-2xl font-semibold tracking-tight">{t.title}</h1>
         <p className="mt-1 text-sm text-muted">
           {t.intro(own?.name ?? null)}{' '}
-          <Link href={`/w/${slug}/leitfaden#woher-fragen`} className="text-accent hover:underline">{msg.guide.whereQuestions}</Link>
+          <Link href={`/w/${slug}/leitfaden#woher-fragen`} className="text-accent hover:underline">{isHosted() ? msg.guide.whereQuestions : msg.guide.whereQuestionsSelf}</Link>
         </p>
       </div>
       {canEdit && <Link href={`/w/${slug}/settings/fragen`} className="btn btn-sm">{t.edit}</Link>}

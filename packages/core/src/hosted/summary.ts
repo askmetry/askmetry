@@ -9,14 +9,30 @@ import type { CheckSummary, RecArea } from './types.ts';
 export const AREA_OF: Record<RecCategory, RecArea> = { content: 'own_content', offsite: 'other_sites', community: 'community', technical: 'technical' };
 export const areaOf = (type: string): RecArea => AREA_OF[categoryOf(type)];
 
-export interface SummaryRec { id: string; type: string; key: string; priority: string | number; active: boolean; status: string }
+export interface SummaryRec {
+  id: string; type: string; key: string; priority: string | number; active: boolean; status: string;
+  /** Wirkung 1–3 (fehlt in älteren Aufrufen → Technik gilt als schwach) */
+  impact?: number;
+  /** evidence.certainty ('proven' | 'likely' | 'uncertain') */
+  evidence?: unknown;
+}
 
-/** Freie Maßnahmen: möglichst 1 Technik + 1 eigene Inhalte (jeweils höchste Priorität), sonst nach Priorität auffüllen. */
+/** Technik-Maßnahme, die im Teaser vorgezogen werden darf: mindestens mittlere Wirkung oder belegt (z. B. KI-Suchroboter gesperrt). */
+function strongTechnical(r: SummaryRec): boolean {
+  if (areaOf(r.type) !== 'technical') return false;
+  const certainty = r.evidence && typeof r.evidence === 'object' ? (r.evidence as { certainty?: unknown }).certainty : undefined;
+  return Number(r.impact ?? 0) >= 2 || certainty === 'proven';
+}
+
+/**
+ * Freie Maßnahmen: zuerst eine starke Technik-Maßnahme (Wirkung ≥ 2 oder belegt), dann die wichtigste eigene Inhalte-Maßnahme,
+ * sonst nach Priorität auffüllen. Schwache Technik (z. B. llms.txt) wird nicht vorgezogen – sie konkurriert nur über die Priorität.
+ */
 export function pickFreeRecommendations<T extends SummaryRec>(recs: readonly T[], n = CHECK_SCOPE.freeRecommendations): T[] {
   const sorted = recs.filter((r) => r.active && r.status !== 'dismissed').sort((a, b) => Number(b.priority) - Number(a.priority));
   const out: T[] = [];
-  for (const area of ['technical', 'own_content'] as RecArea[]) {
-    const r = sorted.find((x) => areaOf(x.type) === area && !out.includes(x));
+  for (const pick of [strongTechnical, (x: SummaryRec) => areaOf(x.type) === 'own_content']) {
+    const r = sorted.find((x) => pick(x) && !out.includes(x));
     if (r && out.length < n) out.push(r);
   }
   for (const r of sorted) if (out.length < n && !out.includes(r)) out.push(r);

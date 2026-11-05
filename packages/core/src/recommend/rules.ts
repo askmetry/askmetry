@@ -3,8 +3,9 @@
 // optional verbessern. Deutsch und Englisch haben je Maßnahme gleich viele Schritte (done_steps beziehen sich auf die Indizes).
 import {
   cleanUrl, communityGroup, domainMatches, groupBy, hostOf, indexData, normName, pct, shortPath, titleFromUrl,
-  engineLabel, type Indexed, type PageKind, type RecData, type SiteCheckResult,
+  engineLabel, SITE_CHECK_MAX_DOMAINS, type Indexed, type PageKind, type RecData, type SiteCheckResult,
 } from './data.ts';
+import { normalizeDomain } from '../domains.ts';
 import { isLikelyCompetitor } from './present.ts';
 import { listJoin, type Lang } from '../i18n.ts';
 
@@ -763,6 +764,27 @@ export function ruleContentGap(ix: Indexed, d: RecData): Candidate[] {
 // ---------------------------------------------------------------------------
 // comparison: eigene, transparente Vergleichs- und Alternativenseiten
 // ---------------------------------------------------------------------------
+
+/**
+ * Wurde für alle Domains nachgesehen, ob es eine Vergleichsseite gibt? Nur bei einem vollständigen Website-Check
+ * (nicht abgebrochen, mit Unterseiten-Erkennung), lesbarer Startseite und einer Sitemap mit sicherem Status
+ * (gelesen mit URLs oder eindeutig nicht vorhanden) – und zwar für jede geprüfte Domain der Marke (die ersten
+ * SITE_CHECK_MAX_DOMAINS). Gescheiterte, fehlende (Gesamtfrist), alte (ohne `pages`) oder abgebrochene Checks,
+ * unlesbare Sitemaps, Sitemap-Indizes (nur eine Teil-Sitemap gelesen), 429/5xx und Timeouts zählen nicht.
+ */
+export function comparisonPagesChecked(checks: readonly SiteCheckResult[] | undefined, domains: readonly string[] = []): boolean {
+  if (!checks?.length) return false;
+  const expected = [...new Set(domains.map((x) => normalizeDomain(x)).filter((x): x is string => !!x))].slice(0, SITE_CHECK_MAX_DOMAINS);
+  if (!expected.every((x) => checks.some((c) => c.domain === x))) return false;
+  return checks.every((c) => {
+    if (c.partial || !c.pages || !c.sitemap || c.sitemap.index) return false;
+    if (c.home.status === null || c.home.status >= 400) return false;
+    const sm = c.sitemap;
+    if (sm.found) return sm.urls > 0;
+    return sm.status !== null && sm.status !== 429 && sm.status < 500;
+  });
+}
+
 export function ruleComparison(ix: Indexed, d: RecData): Candidate[] {
   const own = ix.own;
   if (!own || !ix.competitors.length) return [];
@@ -781,6 +803,8 @@ export function ruleComparison(ix: Indexed, d: RecData): Candidate[] {
   const fromCheck = (d.siteChecks ?? []).flatMap((c) => c.pages ?? []).filter((p) => p.kind === 'comparison' && p.status !== null && p.status < 400).map((p) => cleanUrl(p.url));
   const fromCits = ownPagesFor(ix, sts.map((s) => s.pid)).filter((u) => /(^|[/-])(vs|versus|vergleich|compare|comparison|alternativ\w*)([/-]|$)/i.test(new URL(u).pathname));
   const existing = uniq([...fromCits, ...fromCheck]);
+  // „Gibt es noch nicht“ nur, wenn wirklich nachgesehen wurde (sonst neutral formulieren)
+  const checked = comparisonPagesChecked(d.siteChecks, own.domains);
   const k = sts.length;
   const ownRate = agg.own / agg.n;
   const compShare = agg.withComp / agg.n;
@@ -791,20 +815,20 @@ export function ruleComparison(ix: Indexed, d: RecData): Candidate[] {
     key: 'comparison:pages',
     type: 'comparison',
     text: (l) => l === 'en' ? {
-      title: `${existing.length ? 'Expand' : 'Create'} comparison pages: ${own.name} vs. ${listL(top.slice(0, 2), 'en')}`,
+      title: `${existing.length ? 'Expand comparison pages' : checked ? 'Create comparison pages' : 'Comparison pages'}: ${own.name} vs. ${listL(top.slice(0, 2), 'en')}`,
       why: `For ${k} comparison and alternative ${k === 1 ? 'question' : 'questions'}, ${agg.withComp} of ${agg.n} answers name competitors – ${own.name} ${ownTimes(agg.own, 'en')}.`,
       steps: [
-        `${existing.length ? `Build on ${existing.slice(0, 2).map(shortPath).join(', ')}: one` : 'One'} overview page “Alternatives to ${top[0]}” plus one page each “${own.name} vs. ${top[0]}”${top[1] ? `, “${own.name} vs. ${top[1]}”` : ''}${top[2] ? ` and “${own.name} vs. ${top[2]}”` : ''} on ${domain || 'your website'} – together they cover ${k === 1 ? 'the tested question' : `the ${k} tested questions`}, e.g. ${qs.map((x) => `“${x}”`).join(', ')}${more > 0 ? ` and ${more} more` : ''}.`,
+        `${existing.length ? `Build on ${existing.slice(0, 2).map(shortPath).join(', ')}: one` : checked ? 'One' : `Check whether ${domain || 'your website'} already has a comparison page and build on it. Otherwise: one`} overview page “Alternatives to ${top[0]}” plus one page each “${own.name} vs. ${top[0]}”${top[1] ? `, “${own.name} vs. ${top[1]}”` : ''}${top[2] ? ` and “${own.name} vs. ${top[2]}”` : ''} on ${domain || 'your website'} – together they cover ${k === 1 ? 'the tested question' : `the ${k} tested questions`}, e.g. ${qs.map((x) => `“${x}”`).join(', ')}${more > 0 ? ` and ${more} more` : ''}.`,
         `Be transparent: clearly mark the page as ${own.name}’s comparison (publisher, as-of date), describe competitors fairly including their strengths and say who each option suits better. AI favors balanced sources, and comparative advertising must be objective and verifiable.`,
         'One table per page with the criteria the AI names in its answers (see evidence) – values only where you can back them up, with a source or test date.',
         'Don’t create seemingly independent comparison sites on extra domains: hidden self-promotion is misleading under unfair-competition law and gets devalued as spam.',
         'Link the pages from your home page, pricing page and FAQ, and update them every quarter (visible date).',
       ],
     } : {
-      title: `Vergleichsseiten ${existing.length ? 'ausbauen' : 'anlegen'}: ${own.name} vs. ${listL(top.slice(0, 2), 'de')}`,
+      title: `Vergleichsseiten${existing.length ? ' ausbauen' : checked ? ' anlegen' : ''}: ${own.name} vs. ${listL(top.slice(0, 2), 'de')}`,
       why: `Bei ${k} Vergleichs- und Alternativ${k === 1 ? 'frage' : 'fragen'} nennen ${agg.withComp} von ${agg.n} Antworten Wettbewerber, ${own.name} ${ownTimes(agg.own, 'de')}.`,
       steps: [
-        `${existing.length ? `Auf ${existing.slice(0, 2).map(shortPath).join(', ')} aufbauen: eine` : 'Eine'} Übersichtsseite „Alternativen zu ${top[0]}“ plus je eine Seite „${own.name} vs. ${top[0]}“${top[1] ? `, „${own.name} vs. ${top[1]}“` : ''}${top[2] ? ` und „${own.name} vs. ${top[2]}“` : ''} auf ${domain || 'der eigenen Website'} – zusammen decken sie ${k === 1 ? 'die getestete Frage' : `die ${k} getesteten Fragen`} ab, z. B. ${qs.map((x) => `„${x}“`).join(', ')}${more > 0 ? ` und ${more} weitere` : ''}.`,
+        `${existing.length ? `Auf ${existing.slice(0, 2).map(shortPath).join(', ')} aufbauen: eine` : checked ? 'Eine' : `Prüfe, ob es auf ${domain || 'der eigenen Website'} schon eine Vergleichsseite gibt, und bau darauf auf. Sonst: eine`} Übersichtsseite „Alternativen zu ${top[0]}“ plus je eine Seite „${own.name} vs. ${top[0]}“${top[1] ? `, „${own.name} vs. ${top[1]}“` : ''}${top[2] ? ` und „${own.name} vs. ${top[2]}“` : ''} auf ${domain || 'der eigenen Website'} – zusammen decken sie ${k === 1 ? 'die getestete Frage' : `die ${k} getesteten Fragen`} ab, z. B. ${qs.map((x) => `„${x}“`).join(', ')}${more > 0 ? ` und ${more} weitere` : ''}.`,
         `Transparent bleiben: die Seite klar als Vergleich von ${own.name} kennzeichnen (Absender, Stand-Datum), Wettbewerber fair mit ihren Stärken darstellen und sagen, für wen welche Lösung besser passt. KIs bevorzugen ausgewogene Quellen, und vergleichende Werbung muss sachlich und nachprüfbar sein (§ 6 UWG).`,
         'Je Seite eine Tabelle mit den Kriterien, die die KIs in ihren Antworten nennen (siehe Belege) – Werte nur, wenn belegbar, mit Quelle oder Teststand.',
         'Keine scheinbar unabhängigen Vergleichsseiten auf Extra-Domains: verdeckte Eigenwerbung ist irreführend (UWG) und wird als Spam abgewertet.',
@@ -822,9 +846,13 @@ export function ruleComparison(ix: Indexed, d: RecData): Candidate[] {
       competitors: agg.namedSorted.slice(0, 6).map(([name, count]) => ({ name, count })),
       targets: top,
       existingPages: existing.slice(0, 3),
+      // für die Belege-Ansicht („Deine vorhandenen Vergleichsseiten“)
+      urls: existing.slice(0, 3).map((url) => ({ url, title: titleFromUrl(url), count: 0 })),
       basePage: existing[0] ?? null,
+      /** true = Website-Check hat Startseiten-Links und Sitemap sicher gelesen – „keine Vergleichsseite“ ist dann belegt */
+      checked,
     },
-    signature: { o: bucket(ownRate), c: bucket(compShare), k, t: top, e: existing.length > 0 },
+    signature: { o: bucket(ownRate), c: bucket(compShare), k, t: top, e: existing.length > 0, ch: checked },
   })];
 }
 

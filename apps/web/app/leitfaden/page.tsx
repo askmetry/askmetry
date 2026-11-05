@@ -25,7 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function PublicGuidePage() {
   if (!isHosted()) notFound();
   const { locale, t } = await getI18n();
-  const guide = geoGuide(locale);
+  const guide = geoGuide(locale, { hosted: true }); // Seite gibt es nur in der gehosteten Version
   // JSON-LD: nur eigene, statische Texte; „<“ escapen, damit kein </script> entstehen kann
   const ld = JSON.stringify(guideJsonLd(guide)).replace(/</g, '\\u003c');
   return (

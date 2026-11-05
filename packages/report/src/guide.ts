@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { geoGuide, sourceNumbers } from '@askmetry/core/guide';
+import { isHosted } from '@askmetry/core/hosted/config';
 import type { Lang } from '@askmetry/core/present';
 
 export type GuideBlock =
@@ -80,9 +81,12 @@ export function parseGuide(md: string): ReportGuide | null {
   return { title, intro, blocks };
 }
 
-/** Kurzleitfaden GEO aus @askmetry/core/guide (dieselbe Quelle wie die App) als PDF-Blöcke. */
-export function guideFromCore(lang: Lang): ReportGuide {
-  const g = geoGuide(lang);
+/**
+ * Kurzleitfaden GEO aus @askmetry/core/guide (dieselbe Quelle wie die App) als PDF-Blöcke.
+ * `hosted` (Standard: isHosted()) wählt die gehostete Fassung, sonst die neutrale für Selbsthoster.
+ */
+export function guideFromCore(lang: Lang, opts: { hosted?: boolean } = {}): ReportGuide {
+  const g = geoGuide(lang, { hosted: opts.hosted ?? isHosted() });
   const blocks: GuideBlock[] = [];
   const srcLabel = lang === 'en' ? 'Sources' : 'Quellen';
   for (const e of g.entries) {
@@ -99,9 +103,9 @@ export function guideFromCore(lang: Lang): ReportGuide {
 
 /**
  * Leitfaden der Berichtssprache: eine Markdown-Datei unter src/guide/ hat Vorrang (z. B. für Selbsthoster),
- * sonst der Kurzleitfaden aus @askmetry/core/guide.
+ * sonst der Kurzleitfaden aus @askmetry/core/guide (gehostete bzw. Selbsthosting-Fassung je nach isHosted()).
  */
-export function loadGuide(lang: Lang): ReportGuide | null {
+export function loadGuide(lang: Lang, opts: { hosted?: boolean } = {}): ReportGuide | null {
   const p = guidePath(lang);
   if (existsSync(p)) {
     try {
@@ -110,7 +114,7 @@ export function loadGuide(lang: Lang): ReportGuide | null {
     } catch { /* Fallback unten */ }
   }
   try {
-    return guideFromCore(lang);
+    return guideFromCore(lang, opts);
   } catch {
     return null;
   }

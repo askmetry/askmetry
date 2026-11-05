@@ -3,7 +3,7 @@
 import { db, siteCheck } from '@askmetry/db';
 import { and, desc, eq, gt } from 'drizzle-orm';
 import { normalizeDomain, validateBrandDomain } from '../domains.ts';
-import { PAGE_KINDS, type PageCheck, type PageKind, type SiteCheckResult } from './data.ts';
+import { PAGE_KINDS, SITE_CHECK_MAX_DOMAINS, type PageCheck, type PageKind, type SiteCheckResult } from './data.ts';
 import { safeFetch, SAFE_FETCH_MAX_BYTES, type Resolver, type Transport } from './safe-fetch.ts';
 
 export const SITE_CHECK_UA = 'Askmetry-SiteCheck/0.1';
@@ -11,7 +11,7 @@ export const SITE_CHECK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** Fehlgeschlagene Checks (Domain nicht erreichbar/gesperrt) werden gespeichert und erst nach 6 h wiederholt. */
 export const SITE_CHECK_FAILURE_RETRY_MS = 6 * 60 * 60 * 1000;
 /** Höchstens so viele Domains der eigenen Marke werden geprüft. */
-export const SITE_CHECK_MAX_DOMAINS = 5;
+export { SITE_CHECK_MAX_DOMAINS };
 /** Gesamtfrist für den Website-Check eines Workspaces. */
 export const SITE_CHECK_TOTAL_TIMEOUT_MS = 45_000;
 
@@ -415,6 +415,8 @@ export async function checkDomain(domain: string, opts: NetOpts & { entity?: boo
     pages: deep.pages,
     languages: deep.languages,
     ...(wikidata ? { wikidata } : {}),
+    // Frist (Gesamtfrist von runSiteCheck oder Aufrufer) lief während des Checks ab: Ergebnis evtl. unvollständig
+    ...(opts.signal?.aborted ? { partial: true } : {}),
   };
 }
 
@@ -457,6 +459,7 @@ async function deepCheck(fetchFn: FetchLike, host: string, robotsRes: Got, homeR
   const sitemap: NonNullable<SiteCheckResult['sitemap']> = {
     status: unreadable ? null : smRes.status, found: !!parsed, url: parsed ? smRes.url : null, source: parsed ? (declared.length ? 'robots' : 'default') : null,
     urls: parsed?.locs.length ?? 0, newest: parsed?.newest ?? null, hreflang: parsed?.hreflang ?? false,
+    ...(parsed?.index ? { index: true } : {}),
   };
   const html = okHtml(homeRes) ? homeRes.text : '';
   const links = html ? sameHostLinks(html, homeRes.url, hosts) : [];
@@ -484,10 +487,12 @@ async function deepCheck(fetchFn: FetchLike, host: string, robotsRes: Got, homeR
 }
 
 const isFailure = (r: SiteCheckResult) => r.home.status === null && r.robots.status === null;
+/** Nur kurz cachen (SITE_CHECK_FAILURE_RETRY_MS): Fehlschlag oder wegen der Gesamtfrist abgebrochener Check. */
+export const isShortLived = (r: SiteCheckResult) => isFailure(r) || r.partial === true;
 
 /**
  * Website-Check für die Domains der eigenen Marke (höchstens SITE_CHECK_MAX_DOMAINS, Gesamtfrist 45 s).
- * Nutzt ein höchstens 24 h altes Ergebnis aus site_check (fehlgeschlagene Checks: 6 h), sonst wird neu geprüft
+ * Nutzt ein höchstens 24 h altes Ergebnis aus site_check (fehlgeschlagene oder wegen der Gesamtfrist abgebrochene Checks: 6 h), sonst wird neu geprüft
  * und gespeichert – auch Fehlschläge. Domains, die keine öffentlichen Hostnamen sind, werden ohne Abruf als Fehlschlag behandelt.
  * force = immer neu prüfen.
  */
@@ -503,7 +508,7 @@ export async function runSiteCheck(workspaceId: string, domains: string[], opts:
         .where(and(eq(siteCheck.workspaceId, workspaceId), eq(siteCheck.domain, domain), gt(siteCheck.checkedAt, new Date(Date.now() - SITE_CHECK_MAX_AGE_MS))))
         .orderBy(desc(siteCheck.checkedAt)).limit(1);
       const cached = recent ? { ...(recent.result as SiteCheckResult), checkedAt: recent.checkedAt.toISOString() } : null;
-      if (cached && (!isFailure(cached) || Date.now() - recent!.checkedAt.getTime() < SITE_CHECK_FAILURE_RETRY_MS)) { out.push(cached); continue; }
+      if (cached && (!isShortLived(cached) || Date.now() - recent!.checkedAt.getTime() < SITE_CHECK_FAILURE_RETRY_MS)) { out.push(cached); continue; }
     }
     if (signal.aborted) { opts.log?.(`Website-Check ${domain}: übersprungen (Gesamtfrist erreicht)`); continue; }
     const valid = validateBrandDomain(domain);
@@ -516,7 +521,7 @@ export async function runSiteCheck(workspaceId: string, domains: string[], opts:
         }
       : await checkDomain(domain, { ...opts, signal });
     await db.insert(siteCheck).values({ workspaceId, domain, result });
-    opts.log?.(`Website-Check ${domain}: Startseite ${result.home.status ?? result.home.error}, robots.txt ${result.robots.found ? `gefunden (gesperrt: ${result.robots.blocked.join(', ') || 'keine'})` : 'fehlt'}, llms.txt ${result.llmsTxt.found ? 'ja' : 'nein'}, JSON-LD: ${result.home.jsonLd.join(', ') || 'keine'}, Text ohne JS: ${result.home.textChars ?? '–'} Zeichen, Sitemap: ${result.sitemap?.found ? `${result.sitemap.urls} URLs` : 'keine'}, Unterseiten: ${(result.pages ?? []).map((p) => `${p.kind} ${p.status ?? p.error}`).join(', ') || 'keine erkannt'}, Wikidata: ${result.wikidata?.status ?? '–'}`);
+    opts.log?.(`Website-Check ${domain}: Startseite ${result.home.status ?? result.home.error}, robots.txt ${result.robots.found ? `gefunden (gesperrt: ${result.robots.blocked.join(', ') || 'keine'})` : 'fehlt'}, llms.txt ${result.llmsTxt.found ? 'ja' : 'nein'}, JSON-LD: ${result.home.jsonLd.join(', ') || 'keine'}, Text ohne JS: ${result.home.textChars ?? '–'} Zeichen, Sitemap: ${result.sitemap?.found ? `${result.sitemap.urls} URLs` : 'keine'}, Unterseiten: ${(result.pages ?? []).map((p) => `${p.kind} ${p.status ?? p.error}`).join(', ') || 'keine erkannt'}, Wikidata: ${result.wikidata?.status ?? '–'}${result.partial ? ' (abgebrochen: Gesamtfrist erreicht)' : ''}`);
     out.push(result);
   }
   return out;

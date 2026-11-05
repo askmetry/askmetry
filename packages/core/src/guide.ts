@@ -1,7 +1,8 @@
 // Kurzleitfaden GEO (FAQ) – eine Datenquelle für die App (/w/[slug]/leitfaden, /leitfaden) und den PDF-Anhang.
 // Rein und ohne Abhängigkeiten. Import: `import { geoGuide } from '@askmetry/core/guide'`.
 // Regeln: nur belegte Zahlen (Quelle in GUIDE_SOURCES), Du-Form, Unsicherheiten benennen, de und en mit denselben Einträgen.
-// Aussagen über Askmetry selbst (Fragen, Messung, Sperren) müssen zum Code passen:
+// Aussagen über Askmetry selbst (Fragen, Messung, Sperren) müssen zum Code passen; Aussagen nur über die gehostete Version
+// (Schnell-Check, Berichte, Sperren, Erinnerung) stehen in Einträgen mit hostedOnly und haben eine neutrale selfHosted-Fassung:
 // hosted/discovery.ts, hosted/config.ts (REPORT_SCOPE, CHECK_SCOPE, REMEASURE_REMINDER_DAYS), apps/web/lib/hosted/rights.ts.
 
 export type GuideLang = 'de' | 'en';
@@ -16,6 +17,13 @@ export interface GuideEntry {
   answer: GuideBlock[];
   /** IDs aus GUIDE_SOURCES, in der Reihenfolge der Nennung */
   sources?: string[];
+  /**
+   * true = beschreibt Funktionen der gehosteten Version (Schnell-Check, Berichte, Sperren, Erinnerung).
+   * Im Selbsthosting gilt stattdessen `selfHosted`; fehlt es, entfällt der Eintrag.
+   */
+  hostedOnly?: boolean;
+  /** neutrale Fassung für Selbsthoster (nur bei hostedOnly); Frage optional, sonst dieselbe */
+  selfHosted?: { question?: string; answer: GuideBlock[] };
 }
 
 export interface GuideSource {
@@ -154,6 +162,15 @@ const de: Draft = {
         p('Deine eigene Marke kommt in höchstens zwei Fragen vor, denn es geht darum, ob die KI dich von sich aus nennt. Für den Strategiebericht erzeugt Askmetry 40 weitere Fragen, gruppiert nach Themen.'),
         p('Die Fragen sind eine Stichprobe typischer Kundenfragen, keine vollständige Liste: Was Nutzer tatsächlich eintippen, legen die KI-Anbieter nicht offen.'),
       ],
+      hostedOnly: true,
+      selfHosted: {
+        question: 'Welche Fragen sollte ich messen?',
+        answer: [
+          p('Die Fragen legst du selbst an, unter „Fragen“ bzw. in den Einstellungen. Nimm Fragen, wie Interessenten in deinem Markt sie ChatGPT oder Google stellen würden: Kategoriefragen („beste X für Y“), Problemfragen, Vergleiche zwischen Anbietern, „Alternative zu …“ und Fragen zu Kosten.'),
+          p('Deine eigene Marke sollte nur in wenigen Fragen vorkommen, denn es geht darum, ob die KI dich von sich aus nennt. Gute Quellen für echte Fragen sind Vertrieb und Kundenservice.'),
+          p('Die Fragen sind eine Stichprobe typischer Kundenfragen, keine vollständige Liste: Was Nutzer tatsächlich eintippen, legen die KI-Anbieter nicht offen.'),
+        ],
+      },
     },
     {
       id: 'fragen-anpassen',
@@ -163,25 +180,49 @@ const de: Draft = {
         p('Nach dem ersten fertigen Bericht ist der Wortlaut bestehender Fragen gesperrt: Die Nachmessung stellt genau dieselben Fragen wie der Bericht davor – nur so lässt sich vergleichen, was deine Maßnahmen bewirkt haben. Neu hinzugefügte Fragen fließen deshalb erst in einen neuen Bericht ein, nicht in die Nachmessung. Solange ein Bericht misst oder eine bezahlte Nachmessung auf ihren Start wartet, lassen sich Fragen und Wettbewerber gar nicht ändern.'),
         p('Unser Rat: Ersetze vor dem ersten Bericht Fragen, die so niemand stellen würde, durch echte Fragen aus Vertrieb und Kundenservice.'),
       ],
+      hostedOnly: true,
+      selfHosted: {
+        answer: [
+          p('Ja. Unter „Fragen“ führt „Fragen bearbeiten“ in die Einstellungen; dort kannst du Fragen umformulieren, hinzufügen, deaktivieren, löschen und Themen zuordnen. Jede Messung stellt die aktiven Fragen.'),
+          p('Vergleiche über die Zeit sind nur aussagekräftig, wenn die Fragen gleich bleiben. Ändere den Wortlaut deshalb möglichst früh und danach selten – sonst lässt sich nicht trennen, was deine Maßnahmen bewirkt haben und was an der neuen Frage liegt.'),
+          p('Unser Rat: Ersetze Fragen, die so niemand stellen würde, durch echte Fragen aus Vertrieb und Kundenservice.'),
+        ],
+      },
     },
     {
       id: 'messung',
       question: 'Wie misst Askmetry?',
       answer: [
-        p('Askmetry stellt jede Frage fünf KI-Suchen: ChatGPT, Gemini, Claude, Google AI Overviews und dem Google KI-Modus – jeweils mit Websuche, über die offiziellen Schnittstellen bzw. für Google über einen Datendienst. Im Bericht läuft jede Frage dreimal je KI-Suche. Der kostenlose Schnell-Check misst nur 8 Fragen einmal in vier KI-Suchen; er ist ein erster Eindruck, kein belastbares Ergebnis.'),
+        p('Askmetry stellt jede Frage fünf KI-Suchen: ChatGPT, Gemini, Claude, Google AI Overviews und dem Google KI-Modus – jeweils mit Websuche, über die offiziellen Schnittstellen bzw. für Google über einen Datendienst. Im Bericht läuft jede Frage dreimal je KI-Suche. Der kostenlose Schnell-Check misst nur 8 Fragen ohne deinen Markennamen, jede einmal in Gemini und den beiden Google-Suchen (AI Overviews, KI-Modus), die Hälfte davon (4) auch in ChatGPT; er ist ein erster Eindruck, kein belastbares Ergebnis.'),
         p('In jeder Antwort erkennt Askmetry, welche Marken genannt und empfohlen werden und welche Seiten die KI als Quelle nutzt. Die KI-Sichtbarkeit (0–100) ist der Anteil der Antworten, in denen deine Marke vorkommt.'),
         p('Die Schnittstellen verhalten sich ähnlich, aber nicht genauso wie die Apps: Dort spielen Anmeldung, Verlauf und Standort der Nutzer mit hinein.'),
       ],
+      hostedOnly: true,
+      selfHosted: {
+        answer: [
+          p('Askmetry stellt jede Frage den KI-Suchen, die in deinem Workspace aktiv sind – ChatGPT, Gemini, Claude, Google AI Overviews und Google KI-Modus, optional Perplexity –, jeweils mit Websuche, über die offiziellen Schnittstellen bzw. für Google über einen Datendienst. Wie oft jede Frage je KI-Suche läuft, legst du in den Einstellungen über die Wiederholungen fest.'),
+          p('In jeder Antwort erkennt Askmetry, welche Marken genannt und empfohlen werden und welche Seiten die KI als Quelle nutzt. Die KI-Sichtbarkeit (0–100) ist der Anteil der Antworten, in denen deine Marke vorkommt.'),
+          p('Die Schnittstellen verhalten sich ähnlich, aber nicht genauso wie die Apps: Dort spielen Anmeldung, Verlauf und Standort der Nutzer mit hinein.'),
+        ],
+      },
     },
     {
       id: 'schwankungen',
       question: 'Warum schwanken die Ergebnisse?',
       answer: [
         p('KI-Modelle formulieren jede Antwort neu, die Websuche liefert je nach Zeitpunkt andere Seiten, und die Anbieter ändern Modelle und Quellen laufend. In einer SparkToro-Studie mit knapp 3.000 Durchläufen lieferten ChatGPT und Google AI seltener als in einem von 100 Fällen dieselbe Markenliste, dieselbe Reihenfolge nur etwa einmal in 1.000.'),
-        p('Stabiler ist, wie oft eine Marke überhaupt vorkommt. Deshalb wiederholt Askmetry jede Frage und zählt Anteile über viele Antworten, statt nur auf einen Listenplatz zu schauen.'),
+        p('Stabiler ist, wie oft eine Marke überhaupt vorkommt. Deshalb stellt Askmetry im Bericht jede Frage dreimal je KI-Suche (im Schnell-Check nur einmal) und zählt Anteile über viele Antworten, statt nur auf einen Listenplatz zu schauen.'),
         p('Kleine Unterschiede zwischen zwei Messungen können Zufall sein. Achte auf die Richtung über mehrere Messungen und auf ganze Gruppen von Fragen statt auf einzelne Antworten.'),
       ],
       sources: ['sparktoro-consistency', 'semrush-domains'],
+      hostedOnly: true,
+      selfHosted: {
+        answer: [
+          p('KI-Modelle formulieren jede Antwort neu, die Websuche liefert je nach Zeitpunkt andere Seiten, und die Anbieter ändern Modelle und Quellen laufend. In einer SparkToro-Studie mit knapp 3.000 Durchläufen lieferten ChatGPT und Google AI seltener als in einem von 100 Fällen dieselbe Markenliste, dieselbe Reihenfolge nur etwa einmal in 1.000.'),
+          p('Stabiler ist, wie oft eine Marke überhaupt vorkommt. Stell deshalb jede Frage mehrmals (Wiederholungen in den Einstellungen) – Askmetry zählt Anteile über viele Antworten, statt nur auf einen Listenplatz zu schauen.'),
+          p('Kleine Unterschiede zwischen zwei Messungen können Zufall sein. Achte auf die Richtung über mehrere Messungen und auf ganze Gruppen von Fragen statt auf einzelne Antworten.'),
+        ],
+      },
     },
     {
       id: 'wirkung',
@@ -190,6 +231,13 @@ const de: Draft = {
         p('Genau vorhersagen lässt sich das nicht. Änderungen an deiner Website können die KI-Suchen aufgreifen, sobald Bing oder Google die Seite neu erfasst haben; Erwähnungen auf fremden Seiten brauchen länger, bis sie entstehen und gefunden werden. In das Trainingswissen der Modelle gelangen sie erst mit späteren Modellversionen.'),
         p('Askmetry erinnert dich acht Wochen nach einem Bericht an die Nachmessung. Das ist ein sinnvoller Abstand, damit Maßnahmen umgesetzt und erfasst werden können – aber keine Garantie, dass sie bis dahin schon wirken.'),
       ],
+      hostedOnly: true,
+      selfHosted: {
+        answer: [
+          p('Genau vorhersagen lässt sich das nicht. Änderungen an deiner Website können die KI-Suchen aufgreifen, sobald Bing oder Google die Seite neu erfasst haben; Erwähnungen auf fremden Seiten brauchen länger, bis sie entstehen und gefunden werden. In das Trainingswissen der Modelle gelangen sie erst mit späteren Modellversionen.'),
+          p('Miss regelmäßig mit denselben Fragen, z. B. über einen Zeitplan in den Einstellungen, und vergleiche nach etwa acht Wochen. Das ist ein sinnvoller Abstand, damit Maßnahmen umgesetzt und erfasst werden können – aber keine Garantie, dass sie bis dahin schon wirken.'),
+        ],
+      },
     },
   ],
 };
@@ -276,6 +324,15 @@ const en: Draft = {
         p('Your own brand appears in at most two questions, because the point is whether the AI mentions you on its own. For the strategy report, Askmetry generates 40 more questions, grouped by topic.'),
         p('The questions are a sample of typical customer questions, not a complete list: AI providers don’t disclose what users actually type.'),
       ],
+      hostedOnly: true,
+      selfHosted: {
+        question: 'Which questions should I measure?',
+        answer: [
+          p('You add the questions yourself, on “Questions” or in the settings. Use questions the way prospects in your market would ask ChatGPT or Google: category questions (“best X for Y”), problem questions, comparisons between vendors, “alternative to …” and questions about costs.'),
+          p('Your own brand should appear in only a few questions, because the point is whether the AI mentions you on its own. Your sales and support teams are good sources of real questions.'),
+          p('The questions are a sample of typical customer questions, not a complete list: AI providers don’t disclose what users actually type.'),
+        ],
+      },
     },
     {
       id: 'fragen-anpassen',
@@ -285,25 +342,49 @@ const en: Draft = {
         p('After your first finished report, the wording of existing questions is locked: the re-measurement asks exactly the same questions as the report before it – that is the only way to compare what your actions achieved. Newly added questions therefore only count in a new report, not in the re-measurement. While a report is measuring or a paid re-measurement is waiting to start, questions and competitors can’t be changed at all.'),
         p('Our advice: before your first report, replace questions nobody would ask with real ones from your sales and support teams.'),
       ],
+      hostedOnly: true,
+      selfHosted: {
+        answer: [
+          p('Yes. On “Questions”, “Edit questions” takes you to the settings, where you can reword, add, deactivate and delete questions and assign topics. Every measurement asks the active questions.'),
+          p('Comparisons over time are only meaningful if the questions stay the same. So change the wording early and rarely after that – otherwise you can’t tell what your actions achieved and what is down to the new question.'),
+          p('Our advice: replace questions nobody would ask with real ones from your sales and support teams.'),
+        ],
+      },
     },
     {
       id: 'messung',
       question: 'How does Askmetry measure?',
       answer: [
-        p('Askmetry asks every question to five AI engines: ChatGPT, Gemini, Claude, Google AI Overviews and Google AI Mode – each with web search, via the official APIs or, for Google, a data provider. In a report, every question runs three times per engine. The free quick check measures only 8 questions once in four engines; it gives a first impression, not a reliable result.'),
+        p('Askmetry asks every question to five AI engines: ChatGPT, Gemini, Claude, Google AI Overviews and Google AI Mode – each with web search, via the official APIs or, for Google, a data provider. In a report, every question runs three times per engine. The free quick check measures only 8 questions without your brand name, each once in Gemini and both Google engines (AI Overviews, AI Mode), and half of them (4) in ChatGPT too; it gives a first impression, not a reliable result.'),
         p('In every answer, Askmetry detects which brands are mentioned and recommended and which pages the AI uses as sources. AI visibility (0–100) is the share of answers that mention your brand.'),
         p('The APIs behave similarly to the apps, but not identically: in the apps, the user’s login, history and location also play a part.'),
       ],
+      hostedOnly: true,
+      selfHosted: {
+        answer: [
+          p('Askmetry asks every question to the AI engines enabled in your workspace – ChatGPT, Gemini, Claude, Google AI Overviews and Google AI Mode, optionally Perplexity –, each with web search, via the official APIs or, for Google, a data provider. How often each question runs per engine is up to you: set the repetitions in the settings.'),
+          p('In every answer, Askmetry detects which brands are mentioned and recommended and which pages the AI uses as sources. AI visibility (0–100) is the share of answers that mention your brand.'),
+          p('The APIs behave similarly to the apps, but not identically: in the apps, the user’s login, history and location also play a part.'),
+        ],
+      },
     },
     {
       id: 'schwankungen',
       question: 'Why do the results fluctuate?',
       answer: [
         p('AI models write every answer from scratch, web search returns different pages at different times, and providers keep changing models and sources. In a SparkToro study with almost 3,000 runs, ChatGPT and Google AI returned the same list of brands less than once in 100 runs, and the same order only about once in 1,000.'),
-        p('How often a brand appears at all is more stable. That is why Askmetry repeats every question and counts shares across many answers instead of relying on list positions alone.'),
+        p('How often a brand appears at all is more stable. That is why, in a report, Askmetry asks every question three times per engine (only once in the quick check) and counts shares across many answers instead of relying on list positions alone.'),
         p('Small differences between two measurements can be chance. Look at the direction across several measurements and at whole groups of questions rather than single answers.'),
       ],
       sources: ['sparktoro-consistency', 'semrush-domains'],
+      hostedOnly: true,
+      selfHosted: {
+        answer: [
+          p('AI models write every answer from scratch, web search returns different pages at different times, and providers keep changing models and sources. In a SparkToro study with almost 3,000 runs, ChatGPT and Google AI returned the same list of brands less than once in 100 runs, and the same order only about once in 1,000.'),
+          p('How often a brand appears at all is more stable. So ask every question several times (repetitions in the settings) – Askmetry counts shares across many answers instead of relying on list positions alone.'),
+          p('Small differences between two measurements can be chance. Look at the direction across several measurements and at whole groups of questions rather than single answers.'),
+        ],
+      },
     },
     {
       id: 'wirkung',
@@ -312,11 +393,26 @@ const en: Draft = {
         p('There is no exact answer. AI engines can pick up changes to your website once Bing or Google have recrawled the page; mentions on other sites take longer to appear and be found. They only make it into a model’s training knowledge with later model versions.'),
         p('Askmetry reminds you to re-measure eight weeks after a report. That gives your actions time to be done and picked up – but it is no guarantee they will already have an effect by then.'),
       ],
+      hostedOnly: true,
+      selfHosted: {
+        answer: [
+          p('There is no exact answer. AI engines can pick up changes to your website once Bing or Google have recrawled the page; mentions on other sites take longer to appear and be found. They only make it into a model’s training knowledge with later model versions.'),
+          p('Measure regularly with the same questions, for example with a schedule in the settings, and compare after about eight weeks. That gives your actions time to be done and picked up – but it is no guarantee they will already have an effect by then.'),
+        ],
+      },
     },
   ],
 };
 
-function build(lang: GuideLang, d: Draft): Guide {
+function build(lang: GuideLang, d: Draft, hosted = true): Guide {
+  // Selbsthosting: Hosted-Einträge durch ihre neutrale Fassung ersetzen (ohne Fassung: weglassen)
+  const entries = hosted ? d.entries : d.entries.flatMap((e): GuideEntry[] => {
+    if (!e.hostedOnly) return [e];
+    if (!e.selfHosted) return [];
+    const { hostedOnly: _h, selfHosted, ...rest } = e;
+    return [{ ...rest, question: selfHosted.question ?? e.question, answer: selfHosted.answer }];
+  });
+  d = { ...d, entries };
   // Quellen in der Reihenfolge der ersten Nennung, damit [1], [2], … beim Lesen aufsteigen
   const order: string[] = [];
   for (const e of d.entries) for (const s of e.sources ?? []) if (!order.includes(s)) order.push(s);
@@ -328,11 +424,17 @@ function build(lang: GuideLang, d: Draft): Guide {
   return { lang, ...d, sources };
 }
 
-/** Kurzleitfaden GEO je Sprache (App-Seite und PDF-Anhang). */
+/** Kurzleitfaden GEO je Sprache, gehostete Fassung (App-Seite und PDF-Anhang). */
 export const GEO_GUIDE: Record<GuideLang, Guide> = { de: build('de', de), en: build('en', en) };
+/** Fassung für Selbsthoster: ohne Aussagen über Schnell-Check, Berichte, Sperren und Erinnerung. */
+export const GEO_GUIDE_SELF_HOSTED: Record<GuideLang, Guide> = { de: build('de', de, false), en: build('en', en, false) };
 
-/** Leitfaden in der gewünschten Sprache (alles außer 'en' → Deutsch). */
-export const geoGuide = (lang: string | null | undefined): Guide => GEO_GUIDE[lang === 'en' ? 'en' : 'de'];
+/**
+ * Leitfaden in der gewünschten Sprache (alles außer 'en' → Deutsch). `hosted` = gehostete Version (isHosted());
+ * ohne Angabe die gehostete Fassung.
+ */
+export const geoGuide = (lang: string | null | undefined, opts: { hosted?: boolean } = {}): Guide =>
+  (opts.hosted === false ? GEO_GUIDE_SELF_HOSTED : GEO_GUIDE)[lang === 'en' ? 'en' : 'de'];
 
 /** Nummern ([1], [2], …) der Quellen eines Eintrags im Quellenverzeichnis des Leitfadens. */
 export function sourceNumbers(guide: Guide, entry: GuideEntry): number[] {

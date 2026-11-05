@@ -131,15 +131,29 @@ describe('Discovery', () => {
 });
 
 describe('Teaser-Summary', () => {
-  const rec = (id: string, type: string, priority: number, extra: Partial<{ active: boolean; status: string }> = {}) => ({ id, type, key: `${type}:${id}`, priority, active: true, status: 'open', ...extra });
+  const rec = (id: string, type: string, priority: number, extra: Partial<{ active: boolean; status: string; impact: number; evidence: unknown }> = {}) => ({ id, type, key: `${type}:${id}`, priority, active: true, status: 'open', impact: 2, ...extra });
 
-  it('freie Maßnahmen: 1 Technik + 1 eigene Inhalte, sonst nach Priorität', () => {
+  it('freie Maßnahmen: 1 starke Technik + 1 eigene Inhalte, sonst nach Priorität', () => {
     const recs = [rec('a', 'outreach', 9), rec('b', 'content_gap', 5), rec('c', 'technical', 1), rec('d', 'community', 7)];
     expect(pickFreeRecommendations(recs, 2).map((r) => r.id)).toEqual(['c', 'b']);
     expect(pickFreeRecommendations([rec('a', 'outreach', 9), rec('d', 'community', 7), rec('e', 'outreach', 1)], 2).map((r) => r.id)).toEqual(['a', 'd']);
     expect(pickFreeRecommendations([rec('x', 'technical', 3, { status: 'dismissed' }), rec('y', 'content_gap', 2)], 2).map((r) => r.id)).toEqual(['y']);
     // Standard (Teaser): genau eine
     expect(pickFreeRecommendations(recs).map((r) => r.id)).toEqual(['c']);
+  });
+
+  it('schwache Technik (geringe Wirkung, nicht belegt) wird nicht vorgezogen', () => {
+    const weak = rec('t', 'technical', 4, { impact: 1, evidence: { certainty: 'uncertain' } });
+    const comparison = rec('v', 'comparison', 3, { impact: 3, evidence: { certainty: 'likely' } });
+    expect(pickFreeRecommendations([weak, comparison, rec('o', 'outreach', 2)]).map((r) => r.id)).toEqual(['v']);
+    // ohne eigene Inhalte entscheidet die Priorität – auch zugunsten der schwachen Technik
+    expect(pickFreeRecommendations([rec('o', 'outreach', 2), weak]).map((r) => r.id)).toEqual(['t']);
+    expect(pickFreeRecommendations([rec('o', 'outreach', 5), weak]).map((r) => r.id)).toEqual(['o']);
+    // belegte Technik mit geringer Wirkung darf vor
+    const proven = rec('p', 'technical', 1, { impact: 1, evidence: { certainty: 'proven' } });
+    expect(pickFreeRecommendations([comparison, proven]).map((r) => r.id)).toEqual(['p']);
+    // ältere Aufrufe ohne impact/evidence: Technik gilt als schwach
+    expect(pickFreeRecommendations([{ id: 'x', type: 'technical', key: 'k', priority: 9, active: true, status: 'open' }, comparison]).map((r) => r.id)).toEqual(['v']);
   });
 
   it('Kennzahlen nach CONTRACT.md: Fragen mit Nennung, Quellen cited-sonst-searched, Bereiche', () => {

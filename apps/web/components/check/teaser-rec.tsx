@@ -1,12 +1,11 @@
-import { effortText, impactText } from '@askmetry/core/present';
 import type { TeaserRecommendation } from '@askmetry/core/hosted/types';
-import { CategoryTag } from '@/components/viz';
+import { CategoryTag, ImpactBadge } from '@/components/viz';
 import { CAT_STYLE } from '@/components/viz-style';
 import { getI18n } from '@/lib/i18n/server';
 import { AREA_CATEGORY } from '@/lib/hosted/teaser';
 import { plainTerms } from '@/lib/text';
 
-/** Frei gezeigte Maßnahme im Teaser: wie die Maßnahmen-Karte, aber vollständig (Warum + Schritte), ohne Link in den Workspace. */
+/** Frei gezeigte Maßnahme im Teaser: wie die Maßnahmen-Karte, aber vollständig (Warum + Schritte), ohne Link in den Workspace. Zeigt nur die Wirkung, keinen Aufwand. */
 export async function TeaserRecCard({ rec }: { rec: TeaserRecommendation }) {
   const { t, locale } = await getI18n();
   const cat = AREA_CATEGORY[rec.area] ?? 'content';
@@ -15,7 +14,7 @@ export async function TeaserRecCard({ rec }: { rec: TeaserRecommendation }) {
       <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: CAT_STYLE[cat].fg }} />
       <CategoryTag cat={cat} owner />
       <h3 className="mt-2 text-[17px] font-semibold leading-snug tracking-tight [overflow-wrap:anywhere]">{plainTerms(rec.title, locale)}</h3>
-      <p className="mt-1 text-sm text-muted">{impactText(rec.impact, locale)} · {effortText({ type: rec.type, effort: rec.effort }, locale)}</p>
+      <ImpactBadge impact={rec.impact} className="mt-1.5" />
       <p className="mt-3 text-[15px] [overflow-wrap:anywhere]">{plainTerms(rec.why, locale)}</p>
       {rec.steps.length > 0 && (
         <>

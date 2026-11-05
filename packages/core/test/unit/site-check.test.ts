@@ -120,6 +120,24 @@ describe('checkDomain (fetch injiziert)', () => {
     expect(r.home.textChars).toBe(0);
   });
 
+  it('Frist läuft während des tieferen Checks ab: Ergebnis als partial markiert', async () => {
+    const ctl = new AbortController();
+    const fetchFn: FetchLike = async (url) => {
+      if (url.endsWith('/sitemap.xml')) {
+        ctl.abort(); // Gesamtfrist erreicht, während die Sitemap geladen wird
+        throw new Error('This operation was aborted');
+      }
+      if (url.includes('wikidata.org')) return { status: 200, url, text: async () => '{"query":{"search":[]}}' };
+      return { status: 200, url, text: async () => (url.endsWith('/') ? '<html><body><p>Start</p></body></html>' : 'User-agent: *\nAllow: /\n') };
+    };
+    const r = await checkDomain('x.de', { fetch: fetchFn, signal: ctl.signal });
+    expect(r.home.status).toBe(200);
+    expect(r.partial).toBe(true);
+    // ohne Abbruch kein partial
+    const ok = await checkDomain('x.de', { fetch: async (url) => ({ status: url.endsWith('/sitemap.xml') ? 404 : 200, url, text: async () => (url.includes('wikidata') ? '{"query":{"search":[]}}' : 'ok') }) });
+    expect(ok.partial).toBeUndefined();
+  });
+
   it('fehlende robots.txt (404) = keine Sperre; Netzwerkfehler werden festgehalten', async () => {
     const r = await checkDomain('x.de', {
       fetch: fake({

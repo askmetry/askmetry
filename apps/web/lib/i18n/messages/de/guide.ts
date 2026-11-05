@@ -10,6 +10,8 @@ const guide = {
   caveatTitle: 'Zu den Zahlen',
   footerLink: 'GEO-Leitfaden',
   whereQuestions: 'Woher kommen die Fragen?',
+  // Selbsthosting: Fragen legt man selbst an (Leitfaden-Eintrag #woher-fragen in neutraler Fassung)
+  whereQuestionsSelf: 'Welche Fragen sollte ich messen?',
   cta: {
     title: 'Wie oft nennen die KI-Suchen dich?',
     text: 'Der kostenlose Schnell-Check zeigt es dir in wenigen Minuten.',

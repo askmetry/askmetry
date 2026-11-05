@@ -79,7 +79,7 @@ const recs: typeof de = {
     same: 'No change yet – the effect usually shows after one or two measurements.',
   },
   evidence: {
-    urlHeading: { community: 'Posts the AI read', name_on_own_page: 'Your most-used pages', outreach: 'Cited pages', technical: 'Affected pages' },
+    urlHeading: { community: 'Posts the AI read', name_on_own_page: 'Your most-used pages', outreach: 'Cited pages', technical: 'Affected pages', comparison: 'Your existing comparison pages', listicle: 'Cited best-of lists', reviews: 'Cited review-platform pages', entity: 'Cited Wikipedia articles' },
     pages: 'Pages',
     inSource: (source: string) => ` in ${source}`,
     readOnly: 'read',

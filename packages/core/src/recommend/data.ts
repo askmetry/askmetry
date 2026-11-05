@@ -12,6 +12,8 @@ export type PromptInfo = { id: string; text: string; topicId: string | null; top
 
 /** Art einer wichtigen Unterseite, die der Website-Check sucht (über Links der Startseite und die Sitemap). */
 export type PageKind = 'pricing' | 'product' | 'comparison' | 'faq' | 'about';
+/** Höchstens so viele Domains der eigenen Marke prüft der Website-Check (hier, damit die Regeln ohne DB-Import darauf zugreifen). */
+export const SITE_CHECK_MAX_DOMAINS = 5;
 export const PAGE_KINDS: PageKind[] = ['product', 'pricing', 'comparison', 'faq', 'about'];
 
 /** Prüfergebnis einer einzelnen Seite (Startseite oder wichtige Unterseite). Alle Felder ab Version 2 des Checks (Nov. 2026). */
@@ -59,7 +61,11 @@ export interface SiteCheckResult {
     newest: string | null;
     /** enthält hreflang-Angaben (xhtml:link) */
     hreflang: boolean;
+    /** Sitemap-Index: nur eine Teil-Sitemap gelesen (Seiten-URLs unvollständig); fehlt bei älteren Checks */
+    index?: boolean;
   };
+  /** true = Gesamtfrist lief während des Checks ab: Sitemap, Unterseiten oder Wikidata evtl. unvollständig (wird wie ein Fehlschlag nur 6 h gecacht) */
+  partial?: boolean;
   /** wichtige Unterseiten (je Art höchstens eine); fehlt bei Checks vor Nov. 2026 */
   pages?: PageCheck[];
   /** Sprachversionen als Pfadpräfix (z. B. ['de', 'en']), erkannt an Links und Sitemap */

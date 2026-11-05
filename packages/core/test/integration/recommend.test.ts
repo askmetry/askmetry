@@ -5,7 +5,7 @@ import { and, eq, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { backfillSearchedCitations } from '../../src/backfill.ts';
 import { autofillBrandProfile, brandRanking, buildStatusBrief, generateRecommendations, keyInsight, loadRecData, outreachExclusions, recommendationMetric, type Phraser } from '../../src/recommend/index.ts';
-import type { FetchLike } from '../../src/recommend/site-check.ts';
+import { runSiteCheck, type FetchLike } from '../../src/recommend/site-check.ts';
 import { createCollection, monthToDateSpend, processCollection } from '../../src/runner.ts';
 import type { Engine, EngineResult } from '../../src/types.ts';
 
@@ -248,6 +248,29 @@ describe('Maßnahmen (Test-DB)', () => {
     await db.update(siteCheck).set({ checkedAt: new Date(Date.now() - 7 * 3600_000) }).where(eq(siteCheck.workspaceId, ws.id));
     await generateRecommendations(ws.id, { siteCheck: true, fetch: fetchFn });
     expect(fetchFn).toHaveBeenCalledTimes(64);
+  });
+
+  it('Website-Check: wegen der Gesamtfrist abgebrochenes Ergebnis ist partial und gilt nur 6 h', async () => {
+    const ws = await seed(`${PREFIX}sitepartial`);
+    // Sitemap hängt, bis die Gesamtfrist abläuft
+    const fetchFn = vi.fn<FetchLike>(async (url, init) => {
+      if (url.endsWith('/sitemap.xml')) {
+        await new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+      }
+      if (url.includes('wikidata.org')) return { status: 200, url, text: async () => '{"query":{"search":[]}}' };
+      return { status: 200, url, text: async () => (url.endsWith('/robots.txt') ? 'User-agent: *\nAllow: /\n' : '<html><body><p>Start</p></body></html>') };
+    });
+    const [r] = await runSiteCheck(ws.id, ['paylindo.de'], { fetch: fetchFn, totalTimeoutMs: 300 });
+    expect(r.partial).toBe(true);
+    expect(r.home.status).toBe(200);
+    const calls = fetchFn.mock.calls.length;
+    // innerhalb von 6 h wiederverwendet
+    await runSiteCheck(ws.id, ['paylindo.de'], { fetch: fetchFn, totalTimeoutMs: 300 });
+    expect(fetchFn).toHaveBeenCalledTimes(calls);
+    // nach 7 h neu geprüft (ein vollständiges Ergebnis gälte 24 h)
+    await db.update(siteCheck).set({ checkedAt: new Date(Date.now() - 7 * 3600_000) }).where(eq(siteCheck.workspaceId, ws.id));
+    await runSiteCheck(ws.id, ['paylindo.de'], { fetch: fetchFn, totalTimeoutMs: 300 });
+    expect(fetchFn.mock.calls.length).toBeGreaterThan(calls);
   });
 
   it('wird während der Berechnung eine neuere Messung fertig, wird nicht gespeichert; Generierungen je Workspace laufen nacheinander', async () => {

@@ -462,7 +462,7 @@ async function startMeasurement(c: Check, log: (m: string) => void) {
 /** Summary einer fertigen Check-Messung berechnen (Kennzahlen nach CONTRACT.md). */
 export async function computeCheckSummary(workspaceId: string, collectionId: string, plan: unknown): Promise<CheckSummary> {
   const data = await loadRecData(workspaceId, collectionId);
-  const recs = await db.select({ id: recommendation.id, type: recommendation.type, key: recommendation.key, priority: recommendation.priority, active: recommendation.active, status: recommendation.status })
+  const recs = await db.select({ id: recommendation.id, type: recommendation.type, key: recommendation.key, priority: recommendation.priority, active: recommendation.active, status: recommendation.status, impact: recommendation.impact, evidence: recommendation.evidence })
     .from(recommendation).where(and(eq(recommendation.workspaceId, workspaceId), eq(recommendation.active, true), eq(recommendation.lastCollectionId, collectionId)));
   const checks = await db.select({ result: siteCheck.result }).from(siteCheck).where(eq(siteCheck.workspaceId, workspaceId)).orderBy(desc(siteCheck.checkedAt)).limit(5);
   const latestByDomain = new Map<string, SiteCheckResult>();

@@ -78,7 +78,7 @@ const recs = {
     same: 'Noch unverändert – die Wirkung zeigt sich meist erst nach einer oder zwei Messungen.',
   },
   evidence: {
-    urlHeading: { community: 'Gelesene Beiträge', name_on_own_page: 'Deine meistgenutzten Seiten', outreach: 'Zitierte Seiten', technical: 'Betroffene Seiten' } as Record<string, string>,
+    urlHeading: { community: 'Gelesene Beiträge', name_on_own_page: 'Deine meistgenutzten Seiten', outreach: 'Zitierte Seiten', technical: 'Betroffene Seiten', comparison: 'Deine vorhandenen Vergleichsseiten', listicle: 'Zitierte Bestenlisten', reviews: 'Zitierte Seiten auf Bewertungsportalen', entity: 'Zitierte Wikipedia-Artikel' } as Record<string, string>,
     pages: 'Seiten',
     inSource: (source: string) => ` in ${source}`,
     readOnly: 'gelesen',

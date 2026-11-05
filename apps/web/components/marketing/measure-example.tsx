@@ -39,7 +39,7 @@ export function MeasureKinds({ t }: { t: M }) {
   );
 }
 
-/** Eine Maßnahme so, wie sie im Bericht steht: Begründung, Schritte, Aufwand, Prompt. */
+/** Eine Maßnahme so, wie sie im Bericht steht: Begründung, Wirkung, Schritte, Prompt (ohne Aufwand). */
 export function MeasureCard({ t }: { t: M }) {
   const c = t.measure.card;
   const s = CAT_STYLE[c.cat] ?? CAT_STYLE.content!;
@@ -64,11 +64,6 @@ export function MeasureCard({ t }: { t: M }) {
           <dt className="sr-only">{c.impactLabel}</dt>
           <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 17l6-6 4 4 8-8M15 7h6v6" /></svg>
           <dd>{c.impact}</dd>
-        </div>
-        <div className="inline-flex items-center gap-1.5 rounded-lg bg-subtle px-2.5 py-1 font-medium text-muted">
-          <dt className="sr-only">{c.effortLabel}</dt>
-          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-          <dd>{c.effort}</dd>
         </div>
       </dl>
 

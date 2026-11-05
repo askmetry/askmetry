@@ -11,6 +11,7 @@ const guide: typeof de = {
   caveatTitle: 'About the figures',
   footerLink: 'GEO guide',
   whereQuestions: 'Where do the questions come from?',
+  whereQuestionsSelf: 'Which questions should I measure?',
   cta: {
     title: 'How often do AI engines mention you?',
     text: 'The free quick check shows you in a few minutes.',

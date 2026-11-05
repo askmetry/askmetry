@@ -987,7 +987,7 @@ function resultName(rec: RecLike): string {
 // Claude-Prompt für die Typen ab Nov. 2026 (comparison, listicle, reviews, entity) und Themen-Cluster (content_gap)
 // ---------------------------------------------------------------------------
 
-type EvX = Ev & { targets?: string[]; existingPages?: string[]; ownProfiles?: string[]; wikidata?: { ids: string[]; wikipedia: string[] | null } | null;
+type EvX = Ev & { targets?: string[]; existingPages?: string[]; checked?: boolean; ownProfiles?: string[]; wikidata?: { ids: string[]; wikipedia: string[] | null } | null;
   cluster?: { label?: string }; facets?: string[]; facetsByLang?: Partial<Record<Lang, string[]>> };
 const facetsOf = (ev: Ev, lang: Lang) => ((ev as EvX).facetsByLang?.[lang] ?? (ev as EvX).facets ?? []).map((x) => F(x, 40));
 type Extra = { facts: string[]; role: string; task: string[]; done: string[]; goal: string; deliverable: string; result: string };
@@ -1026,7 +1026,9 @@ function extraPrompt(rec: RecLike, ev0: Ev, ctx: PromptContext, lang: Lang): Ext
             : `Bei ${m.questions ?? 0} Vergleichs- und Alternativfragen wurde ${b} in ${o(m.ownNamed, m.responses)} Antworten genannt; in ${m.competitorOnly ?? 0} Antworten nur Wettbewerber.`,
           ...(compLine ? [compLine] : []),
           pages.length ? (en ? `Existing comparison pages of ours: ${pages.join(', ')}` : `Unsere vorhandenen Vergleichsseiten: ${pages.join(', ')}`)
-            : (en ? 'We have no comparison page yet (checked: links on the home page and the sitemap).' : 'Eine eigene Vergleichsseite gibt es noch nicht (geprüft: Links der Startseite und Sitemap).'),
+            : ev.checked
+              ? (en ? 'We have no comparison page yet (checked: links on the home page and the sitemap).' : 'Eine eigene Vergleichsseite gibt es noch nicht (geprüft: Links der Startseite und Sitemap).')
+              : (en ? `Whether ${d} already has a comparison page was not checked – check it if you have web access, otherwise ask me.` : `Ob ${ctx.brand.domains[0] ?? 'meine Website'} schon eine Vergleichsseite hat, ist nicht geprüft: Prüfe es, falls du Webzugriff hast, sonst frag mich.`),
         ],
         role: writer,
         task: en ? [
