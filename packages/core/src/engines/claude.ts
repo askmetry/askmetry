@@ -15,6 +15,8 @@ export interface ClaudeOptions {
   system?: string;
   /** geplante Messungen über die Message Batches API (−50 % auf Tokens); manuelle Messungen bleiben synchron */
   batch?: boolean;
+  /** Prompt-Caching (Standard an); false = ohne cache_control */
+  promptCache?: boolean;
 }
 
 export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5-5';
@@ -48,10 +50,18 @@ export function addClaudeUsage(usage: ClaudeUsage, u: any) {
  * Anfrage-Parameter – synchron und im Batch identisch (Modell, Denktiefe, Websuche, Such-Anweisung).
  * Nicht enthalten: der Server-Fallback (`fallbacks` + Beta-Header), den die Batches API ablehnt; ihn ergänzt nur der
  * synchrone Weg (syncExtras).
+ *
+ * Prompt-Caching (ändert die Antwort nicht, nur die Abrechnung): Eine Antwort mit Websuche durchläuft serverseitig
+ * 3–5 Modell-Durchgänge, und jeder liest die ganze bisherige Eingabe neu – vor allem den festen Vorspann aus
+ * Werkzeug-Definitionen (~6.000 Tokens). Gemessen am Strategiebericht vom 05.11.2026 waren das Ø 29.600 Eingabe-Tokens
+ * je Antwort, davon gut die Hälfte Wiederholungen. Mit `cache_control` setzt die API nach jedem Suchergebnis selbst
+ * einen Cache-Punkt, spätere Durchgänge lesen den Vorspann zu 0,1× statt 1×. Der zweite Cache-Punkt am Ende der
+ * Systemanweisung lässt gleichzeitige Anfragen (Batch) den gemeinsamen Vorspann teilen.
  */
 export function claudeParams(prompt: string, ctx: Pick<RunContext, 'country' | 'options'>, messages?: any[]) {
   const o = (ctx.options ?? {}) as ClaudeOptions;
   const model = o.model ?? CLAUDE_DEFAULT_MODEL;
+  const cache = o.promptCache !== false;
   return {
     model,
     max_tokens: 16000,
@@ -60,7 +70,10 @@ export function claudeParams(prompt: string, ctx: Pick<RunContext, 'country' | '
       type: 'web_search_20260209', name: 'web_search', max_uses: o.maxSearches ?? 5,
       user_location: { type: 'approximate', country: ctx.country },
     }],
-    ...(o.system && { system: o.system }),
+    ...(o.system && {
+      system: cache ? [{ type: 'text', text: o.system, cache_control: { type: 'ephemeral' } }] : o.system,
+    }),
+    ...(cache && { cache_control: { type: 'ephemeral' } }),
     messages: messages ?? [{ role: 'user', content: prompt }],
   };
 }

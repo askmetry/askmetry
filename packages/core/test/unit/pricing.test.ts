@@ -16,6 +16,24 @@ describe('pricing', () => {
     const c = costFromUsage({ engine: 'chatgpt', model: 'gpt-5.5', usage: { input_tokens: 10_000, output_tokens: 1_000, web_search_calls: 2, service_tier: 'flex' } });
     expect(c).toBeCloseTo((0.05 + 0.03) / 2 + 0.02, 6);
   });
+  it('ChatGPT: cached_tokens zum Cache-Preis (0,50 $ bzw. flex 0,25 $), nicht zum vollen Eingabepreis', () => {
+    // typische Antwort aus dem Strategiebericht: 4.224 der 10.684 Eingabe-Tokens kamen aus dem Cache
+    const usage = { input_tokens: 10_684, output_tokens: 1_598, web_search_calls: 1, input_tokens_details: { cached_tokens: 4_224 } };
+    expect(costFromUsage({ engine: 'chatgpt', model: 'gpt-5.5-2026-04-23', usage }))
+      .toBeCloseTo((6_460 * 5 + 4_224 * 0.5 + 1_598 * 30) / 1e6 + 0.01, 6);
+    expect(costFromUsage({ engine: 'chatgpt', model: 'gpt-5.5-2026-04-23', usage: { ...usage, service_tier: 'flex' } }))
+      .toBeCloseTo((6_460 * 2.5 + 4_224 * 0.25 + 1_598 * 15) / 1e6 + 0.01, 6);
+    // ohne Cache-Preis in der Zeile: voller Eingabepreis (vorsichtig)
+    expect(costFromUsage({ engine: 'chatgpt', model: 'chat-latest', usage: { input_tokens: 1e6, input_tokens_details: { cached_tokens: 1e6 } } })).toBeCloseTo(5, 6);
+  });
+  it('Gemini 3.6 Flash: angekündigte Preisverdopplung ab 01.01.2027', () => {
+    const usage = { promptTokenCount: 1_000_000, candidatesTokenCount: 1_000_000 };
+    expect(costFromUsage({ engine: 'gemini', model: 'gemini-3.6-flash', usage, at: new Date('2026-12-31T12:00:00Z') })).toBeCloseTo(0.75 + 3.75, 6);
+    expect(costFromUsage({ engine: 'gemini', model: 'gemini-3.6-flash', usage, at: new Date('2027-01-01T00:00:00Z') })).toBeCloseTo(1.5 + 7.5, 6);
+    expect(priceFor('gemini-3.6-flash', 'gemini', new Date('2027-02-01'))?.perSearch).toBe(0);
+    // ohne modelVersion: angefragtes gemini-3.5-flash, gleiche Preise
+    expect(costFromUsage({ engine: 'gemini', model: null, usage, at: new Date('2027-01-01T00:00:00Z') })).toBeCloseTo(1.5 + 7.5, 6);
+  });
   it('chat-latest: eigene Preiszeile', () => {
     expect(priceFor('chat-latest')?.perSearch).toBe(0.025);
   });

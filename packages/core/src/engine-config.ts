@@ -31,27 +31,50 @@ export const engineDefaults = {
   analyzer: { model: 'claude-haiku-5-5', effort: 'low' },
 } as const;
 
-// Listenpreise in USD (Stand 31.10.2026, Quellen siehe SPEC.md). Pro 1 Mio. Tokens bzw. pro Suche.
-export const prices = {
-  'gpt-5.5': { input: 5, output: 30, perSearch: 0.01 },
+export interface PriceRow {
+  input: number;
+  output: number;
+  perSearch: number;
+  /** Preis für Eingabe-Tokens aus dem Cache (OpenAI cached_tokens, Claude cache_read); fehlt = wie input */
+  cachedInput?: number;
+  /** angekündigte Preisänderungen ab Datum (YYYY-MM-DD, UTC); ersetzen die genannten Felder */
+  changes?: { from: string; input?: number; output?: number; cachedInput?: number; perSearch?: number }[];
+}
+
+const GEMINI_FLASH: PriceRow = {
+  input: 0.75, output: 3.75, perSearch: 0, cachedInput: 0.075,
+  changes: [{ from: '2027-01-01', input: 1.5, output: 7.5, cachedInput: 0.15 }],
+};
+
+// Listenpreise in USD (Stand 05.11.2026, Quellen siehe SPEC.md). Pro 1 Mio. Tokens bzw. pro Suche.
+export const prices: Record<string, PriceRow> = {
+  // cached input 0,50 $ (developers.openai.com/api/docs/pricing); flex/Batch halbiert alle Token-Preise
+  'gpt-5.5': { input: 5, output: 30, perSearch: 0.01, cachedInput: 0.5 },
   // Modell der ChatGPT-App. Ob die Suche als „non-reasoning“ (25 $/1.000, Suchinhalte frei) oder wie gpt-5.5
   // (10 $/1.000 + Suchinhalte zum Modellpreis) abgerechnet wird, ist unklar → vorsichtig: Suchinhalte + 25 $/1.000.
   'chat-latest': { input: 5, output: 30, perSearch: 0.025 },
   'gpt-5.4-mini': { input: 0.75, output: 4.5, perSearch: 0.01 },
-  'gemini-3.5-flash': { input: 0.75, output: 3.75, perSearch: 0 }, // Grounding im Freikontingent
-  'claude-opus-5-5': { input: 4, output: 20, perSearch: 0.01 },
-  'claude-sonnet-5-5': { input: 2, output: 10, perSearch: 0.01 },
-  'claude-haiku-5-5': { input: 0.1, output: 0.5, perSearch: 0.01 },
+  // Die API meldet für gemini-3.5-flash die modelVersion gemini-3.6-flash; beide Zeilen gleich. Preise verdoppeln sich
+  // ab 01.01.2027 (aistudio.google.com/docs/pricing). Grounding: 5.000 Anfragen/Monat frei, danach 14 $/1.000 – hier 0.
+  'gemini-3.5-flash': GEMINI_FLASH,
+  'gemini-3.6-flash': GEMINI_FLASH,
+  // Cache-Lesen: Opus 5.5 0,05× (0,20 $), Sonnet/Haiku 0,1×; Cache-Schreiben (5 Min.) 1,25×
+  'claude-opus-5-5': { input: 4, output: 20, perSearch: 0.01, cachedInput: 0.2 },
+  'claude-sonnet-5-5': { input: 2, output: 10, perSearch: 0.01, cachedInput: 0.2 },
+  'claude-haiku-5-5': { input: 0.1, output: 0.5, perSearch: 0.01, cachedInput: 0.01 },
   sonar: { input: 0.25, output: 2.5, perSearch: 0.005 },
-} as const;
+};
 
 // Schätzwerte pro Anfrage für die Budgetprüfung vor einem Run (aus dem Experiment)
 export const estimatedCostPerRun: Record<string, number> = {
-  chatgpt: 0.08, // flex, gemessen 03.11.2026: Ø 0,065 $ (Puffer für Rückfall auf Normalpreis)
+  // flex, Strategiebericht 05.11.2026: Ø 0,052 $ mit Cache-Preis für cached_tokens (Puffer für Rückfall auf Normalpreis)
+  chatgpt: 0.08,
+  // Ø 0,012 $; ab 01.01.2027 doppelte Token-Preise (~0,024 $) → dann anheben
   gemini: 0.012,
-  claude: 0.09,
-  // Claude über die Batches API: Tokens −50 % (~0,06 $ → 0,03 $), Suchen (bis 3 × 0,01 $) unverändert
-  claude_batch: 0.06,
+  // synchron mit Prompt-Caching, live gemessen 05.11.2026: 0,058–0,076 $
+  claude: 0.08,
+  // Batches API (Tokens −50 %) mit Prompt-Caching, live gemessen 05.11.2026: Ø 0,047 $ bei 3 Suchen (0,03 $ davon Suchgebühr)
+  claude_batch: 0.05,
   perplexity: 0.008,
   google_aio: 0.004,
   google_ai_mode: 0.004,

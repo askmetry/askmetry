@@ -54,12 +54,39 @@ describe('Anfrage-Parameter', () => {
     expect(p).toMatchObject({
       model: 'claude-sonnet-5-5', max_tokens: 16000, output_config: { effort: 'medium' },
       tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 3, user_location: { type: 'approximate', country: 'DE' } }],
-      system: engineDefaults.claude.system,
+      system: [{ type: 'text', text: engineDefaults.claude.system, cache_control: { type: 'ephemeral' } }],
+      cache_control: { type: 'ephemeral' },
       messages: [{ role: 'user', content: 'Welches Kartengerät?' }],
     });
     expect(p).not.toHaveProperty('fallbacks');
     expect(p).not.toHaveProperty('betas');
     expect(p).not.toHaveProperty('batch'); // Engine-Option, kein API-Parameter
+    expect(p).not.toHaveProperty('promptCache');
+  });
+  it('Prompt-Caching abschaltbar: dann System als Text und ohne cache_control', () => {
+    const p = claudeParams('Frage', { ...ctx, options: { ...ctx.options, promptCache: false } }) as any;
+    expect(p.system).toBe(engineDefaults.claude.system);
+    expect(p).not.toHaveProperty('cache_control');
+    expect(JSON.stringify(p)).not.toContain('cache_control');
+  });
+  it('Caching ändert nur die Abrechnung, nicht die Anfrage: gleiche Werte für Modell, Tools, Text', () => {
+    const on = claudeParams('Frage', ctx) as any;
+    const off = claudeParams('Frage', { ...ctx, options: { ...ctx.options, promptCache: false } }) as any;
+    const strip = (x: any) => JSON.parse(JSON.stringify(x, (k, v) => (k === 'cache_control' ? undefined : v)));
+    expect({ ...strip(on), system: on.system[0].text }).toEqual(strip(off));
+  });
+});
+
+describe('Kosten mit Prompt-Caching', () => {
+  it('Cache-Lesen 0,1× und Schreiben 1,25× – im Batch beides zusätzlich −50 %', () => {
+    // gemessen live 05.11.2026 (Sonnet 5.5, 5 Durchgänge): 12 / 7.940 / 28.010 Eingabe-Tokens, 2.042 Ausgabe, 3 Suchen
+    const usage = { input_tokens: 12, cache_creation_input_tokens: 7940, cache_read_input_tokens: 28010, output_tokens: 2042, server_tool_use: { web_search_requests: 3 } };
+    const sync = (12 * 2 + 7940 * 2.5 + 28010 * 0.2 + 2042 * 10) / 1e6 + 0.03;
+    expect(costFromUsage({ engine: 'claude', model: 'claude-sonnet-5-5', usage })).toBeCloseTo(sync, 6);
+    expect(costFromUsage({ engine: 'claude', model: 'claude-sonnet-5-5', usage: { ...usage, batch: true } })).toBeCloseTo((sync - 0.03) / 2 + 0.03, 6);
+  });
+  it('Opus 5.5 liest den Cache zu 0,05× (0,20 $ statt 0,40 $)', () => {
+    expect(costFromUsage({ engine: 'claude', model: 'claude-opus-5-5', usage: { cache_read_input_tokens: 1e6 } })).toBeCloseTo(0.2, 6);
   });
 });
 
