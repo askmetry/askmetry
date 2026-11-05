@@ -113,6 +113,14 @@ Navigation: **Übersicht · Maßnahmen · Fragen** und ⚙ Einstellungen. Analys
 
 - Nach dem Anlegen landet man auf der Übersicht. Bis zur ersten Messung zeigt sie eine Checkliste mit drei Schritten (Wettbewerber, Fragen, Messung), abgehakt nach echtem Stand, plus das erkannte Markenprofil zum Bestätigen.
 
+## Askmetry-Marke
+
+- Bildmarke „Radar-Blase“: eine Sprechblase als Radarschirm. Der Strahl tastet die KI-Antworten ab, der Punkt ist die gefundene Marke. Die Quelldateien liegen in `docs/brand/` (Marke hell/dunkel/einfarbig, App-Icon, Schriftzug).
+- In der Web-App gibt es sie nur über `AskmetryMark` bzw. `Logo` (Marke plus Schriftzug „Askmetry“, Systemschrift, halbfett). Farbe `--accent`; Strahl, Fächer und Punkte sind ausgestanzt, damit die Marke auf jedem Grund steht.
+- Favicon `app/icon.svg`, iOS-Icon `app/apple-icon.png` (180 px, randlos, weil iOS die Ecken selbst rundet).
+- PDF: Marke und Schriftzug oben auf dem Deckblatt. react-pdf kann keine Masken, deshalb sind die Ausstanzungen dort weiß übermalt; die Marke steht nur auf weißem Grund.
+- Mails: nur der Schriftzug, weil viele Mailprogramme Bilder blockieren und SVG nicht anzeigen.
+
 ## Logos
 
 - Logos holt Askmetry selbst von der Website der Marke (Icons aus `<link rel=icon|apple-touch-icon>`, sonst `/apple-touch-icon.png`, `/favicon.ico`). Gespeichert je Domain in `domain_logo`, Auslieferung über `/w/[slug]/logo/[domain]` nur an Mitglieder und nur für Domains von Marken dieses Workspaces.

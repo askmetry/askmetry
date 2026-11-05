@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { authClient } from '@/lib/auth-client';
+import { AskmetryMark } from '@/components/askmetry-mark';
 import { useI18n } from '@/lib/i18n/client';
 import { LocaleSwitcher } from '@/components/locale-switcher';
 
@@ -94,10 +95,7 @@ export function AuthForm({ mode, allowSignup = true, next = null, hosted = false
 export function Logo({ small = false }: { small?: boolean }) {
   return (
     <span className={`inline-flex items-center gap-2 font-semibold tracking-tight ${small ? 'text-[15px]' : 'text-lg'}`}>
-      <svg width={small ? 20 : 26} height={small ? 20 : 26} viewBox="0 0 24 24" aria-hidden>
-        <circle cx="12" cy="12" r="10" fill="none" stroke="var(--accent)" strokeWidth="2.2" />
-        <circle cx="12" cy="12" r="4" fill="var(--accent)" />
-      </svg>
+      <AskmetryMark size={small ? 22 : 28} />
       Askmetry
     </span>
   );

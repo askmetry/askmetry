@@ -1,7 +1,7 @@
 // PDF-Layout (A4) mit @react-pdf/renderer: ruhig, viel Weißraum, eine Akzentfarbe, Kopf/Fuß mit Marke, Datum und Seitenzahl.
 // Schrift: Inter (SIL OFL 1.1, eingebettet und automatisch auf die genutzten Zeichen reduziert) – Umlaute, €, →, ± sicher.
 import { createRequire } from 'node:module';
-import { Circle, Document, Font, Image, Page, Rect, StyleSheet, Svg, Text, View, renderToBuffer } from '@react-pdf/renderer';
+import { Circle, Document, Font, Image, Page, Path, Rect, StyleSheet, Svg, Text, View, renderToBuffer } from '@react-pdf/renderer';
 // React ausdrücklich importieren: Aufrufer (z. B. der Worker mit tsx) kompilieren JSX evtl. mit ihrer eigenen tsconfig (klassisch)
 import React, { type ComponentProps, type ReactNode } from 'react';
 void React;
@@ -208,6 +208,24 @@ const brandIdByName = (m: ReportModel, name: string) => m.brands.find((b) => b.n
 // Seiten
 // ---------------------------------------------------------------------------
 
+/**
+ * Askmetry-Bildmarke „Radar-Blase“ (docs/brand/askmetry-mark.svg). react-pdf kennt keine Masken – die Ausstanzungen werden
+ * deshalb weiß übermalt; die Marke steht nur auf weißem Grund.
+ */
+export function AskmetryMark({ size = 16 }: { size?: number }) {
+  const blue = '#2a78d6';
+  return (
+    <Svg width={size} height={size} viewBox="0 0 64 64">
+      <Circle cx={33} cy={29} r={26} fill={blue} />
+      <Path d="M10.5 42L6 60L26.3 54.1Z" fill={blue} />
+      <Path d="M33 29L29.2 7.3A22 22 0 0 1 51.1 16.4Z" fill="#ffffff" fillOpacity={0.5} />
+      <Path d="M33 29L50.4 15.5" stroke="#ffffff" strokeWidth={4.5} strokeLinecap="round" />
+      <Circle cx={33} cy={29} r={4.5} fill="#ffffff" />
+      <Circle cx={43.5} cy={40} r={4} fill="#ffffff" />
+    </Svg>
+  );
+}
+
 export function Cover({ m }: { m: ReportModel }) {
   const f = fmt(m.lang);
   const L = labels(m.lang);
@@ -215,7 +233,10 @@ export function Cover({ m }: { m: ReportModel }) {
   const note = scopeNote(m);
   return (
     <Page size="A4" style={[S.page, { paddingTop: 72, paddingBottom: 56 }]}>
-      <T style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.3 }}>Askmetry</T>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <AskmetryMark size={18} />
+        <T style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0.2, marginLeft: 6 }}>Askmetry</T>
+      </View>
       <View style={{ marginTop: m.logos[m.own.id ?? ''] ? 140 : 200 }}>
         {m.logos[m.own.id ?? ''] && <View style={{ marginBottom: 20 }}><BrandLogo m={m} id={m.own.id} name={m.brand.name} own size={52} /></View>}
         <T style={[S.kicker, { fontSize: 10 }]}>{m.kind === 'remeasure' ? `${tier} · ${baseTierLabel(m.tier, m.lang)}` : tier}</T>
