@@ -163,13 +163,16 @@ describe('Maßnahmen (Test-DB)', () => {
       return { status: url.endsWith('/llms.txt') ? 404 : 200, url, text: async () => body };
     });
     await generateRecommendations(ws.id, { siteCheck: true, fetch: fetchFn });
-    expect(fetchFn).toHaveBeenCalledTimes(4); // Startseite für das Markenprofil + robots.txt, llms.txt, Startseite
+    // Startseite für das Markenprofil + Wikidata-Suche, robots.txt, llms.txt, Startseite, sitemap.xml
+    expect(fetchFn).toHaveBeenCalledTimes(6);
+    expect(fetchFn.mock.calls.map(([u]) => u)).toEqual(expect.arrayContaining(['https://paylindo.de/sitemap.xml', expect.stringContaining('wikidata.org/w/api.php')]));
     const keys = (await recs(ws.id)).filter((r) => r.type === 'technical').map((r) => r.key).sort();
-    expect(keys).toEqual(['technical:js_text', 'technical:robots', 'technical:structured_data']);
+    // Testseite: leere SPA-Hülle ohne Meta-Description, /sitemap.xml liefert dieselbe HTML-Seite (= keine Sitemap)
+    expect(keys).toEqual(['technical:js_text', 'technical:meta', 'technical:robots', 'technical:sitemap', 'technical:structured_data']);
     const [sc] = await db.select().from(siteCheck).where(eq(siteCheck.workspaceId, ws.id));
     expect((sc.result as any).robots.blocked).toEqual(['OAI-SearchBot']);
     await generateRecommendations(ws.id, { siteCheck: true, fetch: fetchFn });
-    expect(fetchFn).toHaveBeenCalledTimes(4); // Ergebnis von heute wiederverwendet, Profil erst nach einer Woche erneut
+    expect(fetchFn).toHaveBeenCalledTimes(6); // Ergebnis von heute wiederverwendet, Profil erst nach einer Woche erneut
     // ohne Check bleiben technische Maßnahmen aktiv
     await generateRecommendations(ws.id, { siteCheck: false });
     expect((await recs(ws.id)).filter((r) => r.type === 'technical').every((r) => r.active)).toBe(true);
@@ -237,14 +240,14 @@ describe('Maßnahmen (Test-DB)', () => {
     await generateRecommendations(ws.id, { siteCheck: true, fetch: fetchFn });
     const rows = await db.select().from(siteCheck).where(eq(siteCheck.workspaceId, ws.id));
     expect(rows.map((r) => r.domain).sort()).toEqual(['b.de', 'c.de', 'd.de', 'localhost', 'paylindo.de']);
-    // localhost nie abgerufen; 4 Domains × 3 Dateien × (Apex + www)
+    // localhost nie abgerufen; 4 Domains × (3 Dateien × (Apex + www) + sitemap.xml + Wikidata-Suche)
     expect(fetchFn.mock.calls.some(([u]) => u.includes('localhost'))).toBe(false);
-    expect(fetchFn).toHaveBeenCalledTimes(4 * 3 * 2);
+    expect(fetchFn).toHaveBeenCalledTimes(4 * (3 * 2 + 2));
     await generateRecommendations(ws.id, { siteCheck: true, fetch: fetchFn });
-    expect(fetchFn).toHaveBeenCalledTimes(24); // Fehlschlag gilt 6 h
+    expect(fetchFn).toHaveBeenCalledTimes(32); // Fehlschlag gilt 6 h
     await db.update(siteCheck).set({ checkedAt: new Date(Date.now() - 7 * 3600_000) }).where(eq(siteCheck.workspaceId, ws.id));
     await generateRecommendations(ws.id, { siteCheck: true, fetch: fetchFn });
-    expect(fetchFn).toHaveBeenCalledTimes(48);
+    expect(fetchFn).toHaveBeenCalledTimes(64);
   });
 
   it('wird während der Berechnung eine neuere Messung fertig, wird nicht gespeichert; Generierungen je Workspace laufen nacheinander', async () => {

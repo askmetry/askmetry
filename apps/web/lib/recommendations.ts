@@ -11,7 +11,7 @@ export const isRecStatus = (s: unknown): s is RecStatus => typeof s === 'string'
 export const STATUS_LABEL: Record<RecStatus, string> = { open: 'Offen', in_progress: 'In Arbeit', done: 'Erledigt', dismissed: 'Verworfen' };
 export const statusLabel = (s: RecStatus, locale: Locale = 'de') => messages[locale].recs.status[s] ?? s;
 
-export const REC_TYPES = ['outreach', 'name_on_own_page', 'content_gap', 'technical', 'community', 'positioning', 'sentiment'] as const;
+export const REC_TYPES = ['outreach', 'name_on_own_page', 'content_gap', 'technical', 'community', 'positioning', 'sentiment', 'comparison', 'listicle', 'reviews', 'entity'] as const;
 export const TYPE_LABEL: Record<string, string> = {
   outreach: 'Outreach',
   name_on_own_page: 'Eigene Seiten',
@@ -20,6 +20,10 @@ export const TYPE_LABEL: Record<string, string> = {
   community: 'Community',
   positioning: 'Positionierung',
   sentiment: 'Tonalität',
+  comparison: 'Vergleichsseiten',
+  listicle: 'Bestenlisten',
+  reviews: 'Bewertungsportale',
+  entity: 'Wikidata & Wikipedia',
 };
 export const typeLabel = (t: string, locale: Locale = 'de') => messages[locale].recs.types[t] ?? t;
 
