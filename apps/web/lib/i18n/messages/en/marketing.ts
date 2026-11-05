@@ -70,7 +70,7 @@ const marketing: typeof de = {
       { cat: 'tech', title: 'Technical setup and structured data', text: 'Allow AI crawlers, add structured data (Schema.org) – written so you can hand it to your agency.' },
     ],
     basis: 'It is based on your measurement: which sources the AIs cite for your customer questions, who is listed there and what is missing on your website.',
-    plan: 'In the strategy report, all actions come as a 90-day plan: what first, what next.',
+    plan: 'In the strategy report, the most important actions come as a 30-day plan: what to do in which week.',
     card: {
       label: 'What an action looks like',
       rank: 'Action 1 of 9',
@@ -112,7 +112,7 @@ const marketing: typeof de = {
     ],
     result: { score: 'AI visibility', found: '9 improvement actions found', example: 'e.g. create a listing on comparison-site-example.com' },
     plan: {
-      title: '90-day plan in the strategy report',
+      title: '30-day plan in the strategy report',
       rows: [
         { when: 'Weeks 1–2', what: 'Platform listings and robots.txt' },
         { when: 'Weeks 3–6', what: 'Comparison and FAQ pages' },
@@ -168,8 +168,8 @@ const marketing: typeof de = {
     },
     strategy: {
       name: 'Strategy report',
-      for: 'Your complete roadmap: every action grouped by topic, in a clear order for the next 90 days.',
-      highlight: '90-day action plan: what to do when',
+      for: 'Your complete roadmap: every action grouped by topic, plus a 30-day plan with the most important steps.',
+      highlight: '30-day plan: what to do in which week',
       features: [
         '60 customer questions grouped by topic, each 3× in 5 AI engines (900 answers)',
         'Comparison with up to 5 competitors',
@@ -253,7 +253,7 @@ const marketing: typeof de = {
       },
       {
         q: 'What exactly are the actions?',
-        a: 'Concrete tasks that follow from your measurement: for example a listing on a site the AIs cite often, a missing comparison or FAQ page, structured data or more reviews. Every action comes with a reason, steps, an estimate of impact and effort, and a ready-made prompt. In the strategy report, they are also arranged into a 90-day plan.',
+        a: 'Concrete tasks that follow from your measurement: for example a listing on a site the AIs cite often, a missing comparison or FAQ page, structured data or more reviews. Every action comes with a reason, steps, an estimate of its impact, and a ready-made prompt. In the strategy report, the most important ones also come as a 30-day plan.',
       },
       {
         q: 'Do I need technical knowledge?',

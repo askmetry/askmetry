@@ -62,7 +62,7 @@ Vier Arten, jede mit eigenem Icon, eigener Farbe und eigener Zuständigkeit. Akz
 | **Community** | Mitdiskutieren | Sprechblase | Orange | community |
 | **Technik** | Webagentur | Zahnrad | Schiefergrau | technical |
 
-Statt „Wirkung hoch / Aufwand mittel“ steht auf der Karte eine einzige Zeile: **„Große Wirkung · ca. 2 Std.“**
+Auf der Karte steht nur die **Wirkung** als Stufen-Balken mit Wort („Kleine / Mittlere / Große Wirkung“, `ImpactBadge`, Feld `impact` 1–3) – lesbar auch ohne Farbe. Keine Aufwandsangabe (Entscheidung 05.11.2026, das Datenfeld bleibt). Die Zuständigkeit („Wer macht's“) steht nicht neben Überschriften, sondern nur dezent in der Detailansicht („Wer: Webagentur“).
 
 ## Informationsarchitektur
 
@@ -85,7 +85,7 @@ Navigation: **Übersicht · Maßnahmen · Fragen** und ⚙ Einstellungen. Analys
 
 - Nach Kategorie gruppiert (Sektionen), innerhalb nach Priorität.
 - Filter-Chips: Offen · In Arbeit · Erledigt. Erledigte und ausgeblendete sind eingeklappt.
-- Karte: Kategorie-Streifen und Label, Titel, „Große Wirkung · ca. 2 Std.“, Status-Punkt (nur wenn nicht offen) und der Button „Prompt kopieren“.
+- Karte: Kategorie-Streifen und Label, Titel, Wirkungs-Badge (`ImpactBadge`), Status-Punkt (nur wenn nicht offen) und der Button „Prompt kopieren“.
 - Klick auf die Karte öffnet die **Detailansicht** (eigene Route oder Seitenpanel). Reihenfolge darin:
   1. Kategorie, Titel, Status-Menü (Offen · In Arbeit · Erledigt · Ausblenden).
   2. **Warum** in einem Satz, mit Mini-Grafik oder Engine-Punkten.

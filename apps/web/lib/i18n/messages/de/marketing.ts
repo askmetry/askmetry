@@ -72,7 +72,7 @@ const marketing = {
       { cat: 'tech', title: 'Technik und strukturierte Daten', text: 'KI-Suchroboter zulassen, strukturierte Daten (Schema.org) ergänzen – so beschrieben, dass du es an deine Agentur geben kannst.' },
     ],
     basis: 'Grundlage ist deine Messung: welche Quellen die KIs bei deinen Kundenfragen zitieren, wer dort steht und was auf deiner Website fehlt.',
-    plan: 'Im Strategiebericht kommen alle Maßnahmen als 90-Tage-Plan: was zuerst, was danach.',
+    plan: 'Im Strategiebericht kommen die wichtigsten Maßnahmen als 30-Tage-Plan: was in welcher Woche.',
     card: {
       label: 'So sieht eine Maßnahme aus',
       rank: 'Maßnahme 1 von 9',
@@ -114,7 +114,7 @@ const marketing = {
     ],
     result: { score: 'KI-Sichtbarkeit', found: '9 Verbesserungsmaßnahmen gefunden', example: 'z. B. Eintrag auf vergleichsportal-beispiel.de anlegen' },
     plan: {
-      title: '90-Tage-Plan im Strategiebericht',
+      title: '30-Tage-Plan im Strategiebericht',
       rows: [
         { when: 'Woche 1–2', what: 'Portaleinträge und robots.txt' },
         { when: 'Woche 3–6', what: 'Vergleichs- und FAQ-Seiten' },
@@ -170,8 +170,8 @@ const marketing = {
     },
     strategy: {
       name: 'Strategiebericht',
-      for: 'Dein kompletter Fahrplan: alle Maßnahmen nach Themen, in einer klaren Reihenfolge für die nächsten 90 Tage.',
-      highlight: '90-Tage-Maßnahmenplan: was du wann umsetzt',
+      for: 'Dein kompletter Fahrplan: alle Maßnahmen nach Themen, dazu ein 30-Tage-Plan mit den wichtigsten Schritten.',
+      highlight: '30-Tage-Plan: was du in welcher Woche umsetzt',
       features: [
         '60 Kundenfragen nach Themen, je 3× in 5 KI-Suchen (900 Antworten)',
         'Vergleich mit bis zu 5 Wettbewerbern',
@@ -255,7 +255,7 @@ const marketing = {
       },
       {
         q: 'Was genau sind die Maßnahmen?',
-        a: 'Konkrete Aufgaben, die sich aus deiner Messung ergeben: zum Beispiel ein Eintrag auf einem Portal, das die KIs oft zitieren, eine fehlende Vergleichs- oder FAQ-Seite, strukturierte Daten oder mehr Bewertungen. Jede Maßnahme hat eine Begründung, Schritte, eine Einschätzung von Wirkung und Aufwand und einen fertigen Prompt. Im Strategiebericht sind sie zusätzlich als 90-Tage-Plan geordnet.',
+        a: 'Konkrete Aufgaben, die sich aus deiner Messung ergeben: zum Beispiel ein Eintrag auf einem Portal, das die KIs oft zitieren, eine fehlende Vergleichs- oder FAQ-Seite, strukturierte Daten oder mehr Bewertungen. Jede Maßnahme hat eine Begründung, Schritte, eine Einschätzung der Wirkung und einen fertigen Prompt. Im Strategiebericht kommen die wichtigsten zusätzlich als 30-Tage-Plan.',
       },
       {
         q: 'Brauche ich technisches Wissen?',

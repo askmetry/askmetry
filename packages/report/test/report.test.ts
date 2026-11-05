@@ -2,7 +2,7 @@ import { brand, citation, closeDb, collection, db, domainLogo, mention, prompt, 
 import { inArray, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  buildReportModel, encodePng, loadReportInput, loadWorkspaceInput, NOISE_PP, parseGuide, PLAN_MAX, planWeeks, renderModelPdf, renderReportPdf, renderWorkspacePdf,
+  buildReportModel, encodePng, guideFromCore, loadGuide, loadReportInput, loadWorkspaceInput, NOISE_PP, parseGuide, PLAN_MAX, planWeeks, renderModelPdf, renderReportPdf, renderWorkspacePdf,
   wilson, type ReportRec,
 } from '../src/index.ts';
 import { comparisonSentence, scopeLine, tierLabel } from '../src/text.ts';
@@ -64,6 +64,20 @@ describe('planWeeks (30-Tage-Plan)', () => {
     const one = planWeeks([rec('x', 'content', 1, 1)]);
     expect(one.weeks[0].items).toHaveLength(1);
     expect(one.weeks.slice(1).every((w) => w.items.length === 0)).toBe(true);
+  });
+});
+
+describe('Leitfaden aus core', () => {
+  it('liefert Fragen, Quellenverweise und Quellenliste in beiden Sprachen', () => {
+    for (const lang of ['de', 'en'] as const) {
+      const g = guideFromCore(lang);
+      expect(g.title).toBeTruthy();
+      expect(g.blocks.filter((b) => b.kind === 'h3').length).toBeGreaterThanOrEqual(8);
+      const list = g.blocks.at(-1)!;
+      expect(list.kind).toBe('ol');
+      expect(JSON.stringify(g.blocks)).toMatch(/\[1\]/);
+      expect(loadGuide(lang)).not.toBeNull();
+    }
   });
 });
 

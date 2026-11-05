@@ -28,7 +28,7 @@ Free of charge; scope as described on the website (currently brand profile, up t
 
 1. Current offers (the description on the website at the time of order prevails):
    - **Baseline report** ("Standortbestimmung"): 20 questions, 3 runs on each of 5 AI services, up to 3 competitors, cited sources, actions with steps and text suggestions, PDF by email.
-   - **Strategy report** ("Strategiebericht"): 60 questions in topics, 3 runs on each of 5 AI services, up to 5 competitors, sources per topic, 90-day plan, PDF by email.
+   - **Strategy report** ("Strategiebericht"): 60 questions in topics, 3 runs on each of 5 AI services, up to 5 competitors, sources per topic, 30-day plan, PDF by email.
    - **Re-measurement** ("Nachmessung"): same questions and settings as a previous report, before/after comparison, PDF by email.
 2. **One-off purchase, no subscription.** Re-measurements are bought separately.
 3. After payment the Customer reviews the proposed questions and competitors and starts the measurement, within **6 months** of payment; afterwards we may run it with the proposed questions after an email reminder.

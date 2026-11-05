@@ -1,7 +1,7 @@
-// GEO-Leitfaden/FAQ für den PDF-Bericht: Inhalt kommt aus einer Markdown-Datei je Sprache, das Layout aus pdf.tsx.
+// GEO-Leitfaden/FAQ für den PDF-Bericht: Inhalt aus @askmetry/core/guide (wie die App), das Layout aus pdf.tsx.
 //
-// Andocken: Datei `packages/report/src/guide/geo-leitfaden.<de|en>.md` anlegen (liegt unter src/, damit sie mit ins
-// Worker-Image kommt – siehe Dockerfile). Fehlt die Datei für die Berichtssprache, entfällt das Kapitel.
+// Optional überschreibbar: Datei `packages/report/src/guide/geo-leitfaden.<de|en>.md` anlegen (liegt unter src/, damit sie mit ins
+// Worker-Image kommt – siehe Dockerfile). Ohne Datei gilt der Kurzleitfaden aus core.
 //
 // Unterstütztes Markdown (bewusst klein, damit PDF und App dieselbe Quelle nutzen können):
 //   # Titel                → Seitentitel (sonst „GEO-Leitfaden“ / „GEO guide“)
@@ -13,6 +13,7 @@
 //   <!-- Kommentar -->      → wird ignoriert
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { geoGuide, sourceNumbers } from '@askmetry/core/guide';
 import type { Lang } from '@askmetry/core/present';
 
 export type GuideBlock =
@@ -79,12 +80,37 @@ export function parseGuide(md: string): ReportGuide | null {
   return { title, intro, blocks };
 }
 
-/** Leitfaden der Berichtssprache laden (null, wenn es keinen gibt). */
+/** Kurzleitfaden GEO aus @askmetry/core/guide (dieselbe Quelle wie die App) als PDF-Blöcke. */
+export function guideFromCore(lang: Lang): ReportGuide {
+  const g = geoGuide(lang);
+  const blocks: GuideBlock[] = [];
+  const srcLabel = lang === 'en' ? 'Sources' : 'Quellen';
+  for (const e of g.entries) {
+    blocks.push({ kind: 'h3', text: e.question });
+    for (const b of e.answer) blocks.push(b.kind === 'p' ? { kind: 'p', text: b.text } : { kind: 'ul', items: b.items });
+    const nums = sourceNumbers(g, e);
+    if (nums.length) blocks.push({ kind: 'p', text: `${srcLabel}: ${nums.map((n) => `[${n}]`).join(' ')}` });
+  }
+  blocks.push({ kind: 'h2', text: srcLabel });
+  blocks.push({ kind: 'p', text: g.caveat });
+  blocks.push({ kind: 'ol', items: g.sources.map((s) => `${s.label} (${s.date}) – ${s.url.replace(/^https?:\/\//, '')}`) });
+  return { title: g.title, intro: g.intro, blocks };
+}
+
+/**
+ * Leitfaden der Berichtssprache: eine Markdown-Datei unter src/guide/ hat Vorrang (z. B. für Selbsthoster),
+ * sonst der Kurzleitfaden aus @askmetry/core/guide.
+ */
 export function loadGuide(lang: Lang): ReportGuide | null {
   const p = guidePath(lang);
-  if (!existsSync(p)) return null;
+  if (existsSync(p)) {
+    try {
+      const md = parseGuide(readFileSync(p, 'utf8'));
+      if (md) return md;
+    } catch { /* Fallback unten */ }
+  }
   try {
-    return parseGuide(readFileSync(p, 'utf8'));
+    return guideFromCore(lang);
   } catch {
     return null;
   }

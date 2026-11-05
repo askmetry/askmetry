@@ -652,7 +652,7 @@ function GuideBlockView({ b }: { b: GuideBlock }) {
   }
 }
 
-/** GEO-Leitfaden/FAQ: Inhalt aus `src/guide/geo-leitfaden.<lang>.md` (siehe guide.ts). Ohne Datei entfällt das Kapitel. */
+/** GEO-Leitfaden/FAQ: Inhalt aus guide.ts (Kurzleitfaden aus @askmetry/core/guide, optional per Markdown-Datei überschrieben). */
 export function Guide({ m }: { m: ReportModel }) {
   const L = labels(m.lang);
   const g = m.guide;
