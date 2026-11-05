@@ -391,8 +391,8 @@ describe('Schnell-Check', () => {
       const ps = await db.select({ id: prompt.id }).from(prompt).where(eq(prompt.workspaceId, wsId)).limit(CHECK_SCOPE.measured);
       colId = (await createCollection(wsId, 'manual', { promptIds: ps.map((p) => p.id), engines: CHECK_SCOPE.engines, repetitions: 1, engineMaxPrompts: CHECK_SCOPE.engineMaxPrompts })).id;
       const withRuns = await checkReservedUsd();
-      // 8 × (Gemini 0,012 + 2 × Google 0,004) + 4 × ChatGPT 0,08 = 0,48 $
-      expect(withRuns - base).toBeCloseTo(0.48, 6);
+      // 8 × (Gemini 0,024 + 2 × Google 0,004) + 4 × ChatGPT 0,08 = 0,576 $
+      expect(withRuns - base).toBeCloseTo(0.576, 6);
       const spend = await checkSpendToday();
       process.env.ASKMETRY_CHECK_DAILY_BUDGET_USD = String(spend + 0.3);
       // ohne Reserve wäre Platz (spend < Budget), mit Reserve nicht
