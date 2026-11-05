@@ -6,8 +6,10 @@ export const GITHUB_URL = 'https://github.com/askmetry/askmetry';
 
 /** Fußzeile der öffentlichen Seiten (Startseite, Rechtsseiten, Check- und Kaufseiten). Server-Komponente. */
 export async function SiteFooter() {
-  const t = (await getT()).marketing.footer;
+  const all = await getT();
+  const t = all.marketing.footer;
   const links = [
+    { href: '/leitfaden', label: all.guide.footerLink },
     { href: '/impressum', label: t.imprint },
     { href: '/datenschutz', label: t.privacy },
     { href: '/agb', label: t.terms },

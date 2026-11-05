@@ -11,6 +11,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = publicUrl();
   return [
     { url: `${base}/`, changeFrequency: 'weekly', priority: 1 },
+    { url: `${base}/leitfaden`, changeFrequency: 'monthly', priority: 0.7 },
     // Entwürfe erst nach Freigabe (Kommentar entfernt) in die Sitemap
     ...(await Promise.all(LEGAL_DOCS.map(async (d) => (await isLegalDraft(d)) ? null : d)))
       .filter((d) => d !== null)
