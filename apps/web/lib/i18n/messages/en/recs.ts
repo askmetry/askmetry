@@ -16,6 +16,7 @@ const recs: typeof de = {
   types: {
     outreach: 'Outreach', name_on_own_page: 'Your pages', content_gap: 'Content gap', technical: 'Technical',
     community: 'Community', positioning: 'Positioning', sentiment: 'Sentiment',
+    comparison: 'Comparison pages', listicle: 'Best-of lists', reviews: 'Review sites', entity: 'Wikidata & Wikipedia',
   },
   filterLabel: 'Filter by status',
   filters: { open: 'Open', in_progress: 'In progress', done: 'Done' },

@@ -3,13 +3,27 @@
 // optional verbessern. Deutsch und Englisch haben je Maßnahme gleich viele Schritte (done_steps beziehen sich auf die Indizes).
 import {
   cleanUrl, communityGroup, domainMatches, groupBy, hostOf, indexData, normName, pct, shortPath, titleFromUrl,
-  type Indexed, type RecData, type SiteCheckResult,
+  engineLabel, type Indexed, type PageKind, type RecData, type SiteCheckResult,
 } from './data.ts';
 import { isLikelyCompetitor } from './present.ts';
 import { listJoin, type Lang } from '../i18n.ts';
 
-export type RecType = 'name_on_own_page' | 'outreach' | 'content_gap' | 'community' | 'technical' | 'positioning' | 'sentiment';
-export const REC_TYPES: RecType[] = ['name_on_own_page', 'outreach', 'content_gap', 'community', 'technical', 'positioning', 'sentiment'];
+/**
+ * Maßnahmen-Typen. Neu ab Nov. 2026: comparison (eigene, transparente Vergleichs-/Alternativenseiten), listicle (Aufnahme in
+ * fremde Bestenlisten/Vergleichsartikel, die die KIs zitieren), reviews (Bewertungsportale), entity (Wikidata/Wikipedia).
+ * Darstellungs-Kategorie siehe present.ts `categoryOf`.
+ */
+export type RecType = 'name_on_own_page' | 'outreach' | 'content_gap' | 'community' | 'technical' | 'positioning' | 'sentiment'
+  | 'comparison' | 'listicle' | 'reviews' | 'entity';
+export const REC_TYPES: RecType[] = ['name_on_own_page', 'outreach', 'content_gap', 'community', 'technical', 'positioning', 'sentiment',
+  'comparison', 'listicle', 'reviews', 'entity'];
+
+/**
+ * Wie gut ist die Wirkung der Maßnahme belegt? proven = dokumentierte Voraussetzung (z. B. Crawler-Sperre, noindex);
+ * likely = Studien/Praxis zeigen einen deutlichen Zusammenhang; uncertain = plausibel, aber unsicher oder von Dritten abhängig.
+ * Gespeichert als evidence.certainty.
+ */
+export type Certainty = 'proven' | 'likely' | 'uncertain';
 
 export interface Example {
   prompt: string;
@@ -48,8 +62,12 @@ export interface Candidate {
   texts: Record<Lang, RuleText>;
   /** Workspace-Sprache, in der title/why/steps stehen (fehlt = de) */
   lang?: Lang;
+  /** Wirkung: 1 klein · 2 mittel · 3 groß (Rubrik siehe IMPACT_RUBRIC) */
   impact: 1 | 2 | 3;
+  /** Aufwand 1–3 (geht in die Priorität ein; die Darstellung zeigt ihn nicht mehr) */
   effort: 1 | 2 | 3;
+  /** Belegstärke der Wirkung (von make() immer gesetzt, auch in evidence.certainty) */
+  certainty?: Certainty;
   /** Anteil betroffener Antworten bzw. Prompts (0..1) */
   reach: number;
   priority: number;
@@ -57,6 +75,15 @@ export interface Candidate {
   /** Kernzahlen für die Entscheidung „neu formulieren?“ (grob gerundet, damit Rauschen keine Neuformulierung auslöst) */
   signature: unknown;
 }
+
+/**
+ * Rubrik für impact (gilt für alle Regeln):
+ * 3 = groß: Voraussetzung, ohne die KI-Suchen die Seiten nicht nutzen können (Crawler-Sperre, noindex, kein Text ohne JS),
+ *     oder Inhalts-/Quellenlücke, die einen großen Teil der Antworten betrifft und bei der die Marke (fast) nie vorkommt.
+ * 2 = mittel: belegter Hebel mit begrenzter Reichweite oder von Dritten abhängigem Erfolg.
+ * 1 = klein: Grundpflege bzw. Wirkung unsicher (z. B. Schema, Meta-Description, hreflang, Wikidata).
+ */
+export const IMPACT_RUBRIC = { 3: 'large', 2: 'medium', 1: 'small' } as const;
 
 /** Priorität = Wirkung × Reichweite / Aufwand (Reichweite mit Sockel, damit auch seltene, wichtige Punkte sichtbar bleiben). */
 export function priorityOf(impact: number, reach: number, effort: number): number {
@@ -89,13 +116,19 @@ const clipText = (s: string, n: number) => {
   const cut = t.slice(0, n - 1);
   return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), n - 20)).replace(/[\s,;:–-]+$/, '')}…`;
 };
-type Draft = Omit<Candidate, 'priority' | 'title' | 'why' | 'steps' | 'texts'> & { text: (l: Lang) => RuleText };
+type Draft = Omit<Candidate, 'priority' | 'title' | 'why' | 'steps' | 'texts' | 'certainty'> & { text: (l: Lang) => RuleText; certainty?: Certainty };
+/** Standard-Belegstärke je Typ (Regeln können sie überschreiben) */
+const CERTAINTY: Record<RecType, Certainty> = {
+  name_on_own_page: 'likely', outreach: 'likely', content_gap: 'likely', community: 'likely', technical: 'likely', positioning: 'likely',
+  sentiment: 'likely', comparison: 'likely', listicle: 'likely', reviews: 'likely', entity: 'uncertain',
+};
 /** Kandidat fertigstellen: Texte für alle Sprachen erzeugen und kürzen; title/why/steps in der Workspace-Sprache `lang`. */
 function make(lang: Lang, c: Draft): Candidate {
-  const { text, ...rest } = c;
+  const { text, certainty: cert, ...rest } = c;
   const fin = (t: RuleText): RuleText => ({ title: clipText(t.title, TITLE_MAX), why: clipText(t.why, WHY_MAX), steps: t.steps });
   const texts: Record<Lang, RuleText> = { de: fin(text('de')), en: fin(text('en')) };
-  return { ...rest, ...texts[lang], texts, lang, priority: priorityOf(c.impact, c.reach, c.effort) };
+  const certainty = cert ?? CERTAINTY[c.type];
+  return { ...rest, ...texts[lang], texts, lang, certainty, evidence: { ...rest.evidence, certainty }, priority: priorityOf(c.impact, c.reach, c.effort) };
 }
 const listL = (xs: string[], l: Lang) => listJoin(xs, l);
 
@@ -105,7 +138,10 @@ const q = (text: string, n: number) => clipText(text.replace(/\?$/, ''), n);
 /** Domains, bei denen Outreach nicht sinnvoll ist (Suchmaschinen, Lexika, Behörden) – Community-Quellen laufen separat. */
 const NO_OUTREACH = [/(^|\.)google\.[a-z.]+$/, /(^|\.)wikipedia\.org$/, /(^|\.)wikimedia\.org$/, /(^|\.)bing\.com$/, /(^|\.)bund\.de$/,
   /(^|\.)bundesregierung\.de$/, /(^|\.)europa\.eu$/, /(^|\.)gesetze-im-internet\.de$/, /\.gov$/, /(^|\.)bundesbank\.de$/,
-  /(^|\.)apple\.com$/, /(^|\.)play\.google\.com$/];
+  /(^|\.)apple\.com$/, /(^|\.)play\.google\.com$/,
+  // Forschung, Code, soziale Netzwerke: keine Redaktion, die man anschreiben kann (LinkedIn: eigene Beiträge, siehe GEO-PLAYBOOK)
+  /(^|\.)arxiv\.org$/, /(^|\.)researchgate\.net$/, /(^|\.)semanticscholar\.org$/, /(^|\.)doi\.org$/, /(^|\.)github\.com$/,
+  /(^|\.)linkedin\.com$/, /(^|\.)x\.com$/, /(^|\.)twitter\.com$/, /(^|\.)facebook\.com$/, /(^|\.)instagram\.com$/];
 
 // ---------------------------------------------------------------------------
 // name_on_own_page
@@ -185,7 +221,7 @@ export function ruleNameOnOwnPage(ix: Indexed, d: { at: Date } = { at: new Date(
 // ---------------------------------------------------------------------------
 // outreach
 // ---------------------------------------------------------------------------
-export type OutreachExclusionReason = 'competitor' | 'vendor' | 'rival_portal' | 'community' | 'not_editorial' | 'below_threshold' | 'beyond_max';
+export type OutreachExclusionReason = 'competitor' | 'vendor' | 'rival_portal' | 'community' | 'reviews' | 'not_editorial' | 'below_threshold' | 'beyond_max';
 
 /**
  * Art einer fremden Quelle – bestimmt, welche Ansprache realistisch ist (GEO-PLAYBOOK.md, „Auf anderen Seiten“):
@@ -198,9 +234,13 @@ const REVIEW_SITES = /(^|\.)(g2\.com|capterra\.[a-z.]+|getapp\.[a-z.]+|softwarea
 const MEDIA_SITES = /(^|\.)(handelsblatt\.com|faz\.net|spiegel\.de|zeit\.de|sueddeutsche\.de|welt\.de|focus\.de|stern\.de|n-tv\.de|tagesschau\.de|wiwo\.de|capital\.de|manager-magazin\.de|businessinsider\.de|t3n\.de|heise\.de|golem\.de|chip\.de|computerbild\.de|netzwelt\.de|gruenderszene\.de|deutsche-startups\.de|impulse\.de|aerzteblatt\.de|aerztezeitung\.de|derstandard\.at|diepresse\.com|nzz\.ch|handelszeitung\.ch|computerwoche\.de|onlinehaendler-news\.de|wuv\.de|horizont\.net|finanztip\.de|test\.de|stiftung-warentest\.de|zm-online\.de|medical-tribune\.de|kma-online\.de|forbes\.com|techcrunch\.com)$/;
 /** Domain klingt nach Vergleichs-/Test-/Kostenportal. Bewusst nur der Domainname: Ein Fachmagazin mit einem Vergleichsartikel ist kein Vergleichsportal. */
 const COMPARISON_HOST = /(vergleich|compare|kompass|testsieger|testbericht|bestenliste|check24|verivox|mobiletransaction|kosten|tarif|rechner)/i;
+/** Fachmedien (Auswahl) und Namen, die nach Redaktion klingen (Magazin, Zeitung, Journal, Praxis, News) */
+const TRADE_MEDIA = /(^|\.)(vogel\.de|engineering\.com|digitalengineering247\.com|digital-engineering-magazin\.de|konstruktion-entwicklung\.de|industrie\.de|produktion\.de|elektroniknet\.de|computer-automation\.de|it-production\.com|springerprofessional\.de|channelpartner\.de|cio\.de|lead-digital\.de|internetworld\.de|absatzwirtschaft\.de|marktundmittelstand\.de|healthcare-computing\.de|e-health-com\.de|apotheke-adhoc\.de|zwp-online\.info)$/;
+const MEDIA_NAME = /(magazin|magazine|zeitung|journal|praxis|news|nachrichten|report|today|weekly|daily|times|post)$|^(news|magazin)/;
 export function sourceKindOf(host: string): SourceKind {
   if (REVIEW_SITES.test(host)) return 'reviews';
-  if (MEDIA_SITES.test(host)) return 'media';
+  if (MEDIA_SITES.test(host) || TRADE_MEDIA.test(host)) return 'media';
+  if (host.split('.').slice(0, -1).some((l) => MEDIA_NAME.test(l))) return 'media';
   if (COMPARISON_HOST.test(host.replace(/\.[a-z]+$/, ''))) return 'comparison';
   return 'site';
 }
@@ -218,6 +258,28 @@ export function ruleOutreach(ix: Indexed, opts: { max?: number; minResponses?: n
   return outreachScan(ix, opts).candidates;
 }
 
+/**
+ * Host gehört wahrscheinlich einem anderen Anbieter, der in den Antworten genannt wird (z. B. Blog eines Wettbewerbers)?
+ * Liefert den Anbieternamen. Nur Namen, die wahrscheinlich Anbieter sind (Urteil des Analyse-Modells bzw. Namensliste) –
+ * ein Portal, das die KI als „Marke“ nennt, bleibt Ziel.
+ */
+function vendorMatcher(ix: Indexed): (host: string) => string | null {
+  const own = ix.own!;
+  const vendorByKey = new Map<string, string>();
+  for (const m of ix.ments) {
+    if (m.brandId === own.id || !isLikelyCompetitor(m.name, m.isCompetitor)) continue;
+    // Ratgeber-/Vergleichsseiten sind für Anbieter Outreach-Ziele, für ein Vergleichsportal Konkurrenz
+    if (own.kind !== 'portal' && EDITORIAL_NAME.test(m.name)) continue;
+    const k = brandKey(m.name);
+    // ab 3 Zeichen (SAP, PTC); Abgleich nur mit ganzen Host-Labels
+    if (k.length >= 3 && !vendorByKey.has(k)) vendorByKey.set(k, m.name);
+  }
+  return (host: string) => {
+    for (const l of hostLabels(host)) { const v = vendorByKey.get(l) ?? vendorByKey.get(l.replace(/\d+$/, '')); if (v) return v; }
+    return null;
+  };
+}
+
 function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number; lang?: Lang } = {}): { candidates: Candidate[]; excluded: OutreachExclusion[] } {
   const own = ix.own;
   if (!own) return { candidates: [], excluded: [] };
@@ -229,20 +291,7 @@ function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number; 
     if (ix.ownNamed.has(rid)) continue;
     target.set(rid, uniq(cs.sort((a, b) => a.position - b.position).map((m) => ix.compById.get(m.brandId!)!.name)));
   }
-  // Domains anderer (ungetrackter) Anbieter, die in den Antworten genannt werden (z. B. Blog eines Wettbewerbers) – kein Outreach-Ziel
-  // nur Namen, die wahrscheinlich Anbieter sind (Urteil des Analyse-Modells bzw. Namensliste) – ein Portal, das die KI als „Marke“ nennt, bleibt Outreach-Ziel
-  const vendorByKey = new Map<string, string>();
-  for (const m of ix.ments) {
-    if (m.brandId === own.id || !isLikelyCompetitor(m.name, m.isCompetitor)) continue;
-    // Ratgeber-/Vergleichsseiten sind für Anbieter Outreach-Ziele, für ein Vergleichsportal Konkurrenz
-    if (own.kind !== 'portal' && EDITORIAL_NAME.test(m.name)) continue;
-    const k = brandKey(m.name);
-    if (k.length >= 4 && !vendorByKey.has(k)) vendorByKey.set(k, m.name);
-  }
-  const vendorOf = (host: string) => {
-    for (const l of hostLabels(host)) { const v = vendorByKey.get(l) ?? vendorByKey.get(l.replace(/\d+$/, '')); if (v) return v; }
-    return null;
-  };
+  const vendorOf = vendorMatcher(ix);
   const excludedBy = new Map<string, { resps: Set<string>; reason: OutreachExclusionReason; detail: string | null }>();
   const exclude = (host: string, rid: string, reason: OutreachExclusionReason, detail: string | null) => {
     const e = excludedBy.get(host) ?? { resps: new Set(), reason, detail };
@@ -259,6 +308,8 @@ function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number; 
       if (comp) { exclude(host, rid, 'competitor', comp.name); continue; }
       if (communityGroup(c.url)) { exclude(host, rid, 'community', null); continue; }
       if (NO_OUTREACH.some((re) => re.test(host))) { exclude(host, rid, 'not_editorial', null); continue; }
+      // Bewertungsportale bündelt die Maßnahme „reviews“
+      if (REVIEW_SITES.test(host)) { exclude(host, rid, 'reviews', null); continue; }
       const vendor = vendorOf(host);
       if (vendor) { exclude(host, rid, 'vendor', vendor); continue; }
       if (own.kind === 'portal' && sourceKindOf(host) === 'comparison') { exclude(host, rid, 'rival_portal', null); continue; }
@@ -276,7 +327,8 @@ function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number; 
       by.set(host, e);
     }
   }
-  const minN = Math.max(minResp, Math.ceil(0.08 * ix.N));
+  // Schwelle: 8 % der Antworten, bei großen Messungen gedeckelt (8 von 100) – sonst fällt bei 800 Antworten jede Quelle unter 64 Treffer heraus
+  const minN = Math.max(minResp, Math.ceil(0.08 * Math.min(ix.N, 100)));
   const sorted = [...by.entries()]
     .sort((a, b) => b[1].resps.size - a[1].resps.size || b[1].prompts.size - a[1].prompts.size || a[0].localeCompare(b[0]));
   const rows = sorted.filter(([, e]) => e.resps.size >= minN).slice(0, max);
@@ -285,6 +337,7 @@ function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number; 
     vendor: `a vendor’s site (${d} is itself named as a vendor in the answers)`,
     rival_portal: 'another comparison site – a direct competitor, no realistic outreach',
     community: 'community/forum – see the Community actions',
+    reviews: 'review site – see the review-sites action',
     not_editorial: 'search engine, encyclopedia or authority – no editorial team to contact',
     below_threshold: `too rare (threshold: ${minN} answers)`,
     beyond_max: `not among the ${max} most important sources`,
@@ -293,6 +346,7 @@ function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number; 
     vendor: `Seite eines Anbieters (${d} wird in den Antworten selbst als Anbieter genannt)`,
     rival_portal: 'anderes Vergleichsportal – direkter Wettbewerber, keine realistische Ansprache',
     community: 'Community/Forum – siehe Community-Maßnahmen',
+    reviews: 'Bewertungsportal – siehe Maßnahme Bewertungsportale',
     not_editorial: 'Suchmaschine, Lexikon oder Behörde – keine Redaktion, die man anschreiben kann',
     below_threshold: `zu selten (Schwelle: ${minN} Antworten)`,
     beyond_max: `nicht unter den ${max} wichtigsten Quellen`,
@@ -337,6 +391,7 @@ function outreachScan(ix: Indexed, opts: { max?: number; minResponses?: number; 
       // Medien hängen von Journalisten ab → höchstens mittel; Bewertungsportale und Listungen liegen in eigener Hand
       impact: (sk === 'media' ? Math.min(2, share >= 0.1 ? 2 : 1) : share >= 0.3 ? 3 : share >= 0.1 ? 2 : 1) as 1 | 2 | 3,
       effort: sk === 'media' ? 3 : 2,
+      certainty: sk === 'media' ? 'uncertain' : 'likely',
       reach: share,
       evidence: {
         sourceKind: sk,
@@ -506,90 +561,271 @@ export function suggestTitle(promptText: string, year: number): string {
   return /\b20\d\d\b/.test(q) ? q : `${q} (${year})`;
 }
 
-export const CONTENT_GAP_MAX = 10;
+/**
+ * Höchstens so viele Themenseiten schlägt content_gap vor. Fragen werden zu Clustern gebündelt (Thema der Frage, sonst Absicht),
+ * statt je Testfrage eine Seite: Die Testfragen sind eine Stichprobe dessen, was Kunden fragen – eine gute Themenseite beantwortet
+ * viele verwandte Fragen. Vergleichs-/Alternativfragen (nennen einen Wettbewerber) bündelt die Maßnahme „comparison“.
+ */
+export const CONTENT_GAP_MAX = 3;
+
+/** Aspekt einer Frage – bestimmt die Gliederung der Themenseite. */
+export type Facet = 'risk' | 'integration' | 'cost' | 'list' | 'howto' | 'explain' | 'other';
+// Unicode-Wortgrenzen (B…E), weil \b Umlaute als Grenze behandelt
+const FB = '(?<![\\p{L}\\p{N}])', FE = '(?![\\p{L}\\p{N}])';
+const fre = (src: string) => new RegExp(src.replaceAll('<B>', FB).replaceAll('<E>', FE), 'iu');
+/** Reihenfolge zählt: Fragewort-Muster („Welche …“, „Wie …“, „Was ist …“) vor den Listen-Stichwörtern im Satz,
+ * damit „Was ist eine CRM-Software?“ Grundlagen und „Wie führe ich ein Tool ein?“ Vorgehen bleibt. */
+const FACET_RE: [Facet, RegExp][] = [
+  ['risk', fre('risik|<B>sicher(heit)?<E>|datenschutz|<B>ip<E>|compliance|dsgvo|gdpr|security|secure|<B>risks?<E>|privacy')],
+  ['integration', fre('integr|anbind|verbind|schnittstell|<B>api<E>|connect|tool-landschaft|it-landschaft')],
+  ['cost', fre('kostet|<B>kosten<E>|preis|<B>price|pricing|<B>costs?<E>|<B>roi<E>|amortis|budget|<B>lohnt|wirtschaftlich|<B>nutzen<E>.*berechn|förder(mittel|programm|ung)')],
+  ['list', fre('^(welche[srn]?|was sind die besten|beste[nr]?|top|gibt es|which|what are the best|best|are there)<E>')],
+  ['howto', fre('^(wie|how)<E>')],
+  ['explain', fre('^(was ist|was sind|was unterscheidet|was ist der unterschied|warum|what is|what are|what\'s the difference|why)<E>')],
+  ['list', fre('anbieter|<B>tools?<E>|software|<B>plattform(en)?<E>|<B>platforms?<E>|lösungen<E>|<B>solutions?<E>')],
+];
+export const facetOf = (text: string): Facet => FACET_RE.find(([, re]) => re.test(text.trim()))?.[0] ?? 'other';
+const FACET_LABEL: Record<Lang, Record<Facet, string>> = {
+  de: { risk: 'Risiken & Sicherheit', integration: 'Integration', cost: 'Kosten & Nutzen', list: 'Anbieter im Überblick', howto: 'Vorgehen in der Praxis', explain: 'Grundlagen', other: 'Weitere Fragen' },
+  en: { risk: 'Risks & security', integration: 'Integration', cost: 'Cost & ROI', list: 'Provider overview', howto: 'How to do it', explain: 'Basics', other: 'Other questions' },
+};
+const FACET_WORD: Record<Lang, Record<Facet, string>> = {
+  de: { risk: 'Risiken', integration: 'Integration', cost: 'Kosten', list: 'Anbieter', howto: 'Vorgehen', explain: 'Grundlagen', other: '' },
+  en: { risk: 'risks', integration: 'integration', cost: 'cost', list: 'providers', howto: 'how-to', explain: 'basics', other: '' },
+};
+
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Getrackte Marken (Name oder Alias), die im Fragetext vorkommen. */
+export function brandsInText(text: string, brands: { name: string; aliases?: string[] | null; isOwn: boolean }[]) {
+  const t = text.toLowerCase();
+  return brands.filter((b) => [b.name, ...(b.aliases ?? [])].some((n) => n.trim().length >= 2
+    && new RegExp(`(^|[^\\p{L}\\p{N}])${escRe(n.trim().toLowerCase())}($|[^\\p{L}\\p{N}])`, 'u').test(t)));
+}
+/** Vergleichs- oder Alternativfrage: nennt einen getrackten Wettbewerber im Fragetext. */
+export const isComparisonPrompt = (ix: Indexed, text: string) => brandsInText(text, ix.competitors).length > 0;
+
+/** Lückenfragen: eigene Marke fehlt (fast) überall, Wettbewerber werden genannt, eigene Seite ist hier noch keine häufige Quelle. */
+function gapStats(ix: Indexed, maxOwnRate = 0.2) {
+  return promptStats(ix).filter((st) => st.own / st.n <= maxOwnRate && st.withComp >= 2 && st.ownSite / st.n < 0.4);
+}
+
+/** Eigene Seiten, die bei diesen Fragen herangezogen wurden – als Quelle genutzte (cited bzw. metricCits) zählen zehnfach. */
+function ownPagesFor(ix: Indexed, pids: string[]): string[] {
+  const own = ix.own!;
+  const pageCount = new Map<string, number>();
+  for (const pid of pids) {
+    for (const r of ix.respsByPrompt.get(pid) ?? []) {
+      const used = new Set(ix.metricCits.get(r.id) ?? []);
+      for (const c of ix.allCits.get(r.id) ?? []) {
+        if (!domainMatches(hostOf(c), own.domains)) continue;
+        const u = cleanUrl(c.url);
+        pageCount.set(u, (pageCount.get(u) ?? 0) + (used.has(c) ? 10 : 1));
+      }
+    }
+  }
+  return [...pageCount.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([u]) => u);
+}
+/** Taugt die eigene Seite als Ausgangspunkt einer Themenseite? Nicht: Startseite, Presse/News, Webinare, Events, Jobs, Rechtliches. */
+export function isTopicBase(url: string): boolean {
+  try {
+    const segs = new URL(url).pathname.toLowerCase().split('/').filter(Boolean);
+    if (!segs.length || (segs.length === 1 && /^[a-z]{2}(-[a-z]{2})?$/.test(segs[0]))) return false;
+    return !segs.some((x) => /^(press|presse|pressemitteilungen?|news|newsroom|webinars?|events?|veranstaltungen|jobs|karriere|careers|impressum|imprint|datenschutz|privacy|legal|agb|terms|team|tags?|author|autor)$/.test(x));
+  } catch { return false; }
+}
+
+/** Zusammenfassung mehrerer Lückenfragen (Cluster) */
+function aggregate(ix: Indexed, sts: PromptStat[]) {
+  const n = sts.reduce((a, s) => a + s.n, 0);
+  const own = sts.reduce((a, s) => a + s.own, 0);
+  const withComp = sts.reduce((a, s) => a + s.withComp, 0);
+  const ownSite = sts.reduce((a, s) => a + s.ownSite, 0);
+  const named = new Map<string, number>();
+  for (const s of sts) for (const [k, v] of s.named) named.set(k, (named.get(k) ?? 0) + v);
+  const namedSorted = [...named.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const comps = namedSorted.filter(([nm]) => ix.competitors.some((b) => b.name === nm)).slice(0, 4).map(([nm]) => nm);
+  const others = namedSorted.filter(([nm]) => !comps.includes(nm)).slice(0, 3).map(([nm]) => nm);
+  const examples: Example[] = [];
+  for (const s of sts) {
+    const r = (ix.respsByPrompt.get(s.pid) ?? []).find((x) => !ix.ownNamed.has(x.id) && ix.compsByResp.has(x.id));
+    if (!r || examples.length >= 5) continue;
+    const m = (ix.compsByResp.get(r.id) ?? []).sort((a, b) => a.position - b.position)[0];
+    const src = (ix.metricCits.get(r.id) ?? [])[0];
+    examples.push({ prompt: ix.promptText(s.pid), engine: r.engine, snippet: m?.snippet ? quote(m.snippet) : undefined, url: src ? cleanUrl(src.url) : undefined });
+  }
+  return { n, own, withComp, ownSite, namedSorted, alts: comps.length ? comps : others, examples };
+}
+const ownTimes = (own: number, l: Lang) => (l === 'en'
+  ? own === 1 ? 'only once' : own ? `only ${own} times` : 'never'
+  : own === 1 ? 'nur einmal' : own ? `nur ${own}-mal` : 'nie');
 
 export function ruleContentGap(ix: Indexed, d: RecData): Candidate[] {
   const own = ix.own;
   if (!own) return [];
   const year = d.at.getFullYear();
-  const out: Candidate[] = [];
-  // jede eigene Seite höchstens einer Frage zuordnen (eine Seite kann nicht auf mehrere Fragen ausgerichtet werden)
+  // Vergleichsfragen bündelt ruleComparison
+  const gaps = gapStats(ix).filter((st) => !isComparisonPrompt(ix, ix.promptText(st.pid)));
+  if (!gaps.length) return [];
+  const anyTopic = gaps.some((st) => d.prompts.get(st.pid)?.topicId);
+  // Cluster: Thema der Frage; Fragen ohne Thema nach Aspekt
+  const clusters = groupBy(gaps, (st) => {
+    const p = d.prompts.get(st.pid);
+    return p?.topicId ? `topic:${p.topicId}` : `intent:${facetOf(p?.text ?? '')}`;
+  });
+  const keyPages = (d.siteChecks ?? []).flatMap((c) => c.pages ?? []).filter((p) => p.status !== null && p.status < 400);
   const assigned = new Set<string>();
-  const stats = promptStats(ix).sort((a, b) => b.withComp / b.n - a.withComp / a.n || a.own - b.own || a.pid.localeCompare(b.pid));
-  for (const st of stats) {
-    const ownRate = st.own / st.n;
-    // eigene Marke fehlt (fast) überall, Wettbewerber werden genannt
-    if (ownRate > 0.2 || st.withComp < 2) continue;
-    // eigene Seite wird hier schon oft genutzt → das ist ein name_on_own_page-Thema, keine Inhaltslücke
-    if (st.ownSite / st.n >= 0.4) continue;
-    const text = ix.promptText(st.pid);
-    const rs = ix.respsByPrompt.get(st.pid) ?? [];
-    const named = [...st.named.entries()].sort((a, b) => b[1] - a[1]);
-    const comps = named.filter(([n]) => ix.competitors.some((b) => b.name === n)).slice(0, 4).map(([n]) => n);
-    const others = named.filter(([n]) => !comps.includes(n)).slice(0, 3).map(([n]) => n);
-    // eigene Seiten, die bei dieser Frage herangezogen wurden – als Quelle genutzte zuerst
-    const pageCount = new Map<string, number>();
-    for (const r of rs) {
-      for (const c of ix.allCits.get(r.id) ?? []) {
-        if (!domainMatches(hostOf(c), own.domains)) continue;
-        const u = cleanUrl(c.url);
-        const used = (ix.metricCits.get(r.id) ?? []).includes(c);
-        pageCount.set(u, (pageCount.get(u) ?? 0) + (used ? 10 : 1));
-      }
-    }
-    const ownPages = [...pageCount.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([u]) => u);
-    const basePage = ownPages.find((u) => !assigned.has(u)) ?? null;
+  const drafts = [...clusters.entries()].map(([cid, sts]) => {
+    sts.sort((a, b) => b.withComp / b.n - a.withComp / a.n || a.own - b.own || a.pid.localeCompare(b.pid));
+    const agg = aggregate(ix, sts);
+    const pids = sts.map((s) => s.pid);
+    const facets = uniq(sts.map((s) => facetOf(ix.promptText(s.pid))));
+    const facetOrder: Facet[] = ['explain', 'list', 'howto', 'integration', 'cost', 'risk', 'other'];
+    facets.sort((a, b) => facetOrder.indexOf(a) - facetOrder.indexOf(b));
+    const topicId = cid.startsWith('topic:') ? cid.slice(6) : null;
+    const topicName = topicId ? d.prompts.get(pids[0])?.topicName ?? null : null;
+    const label = (l: Lang) => topicName ?? FACET_LABEL[l][cid.slice(7) as Facet] ?? FACET_LABEL[l].other;
+    const topicTotal = topicId ? [...d.prompts.values()].filter((p) => p.topicId === topicId).length : null;
+    const ownRate = agg.own / agg.n;
+    const compShare = agg.withComp / agg.n;
+    return { cid, sts, agg, pids, facets, topicName, label, topicTotal, ownRate, compShare };
+  });
+  // die wichtigsten Cluster zuerst (Reichweite), höchstens CONTENT_GAP_MAX
+  drafts.sort((a, b) => b.agg.withComp - a.agg.withComp || b.sts.length - a.sts.length || a.cid.localeCompare(b.cid));
+  const out: Candidate[] = [];
+  for (const c of drafts.slice(0, CONTENT_GAP_MAX)) {
+    const ownPages = ownPagesFor(ix, c.pids).filter(isTopicBase);
+    // Kosten-Cluster ohne genutzte eigene Seite → Preisseite aus dem Website-Check als Ausgangspunkt
+    const pricing = c.facets.includes('cost') ? keyPages.find((p) => p.kind === 'pricing')?.url : undefined;
+    const basePage = ownPages.find((u) => !assigned.has(u)) ?? (pricing && !assigned.has(cleanUrl(pricing)) ? cleanUrl(pricing) : null);
     if (basePage) assigned.add(basePage);
-    const title = suggestTitle(text, year);
-    const examples: Example[] = rs.filter((r) => !ix.ownNamed.has(r.id) && ix.compsByResp.has(r.id)).slice(0, 5).map((r) => {
-      const m = (ix.compsByResp.get(r.id) ?? []).sort((a, b) => a.position - b.position)[0];
-      const src = (ix.metricCits.get(r.id) ?? [])[0];
-      return { prompt: text, engine: r.engine, snippet: m?.snippet ? quote(m.snippet) : undefined, url: src ? cleanUrl(src.url) : undefined };
-    });
-    const alts = comps.length ? comps : others;
+    const k = c.sts.length;
+    const words = (l: Lang) => c.facets.map((f) => FACET_WORD[l][f]).filter(Boolean).slice(0, 3);
+    const title = (l: Lang) => {
+      const w = words(l);
+      return `${c.label(l)}${w.length ? `: ${listL(w, l)}` : l === 'en' ? ' – overview' : ' – Überblick'} (${year})`;
+    };
+    const qs = c.sts.slice(0, 3).map((s) => q(ix.promptText(s.pid), 70));
+    const more = k - qs.length;
+    const sections = (l: Lang) => listL(c.facets.map((f) => FACET_LABEL[l][f]), l);
+    const multi = k > 1;
     out.push(make(ix.lang, {
-      key: `content_gap:${st.pid}`,
+      key: `content_gap:${c.cid}`,
       type: 'content_gap',
       text: (l) => l === 'en' ? {
-        title: `${basePage ? 'Expand' : 'Create'} a page on “${q(text, 44)}”`,
-        why: `For this question, ${st.withComp} of ${st.n} answers name ${listL(alts.slice(0, 2), 'en')} – ${own.name} ${st.own === 1 ? 'only once' : st.own ? `only ${st.own} times` : 'never'}.`,
+        title: multi
+          ? `${basePage ? 'Expand' : 'Create'} one topic page on “${q(c.label('en'), 36)}” for ${k} questions`
+          : `${basePage ? 'Expand' : 'Create'} a topic page on “${q(c.label('en'), 40)}”`,
+        why: `On “${c.label('en')}”, ${c.agg.withComp} of ${c.agg.n} answers (${k} ${k === 1 ? 'question' : 'questions'}) name ${listL(c.agg.alts.slice(0, 2), 'en')} – ${own.name} ${ownTimes(c.agg.own, 'en')}.`,
         steps: [
-          `${basePage ? `Align the existing page ${shortPath(basePage)} with this question` : `Create a dedicated page that answers exactly this question${ownPages.length ? ` (and link to it from ${shortPath(ownPages[0])})` : ''}`} – suggested title: “${title}”.`,
-          'Open with a clear answer in two or three sentences, then add details, a comparison table and FAQs.',
-          `Work ${own.name} explicitly into the answer – with verifiable facts (e.g. pricing, features, target group) and a clear statement of when ${own.name} is the right choice.`,
-          `Include the alternatives that get named (${listL(alts.slice(0, 3), 'en')}) fairly – AI prefers balanced sources.`,
-          'Link to the page from relevant existing pages.',
+          `${basePage ? `Turn ${shortPath(basePage)} into the topic page` : 'Create one topic page'} – it covers ${multi ? `${k} of the tested questions at once` : 'the tested question'}, e.g. ${qs.map((x) => `“${x}”`).join(', ')}${more > 0 ? ` and ${more} more (see evidence)` : ''}. Suggested title: “${title('en')}”.`,
+          `The tested questions are a sample of what customers ask AI${c.topicTotal ? ` (${k} of ${c.topicTotal} tested questions on this topic)` : ''}: structure the page by aspects, not by single questions – ${sections('en')}. Then it also answers related questions nobody tested.`,
+          `Open each section with a clear answer in two or three sentences; work ${own.name} in with verifiable facts (pricing, features, target group, customer examples).`,
+          `Include the alternatives that get named (${listL(c.agg.alts.slice(0, 3), 'en')}) fairly – AI prefers balanced sources.`,
+          'Link the page from your home and product pages. Add future questions on this topic as sections here instead of creating new single pages.',
         ],
       } : {
-        title: `Seite zu „${q(text, 44)}“ ${basePage ? 'ausbauen' : 'erstellen'}`,
-        why: `Bei dieser Frage nennen ${st.withComp} von ${st.n} Antworten ${listL(alts.slice(0, 2), 'de')}, ${own.name} ${st.own === 1 ? 'nur einmal' : st.own ? `nur ${st.own}-mal` : 'nie'}.`,
+        title: multi
+          ? `Eine Themenseite „${q(c.label('de'), 34)}“ für ${k} Fragen ${basePage ? 'ausbauen' : 'anlegen'}`
+          : `Themenseite „${q(c.label('de'), 40)}“ ${basePage ? 'ausbauen' : 'anlegen'}`,
+        why: `Zu „${c.label('de')}“ nennen ${c.agg.withComp} von ${c.agg.n} Antworten (${k} ${k === 1 ? 'Frage' : 'Fragen'}) ${listL(c.agg.alts.slice(0, 2), 'de')}, ${own.name} ${ownTimes(c.agg.own, 'de')}.`,
         steps: [
-          `${basePage ? `Bestehende Seite ${shortPath(basePage)} gezielt auf diese Frage ausrichten` : `Eine eigene Seite anlegen, die genau diese Frage beantwortet${ownPages.length ? ` (und von ${shortPath(ownPages[0])} aus verlinken)` : ''}`} – Titelvorschlag: „${title}“.`,
-          'Gleich am Anfang eine klare Antwort in zwei bis drei Sätzen geben, danach Details, eine Vergleichstabelle und häufige Fragen.',
-          `${own.name} ausdrücklich in die Antwort einbinden – mit überprüfbaren Fakten (z. B. Preise, Leistungen, Zielgruppe) und einer klaren Aussage, wann ${own.name} weiterhilft.`,
-          `Die genannten Alternativen (${listL(alts.slice(0, 3), 'de')}) fair einbeziehen – KIs bevorzugen ausgewogene Quellen.`,
-          'Die Seite von passenden bestehenden Seiten aus verlinken.',
+          `${basePage ? `${shortPath(basePage)} zur Themenseite ausbauen` : 'Eine Themenseite anlegen'} – sie deckt ${multi ? `${k} der getesteten Fragen auf einmal` : 'die getestete Frage'} ab, z. B. ${qs.map((x) => `„${x}“`).join(', ')}${more > 0 ? ` und ${more} weitere (siehe Belege)` : ''}. Titelvorschlag: „${title('de')}“.`,
+          `Die getesteten Fragen sind eine Stichprobe dessen, was Kunden die KIs fragen${c.topicTotal ? ` (${k} von ${c.topicTotal} Testfragen zu diesem Thema)` : ''}: Gliedere nach Aspekten statt nach Einzelfragen – ${sections('de')}. So beantwortet die Seite auch verwandte Fragen, die niemand getestet hat.`,
+          `Jeden Abschnitt mit einer klaren Antwort in zwei bis drei Sätzen beginnen; ${own.name} mit überprüfbaren Fakten einbinden (Preise, Funktionen, Zielgruppe, Kundenbeispiele).`,
+          `Die genannten Alternativen (${listL(c.agg.alts.slice(0, 3), 'de')}) fair einbeziehen – KIs bevorzugen ausgewogene Quellen.`,
+          'Die Seite von Startseite und Produktseiten verlinken. Spätere Fragen zum Thema hier als Abschnitt ergänzen statt neuer Einzelseiten.',
         ],
       },
-      impact: ownRate === 0 && st.withComp / st.n >= 0.6 ? 3 : 2,
+      impact: (k >= 2 && c.ownRate <= 0.1 && c.compShare >= 0.5) || (c.ownRate === 0 && c.compShare >= 0.6) ? 3 : 2,
       effort: basePage ? 2 : 3,
-      // Reichweite: Anteil aller Antworten, die diese Lücke betrifft (ein Prompt von vielen)
-      reach: st.withComp / ix.N,
+      // Reichweite: Anteil aller Antworten, die dieses Cluster betrifft
+      reach: c.agg.withComp / ix.N,
       evidence: {
-        metrics: { responses: st.n, ownNamed: st.own, competitorOnly: st.withComp, ownSiteUsed: st.ownSite, totalResponses: ix.N },
-        examples,
-        promptIds: [st.pid],
-        prompts: [{ id: st.pid, text, missing: st.missing }],
-        competitors: named.slice(0, 6).map(([name, count]) => ({ name, count })),
-        titleSuggestion: title,
+        metrics: { responses: c.agg.n, ownNamed: c.agg.own, competitorOnly: c.agg.withComp, ownSiteUsed: c.agg.ownSite, totalResponses: ix.N, questions: k, topicQuestions: c.topicTotal },
+        examples: c.agg.examples,
+        promptIds: c.pids,
+        prompts: c.sts.slice(0, 8).map((s) => ({ id: s.pid, text: ix.promptText(s.pid), missing: s.missing })),
+        competitors: c.agg.namedSorted.slice(0, 6).map(([name, count]) => ({ name, count })),
+        cluster: { kind: c.cid.startsWith('topic:') ? 'topic' : 'intent', id: c.cid.replace(/^(topic|intent):/, ''), label: c.label(ix.lang) },
+        // Aspekte der Gliederung: Bezeichnungen in der Workspace-Sprache (für die KI) und in allen Sprachen (Claude-Prompt)
+        facets: c.facets.map((f) => FACET_LABEL[ix.lang][f]),
+        facetsByLang: { de: c.facets.map((f) => FACET_LABEL.de[f]), en: c.facets.map((f) => FACET_LABEL.en[f]) },
+        titleSuggestion: title(ix.lang),
         basePage,
         ownPages: ownPages.slice(0, 3),
       },
-      signature: { o: st.own, c: Math.min(st.withComp, st.n), m: st.missing.length, b: basePage },
+      signature: { o: bucket(c.ownRate), c: bucket(c.compShare), k, b: basePage, a: anyTopic },
     }));
   }
-  // höchstens CONTENT_GAP_MAX Fragen – die wichtigsten zuerst (mehr Seiten auf einmal setzt ohnehin niemand um)
-  return out.sort((a, b) => b.priority - a.priority || a.key.localeCompare(b.key)).slice(0, CONTENT_GAP_MAX);
+  return out.sort((a, b) => b.priority - a.priority || a.key.localeCompare(b.key));
+}
+
+// ---------------------------------------------------------------------------
+// comparison: eigene, transparente Vergleichs- und Alternativenseiten
+// ---------------------------------------------------------------------------
+export function ruleComparison(ix: Indexed, d: RecData): Candidate[] {
+  const own = ix.own;
+  if (!own || !ix.competitors.length) return [];
+  const sts = gapStats(ix, 0.3).filter((st) => isComparisonPrompt(ix, ix.promptText(st.pid)));
+  if (!sts.length) return [];
+  sts.sort((a, b) => b.withComp - a.withComp || a.pid.localeCompare(b.pid));
+  const agg = aggregate(ix, sts);
+  // Wettbewerber, nach denen gefragt wird (im Fragetext), sonst die in den Antworten genannten
+  const asked = new Map<string, number>();
+  for (const s of sts) for (const b of brandsInText(ix.promptText(s.pid), ix.competitors)) asked.set(b.name, (asked.get(b.name) ?? 0) + 1);
+  const targets = [...asked.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([n]) => n);
+  for (const n of agg.alts) if (!targets.includes(n) && ix.competitors.some((c) => c.name === n)) targets.push(n);
+  const top = targets.slice(0, 3);
+  if (!top.length) return [];
+  // vorhandene eigene Vergleichsseiten: Website-Check (Unterseite „comparison“) oder genutzte eigene URLs mit vs/alternative/vergleich
+  const fromCheck = (d.siteChecks ?? []).flatMap((c) => c.pages ?? []).filter((p) => p.kind === 'comparison' && p.status !== null && p.status < 400).map((p) => cleanUrl(p.url));
+  const fromCits = ownPagesFor(ix, sts.map((s) => s.pid)).filter((u) => /(^|[/-])(vs|versus|vergleich|compare|comparison|alternativ\w*)([/-]|$)/i.test(new URL(u).pathname));
+  const existing = uniq([...fromCits, ...fromCheck]);
+  const k = sts.length;
+  const ownRate = agg.own / agg.n;
+  const compShare = agg.withComp / agg.n;
+  const qs = sts.slice(0, 3).map((s) => q(ix.promptText(s.pid), 70));
+  const more = k - qs.length;
+  const domain = own.domains[0] ?? '';
+  return [make(ix.lang, {
+    key: 'comparison:pages',
+    type: 'comparison',
+    text: (l) => l === 'en' ? {
+      title: `${existing.length ? 'Expand' : 'Create'} comparison pages: ${own.name} vs. ${listL(top.slice(0, 2), 'en')}`,
+      why: `For ${k} comparison and alternative ${k === 1 ? 'question' : 'questions'}, ${agg.withComp} of ${agg.n} answers name competitors – ${own.name} ${ownTimes(agg.own, 'en')}.`,
+      steps: [
+        `${existing.length ? `Build on ${existing.slice(0, 2).map(shortPath).join(', ')}: one` : 'One'} overview page “Alternatives to ${top[0]}” plus one page each “${own.name} vs. ${top[0]}”${top[1] ? `, “${own.name} vs. ${top[1]}”` : ''}${top[2] ? ` and “${own.name} vs. ${top[2]}”` : ''} on ${domain || 'your website'} – together they cover ${k === 1 ? 'the tested question' : `the ${k} tested questions`}, e.g. ${qs.map((x) => `“${x}”`).join(', ')}${more > 0 ? ` and ${more} more` : ''}.`,
+        `Be transparent: clearly mark the page as ${own.name}’s comparison (publisher, as-of date), describe competitors fairly including their strengths and say who each option suits better. AI favors balanced sources, and comparative advertising must be objective and verifiable.`,
+        'One table per page with the criteria the AI names in its answers (see evidence) – values only where you can back them up, with a source or test date.',
+        'Don’t create seemingly independent comparison sites on extra domains: hidden self-promotion is misleading under unfair-competition law and gets devalued as spam.',
+        'Link the pages from your home page, pricing page and FAQ, and update them every quarter (visible date).',
+      ],
+    } : {
+      title: `Vergleichsseiten ${existing.length ? 'ausbauen' : 'anlegen'}: ${own.name} vs. ${listL(top.slice(0, 2), 'de')}`,
+      why: `Bei ${k} Vergleichs- und Alternativ${k === 1 ? 'frage' : 'fragen'} nennen ${agg.withComp} von ${agg.n} Antworten Wettbewerber, ${own.name} ${ownTimes(agg.own, 'de')}.`,
+      steps: [
+        `${existing.length ? `Auf ${existing.slice(0, 2).map(shortPath).join(', ')} aufbauen: eine` : 'Eine'} Übersichtsseite „Alternativen zu ${top[0]}“ plus je eine Seite „${own.name} vs. ${top[0]}“${top[1] ? `, „${own.name} vs. ${top[1]}“` : ''}${top[2] ? ` und „${own.name} vs. ${top[2]}“` : ''} auf ${domain || 'der eigenen Website'} – zusammen decken sie ${k === 1 ? 'die getestete Frage' : `die ${k} getesteten Fragen`} ab, z. B. ${qs.map((x) => `„${x}“`).join(', ')}${more > 0 ? ` und ${more} weitere` : ''}.`,
+        `Transparent bleiben: die Seite klar als Vergleich von ${own.name} kennzeichnen (Absender, Stand-Datum), Wettbewerber fair mit ihren Stärken darstellen und sagen, für wen welche Lösung besser passt. KIs bevorzugen ausgewogene Quellen, und vergleichende Werbung muss sachlich und nachprüfbar sein (§ 6 UWG).`,
+        'Je Seite eine Tabelle mit den Kriterien, die die KIs in ihren Antworten nennen (siehe Belege) – Werte nur, wenn belegbar, mit Quelle oder Teststand.',
+        'Keine scheinbar unabhängigen Vergleichsseiten auf Extra-Domains: verdeckte Eigenwerbung ist irreführend (UWG) und wird als Spam abgewertet.',
+        'Die Seiten von Startseite, Preisseite und FAQ verlinken und quartalsweise aktualisieren (sichtbares Datum).',
+      ],
+    },
+    impact: (k >= 2 && ownRate <= 0.1 && compShare >= 0.5) ? 3 : 2,
+    effort: existing.length ? 2 : 3,
+    reach: agg.withComp / ix.N,
+    evidence: {
+      metrics: { responses: agg.n, ownNamed: agg.own, competitorOnly: agg.withComp, totalResponses: ix.N, questions: k },
+      examples: agg.examples,
+      promptIds: sts.map((s) => s.pid),
+      prompts: sts.slice(0, 8).map((s) => ({ id: s.pid, text: ix.promptText(s.pid), missing: s.missing })),
+      competitors: agg.namedSorted.slice(0, 6).map(([name, count]) => ({ name, count })),
+      targets: top,
+      existingPages: existing.slice(0, 3),
+      basePage: existing[0] ?? null,
+    },
+    signature: { o: bucket(ownRate), c: bucket(compShare), k, t: top, e: existing.length > 0 },
+  })];
 }
 
 // ---------------------------------------------------------------------------
@@ -819,7 +1055,7 @@ export function ruleTechnical(ix: Indexed, checks: SiteCheckResult[] | undefined
           'Hinweis: Google AI Overviews und AI Mode richten sich nach Googlebot, nicht nach Google-Extended.',
         ],
       },
-      impact, effort: 1, reach: allRedirected ? 0.1 : level === 3 ? 1 : level === 2 ? 0.4 : 0.2,
+      impact, effort: 1, reach: allRedirected ? 0.1 : level === 3 ? 1 : level === 2 ? 0.4 : 0.2, certainty: answerBots.length ? 'proven' : 'likely',
       evidence: {
         metrics: { ...metricsBase, blockedBots: bots.length, blockedAnswerBots: answerBots.length },
         // ausführliche Einordnung für Detailansicht und Claude-Prompt: redirects/consequence in der Workspace-Sprache, *ByLang in allen
@@ -832,13 +1068,19 @@ export function ruleTechnical(ix: Indexed, checks: SiteCheckResult[] | undefined
   }
 
   const lowText = ok.filter((c) => (c.home.textChars ?? 0) < 500);
-  if (lowText.length) {
-    const minChars = Math.min(...lowText.map((c) => c.home.textChars ?? 0));
+  // wichtige Unterseiten, die ohne JavaScript (fast) leer sind
+  const lowPages = ok.flatMap((c) => (c.pages ?? []).filter((p) => p.status !== null && p.status < 400 && p.textChars !== null && p.textChars < 300));
+  if (lowText.length || lowPages.length) {
+    const minChars = lowText.length ? Math.min(...lowText.map((c) => c.home.textChars ?? 0)) : Math.min(...lowPages.map((p) => p.textChars ?? 0));
+    const homeLow = lowText.length > 0;
+    const sub = lowPages.map((p) => shortPath(p.url)).slice(0, 3).join(', ');
     out.push(make(ix.lang, {
       key: 'technical:js_text', type: 'technical',
       text: (l) => l === 'en' ? {
         title: 'Make your content available without JavaScript',
-        why: `Without JavaScript, the home page shows only ${minChars} characters of text – many AI crawlers can’t see the content.`,
+        why: homeLow
+          ? `Without JavaScript, the home page shows only ${minChars} characters of text – many AI crawlers can’t see the content.`
+          : `Without JavaScript, key pages show almost no text (${sub}) – many AI crawlers can’t see the content.`,
         steps: [
           'Check with your developers whether the pages can be rendered on the server or pre-rendered (SSR/SSG).',
           'Test it: open the page in a browser with JavaScript disabled – headings, text and prices must be visible.',
@@ -846,20 +1088,26 @@ export function ruleTechnical(ix: Indexed, checks: SiteCheckResult[] | undefined
         ],
       } : {
         title: 'Inhalte ohne JavaScript auslieferbar machen',
-        why: `Ohne JavaScript zeigt die Startseite nur ${minChars} Zeichen Text – viele KI-Crawler sehen die Inhalte nicht.`,
+        why: homeLow
+          ? `Ohne JavaScript zeigt die Startseite nur ${minChars} Zeichen Text – viele KI-Crawler sehen die Inhalte nicht.`
+          : `Ohne JavaScript zeigen wichtige Unterseiten kaum Text (${sub}) – viele KI-Crawler sehen die Inhalte nicht.`,
         steps: [
           'Mit der Entwicklung klären, ob die Seiten serverseitig gerendert oder vorgerendert werden können (SSR/SSG).',
           'Prüfen: Seite mit deaktiviertem JavaScript im Browser öffnen – Überschriften, Texte und Preise müssen sichtbar sein.',
           'Mindestens die wichtigsten Seiten (Startseite, Produkt, Preise, Ratgeber) als HTML mit Text ausliefern.',
         ],
       },
-      impact: 3, effort: 3, reach: 1,
-      evidence: { metrics: { ...metricsBase, minTextChars: Math.min(...lowText.map((c) => c.home.textChars ?? 0)) }, examples: [], domains: domainsOf(lowText) },
-      signature: { d: domainsOf(lowText) },
+      impact: homeLow ? 3 : 2, effort: 3, reach: homeLow ? 1 : 0.5, certainty: 'proven',
+      evidence: {
+        metrics: { ...metricsBase, minTextChars: minChars },
+        examples: [], domains: domainsOf(homeLow ? lowText : ok),
+        urls: lowPages.map((p) => ({ url: p.url, title: `${p.textChars} Zeichen`, count: 0 })),
+      },
+      signature: { d: domainsOf(lowText), p: lowPages.map((p) => p.url).sort() },
     }));
   }
 
-  const noSchema = ok.filter((c) => !c.home.jsonLd.some(isEntitySchema));
+  const noSchema = ok.filter((c) => !c.home.jsonLd.some(isEntitySchema) && !(c.pages ?? []).some((p) => p.kind === 'about' && p.jsonLd.some(isEntitySchema)));
   if (noSchema.length) {
     out.push(make(ix.lang, {
       key: 'technical:structured_data', type: 'technical',
@@ -882,8 +1130,8 @@ export function ruleTechnical(ix: Indexed, checks: SiteCheckResult[] | undefined
           'Erwartung realistisch halten: Tests zeigen keinen messbaren Zitations-Effekt durch nachträgliches Schema – das ist Grundpflege, kein Hebel.',
         ],
       },
-      impact: 1, effort: 1, reach: 0.2,
-      evidence: { metrics: metricsBase, examples: [], domains: domainsOf(noSchema), jsonLdFound: uniq(noSchema.flatMap((c) => c.home.jsonLd)) },
+      impact: 1, effort: 1, reach: 0.2, certainty: 'uncertain',
+      evidence: { metrics: metricsBase, examples: [], domains: domainsOf(noSchema), jsonLdFound: uniq(noSchema.flatMap((c) => [...c.home.jsonLd, ...(c.pages ?? []).flatMap((p) => p.jsonLd)])) },
       signature: { d: domainsOf(noSchema) },
     }));
   }
@@ -915,8 +1163,276 @@ export function ruleTechnical(ix: Indexed, checks: SiteCheckResult[] | undefined
       signature: { d: domainsOf(blockedHome) },
     }));
   }
+
+  // --- ab hier: vertiefter Check (Felder fehlen bei älteren Ergebnissen → keine Maßnahme) ---
+  type P = { kind: PageKind | 'home'; url: string; noindex?: boolean; canonical?: string | null; metaDescription?: string | null; title?: string | null; ms?: number | null; textChars?: number | null };
+  const pagesOf = (c: SiteCheckResult): P[] => [
+    { kind: 'home', url: c.home.finalUrl ?? `https://${c.domain}/`, noindex: c.home.noindex, canonical: c.home.canonical, metaDescription: c.home.metaDescription, title: c.home.title, ms: c.home.ms, textChars: c.home.textChars },
+    ...(c.pages ?? []).filter((p) => p.status !== null && p.status < 400),
+  ];
+  const kindName = (k: P['kind'], l: Lang) => (l === 'en'
+    ? { home: 'home page', pricing: 'pricing page', product: 'product page', comparison: 'comparison page', faq: 'FAQ', about: 'about page' }
+    : { home: 'Startseite', pricing: 'Preisseite', product: 'Produktseite', comparison: 'Vergleichsseite', faq: 'FAQ', about: 'Über-uns-Seite' })[k];
+  const pageList = (ps: P[], l: Lang) => listL(ps.slice(0, 4).map((p) => `${kindName(p.kind, l)} (${shortPath(p.url)})`), l);
+  const ownHosts = uniq([...own.domains, ...checks.map((c) => c.domain), ...checks.map((c) => (c.home.finalUrl ? hostOf({ url: c.home.finalUrl, domain: '' }) : '')).filter(Boolean)]);
+  const allPages = ok.flatMap(pagesOf);
+
+  // noindex: belegt – Seiten ohne Index fehlen in den Suchindizes (Google, Bing), aus denen KI-Suchen schöpfen
+  const noindex = allPages.filter((p) => p.noindex);
+  if (noindex.length) {
+    const home = noindex.some((p) => p.kind === 'home');
+    out.push(make(ix.lang, {
+      key: 'technical:noindex', type: 'technical',
+      text: (l) => l === 'en' ? {
+        title: 'Remove the noindex tag from important pages',
+        why: `${home ? 'The home page is' : `${noindex.length} important ${noindex.length === 1 ? 'page is' : 'pages are'}`} set to noindex – search indexes that AI search draws on leave ${home || noindex.length === 1 ? 'it' : 'them'} out.`,
+        steps: [
+          `Affected: ${pageList(noindex, 'en')}.`,
+          'Remove “noindex” from the meta robots tag or the X-Robots-Tag header – often a CMS setting like “discourage search engines” left over from the launch.',
+          'Then request indexing in Google Search Console and Bing Webmaster Tools (URL inspection).',
+        ],
+      } : {
+        title: 'noindex-Sperre auf wichtigen Seiten entfernen',
+        why: `${home ? 'Die Startseite ist' : `${noindex.length} wichtige ${noindex.length === 1 ? 'Seite ist' : 'Seiten sind'}`} auf noindex gesetzt – Suchindizes, aus denen KI-Suchen schöpfen, lassen ${home || noindex.length === 1 ? 'sie' : 'sie'} weg.`,
+        steps: [
+          `Betroffen: ${pageList(noindex, 'de')}.`,
+          '„noindex“ aus dem Meta-Robots-Tag bzw. dem X-Robots-Tag-Header entfernen – oft eine CMS-Einstellung wie „Suchmaschinen davon abhalten …“ aus der Launch-Phase.',
+          'Danach in der Google Search Console und den Bing Webmaster Tools die Indexierung anstoßen (URL-Prüfung).',
+        ],
+      },
+      impact: home ? 3 : 2, effort: 1, reach: home ? 1 : 0.5, certainty: 'proven',
+      evidence: { metrics: { ...metricsBase, pages: noindex.length }, examples: [], domains: domainsOf(ok), urls: noindex.map((p) => ({ url: p.url, title: kindName(p.kind, ix.lang), count: 0 })) },
+      signature: { u: noindex.map((p) => p.url).sort() },
+    }));
+  }
+
+  // Canonical auf eine fremde Domain bzw. Unterseite mit Canonical auf die Startseite: Suchmaschinen indexieren dann die andere URL
+  const homeOf = (u: string) => { try { const x = new URL(u); return x.pathname.replace(/\/$/, '') === ''; } catch { return false; } };
+  const badCanon = allPages.filter((p) => {
+    if (!p.canonical) return false;
+    const h = hostOf({ url: p.canonical, domain: '' });
+    if (h && !domainMatches(h, ownHosts)) return true;
+    return p.kind !== 'home' && homeOf(p.canonical) && !homeOf(p.url);
+  });
+  if (badCanon.length) {
+    out.push(make(ix.lang, {
+      key: 'technical:canonical', type: 'technical',
+      text: (l) => l === 'en' ? {
+        title: 'Fix canonical tags that point to the wrong URL',
+        why: `${badCanon.length} ${badCanon.length === 1 ? 'page declares' : 'pages declare'} another URL as canonical – search engines may index that one instead.`,
+        steps: [
+          `Check: ${listL(badCanon.slice(0, 4).map((p) => `${shortPath(p.url)} → ${shortPath(p.canonical!)}`), 'en')}.`,
+          'Each page should name itself as canonical (self-referencing), unless it’s really a duplicate.',
+          'Check the template or SEO plugin setting that generates the tag – one wrong default usually affects many pages.',
+        ],
+      } : {
+        title: 'Falsch gesetzte Canonical-Tags korrigieren',
+        why: `${badCanon.length} ${badCanon.length === 1 ? 'Seite verweist' : 'Seiten verweisen'} per Canonical auf eine andere URL – Suchmaschinen indexieren womöglich nur diese.`,
+        steps: [
+          `Prüfen: ${listL(badCanon.slice(0, 4).map((p) => `${shortPath(p.url)} → ${shortPath(p.canonical!)}`), 'de')}.`,
+          'Jede Seite sollte sich selbst als Canonical nennen, außer sie ist wirklich ein Duplikat.',
+          'Die Vorlage bzw. Einstellung im SEO-Plugin prüfen, die das Tag erzeugt – eine falsche Voreinstellung betrifft meist viele Seiten.',
+        ],
+      },
+      impact: 2, effort: 1, reach: 0.5, certainty: 'likely',
+      evidence: { metrics: metricsBase, examples: [], domains: domainsOf(ok), urls: badCanon.map((p) => ({ url: p.url, title: `canonical → ${p.canonical}`, count: 0 })) },
+      signature: { u: badCanon.map((p) => `${p.url}>${p.canonical}`).sort() },
+    }));
+  }
+
+  // Sitemap fehlt oder ist seit über einem Jahr unverändert: Auffindbarkeit für Bing/Google (ChatGPT-Suche stützt sich stark auf Bing)
+  const smChecked = ok.filter((c) => c.sitemap && c.sitemap.status !== null && !robotsStatusUnknownLocal(c.sitemap.status));
+  const now = Date.now();
+  const noSitemap = smChecked.filter((c) => !c.sitemap!.found);
+  const stale = smChecked.filter((c) => c.sitemap!.found && c.sitemap!.newest && now - Date.parse(c.sitemap!.newest) > 365 * 86_400_000);
+  if (noSitemap.length || stale.length) {
+    const missing = noSitemap.length > 0;
+    out.push(make(ix.lang, {
+      key: 'technical:sitemap', type: 'technical',
+      text: (l) => l === 'en' ? {
+        title: missing ? 'Publish an XML sitemap and submit it to Bing and Google' : 'Keep the XML sitemap up to date',
+        why: missing
+          ? 'There’s no XML sitemap – new and updated pages reach the Bing and Google indexes that AI search draws on more slowly.'
+          : `The sitemap’s newest entry is from ${stale[0].sitemap!.newest!.slice(0, 10)} – search engines can’t tell what changed.`,
+        steps: [
+          missing ? 'Have your CMS generate a sitemap (sitemap.xml) with all indexable pages and real lastmod dates.' : 'Make sure the sitemap is generated automatically and lastmod changes only when the content really changes.',
+          'Reference it in robots.txt (“Sitemap: https://…/sitemap.xml”).',
+          'Submit it in Bing Webmaster Tools and Google Search Console; enable IndexNow for Bing if your CMS supports it – ChatGPT search draws heavily on Bing.',
+        ],
+      } : {
+        title: missing ? 'XML-Sitemap bereitstellen und bei Bing und Google einreichen' : 'XML-Sitemap aktuell halten',
+        why: missing
+          ? 'Es gibt keine XML-Sitemap – neue und geänderte Seiten landen langsamer in den Bing- und Google-Indizes, aus denen KI-Suchen schöpfen.'
+          : `Der jüngste Eintrag der Sitemap stammt vom ${stale[0].sitemap!.newest!.slice(0, 10)} – Suchmaschinen erkennen nicht, was sich geändert hat.`,
+        steps: [
+          missing ? 'Das CMS eine Sitemap (sitemap.xml) mit allen indexierbaren Seiten und echten lastmod-Daten erzeugen lassen.' : 'Sicherstellen, dass die Sitemap automatisch erzeugt wird und lastmod sich nur bei echten Inhaltsänderungen ändert.',
+          'In der robots.txt referenzieren („Sitemap: https://…/sitemap.xml“).',
+          'In den Bing Webmaster Tools und der Google Search Console einreichen; IndexNow für Bing aktivieren, falls das CMS es kann – die ChatGPT-Suche stützt sich stark auf Bing.',
+        ],
+      },
+      impact: 1, effort: 1, reach: missing ? 0.4 : 0.2, certainty: 'likely',
+      evidence: { metrics: metricsBase, examples: [], domains: domainsOf([...noSitemap, ...stale]), sitemaps: smChecked.map((c) => ({ domain: c.domain, ...c.sitemap! })) },
+      signature: { m: domainsOf(noSitemap), s: domainsOf(stale) },
+    }));
+  }
+
+  // Titel/Meta-Description fehlen: Suchtreffer (Titel + Snippet) sind das Erste, was KI-Suchen von einer Seite sehen – Wirkung unsicher
+  // nur mit vertieftem Check (metaDescription gesetzt oder ausdrücklich null)
+  const noMeta = allPages.filter((p) => p.textChars !== null && p.metaDescription !== undefined && (p.metaDescription === null || !p.title));
+  if (noMeta.length) {
+    out.push(make(ix.lang, {
+      key: 'technical:meta', type: 'technical',
+      text: (l) => l === 'en' ? {
+        title: 'Add page titles and meta descriptions to key pages',
+        why: `${noMeta.length} key ${noMeta.length === 1 ? 'page lacks' : 'pages lack'} a title or meta description – search results that AI search scans first show no clear summary.`,
+        steps: [
+          `Affected: ${pageList(noMeta, 'en')}.`,
+          'Title: what the page offers plus brand (“… | Brand”); description: one or two factual sentences (max. 155 characters) with the core statement.',
+          'Keep expectations realistic: this is hygiene for search snippets, not a proven lever for being named in AI answers.',
+        ],
+      } : {
+        title: 'Seitentitel und Meta-Descriptions für Kernseiten ergänzen',
+        why: `${noMeta.length} ${noMeta.length === 1 ? 'Kernseite fehlt' : 'Kernseiten fehlen'} Titel oder Meta-Description – Suchtreffer, die KI-Suchen zuerst sichten, zeigen keine klare Zusammenfassung.`,
+        steps: [
+          `Betroffen: ${pageList(noMeta, 'de')}.`,
+          'Titel: was die Seite bietet plus Marke („… | Marke“); Description: ein bis zwei sachliche Sätze (max. 155 Zeichen) mit der Kernaussage.',
+          'Erwartung realistisch halten: Das ist Pflege der Suchtreffer, kein belegter Hebel für Nennungen in KI-Antworten.',
+        ],
+      },
+      impact: 1, effort: 1, reach: 0.2, certainty: 'uncertain',
+      evidence: { metrics: metricsBase, examples: [], domains: domainsOf(ok), urls: noMeta.map((p) => ({ url: p.url, title: kindName(p.kind, ix.lang), count: 0 })) },
+      signature: { u: noMeta.map((p) => p.url).sort() },
+    }));
+  }
+
+  // Sprachversionen ohne hreflang: Suchmaschinen (und damit KI-Suchen) liefern evtl. die falsche Sprachfassung – Wirkung unsicher
+  const noHreflang = ok.filter((c) => (c.languages?.length ?? 0) > 0 && c.home.hreflang !== undefined && !c.home.hreflang.length && !c.sitemap?.hreflang);
+  if (noHreflang.length) {
+    const langs = uniq(noHreflang.flatMap((c) => c.languages ?? []));
+    out.push(make(ix.lang, {
+      key: 'technical:hreflang', type: 'technical',
+      text: (l) => l === 'en' ? {
+        title: 'Link language versions with hreflang',
+        why: `The site has language versions (${langs.map((x) => `/${x}/`).join(', ')}) without hreflang – search may show the wrong language version.`,
+        steps: [
+          'Add hreflang links between each page and its translations (including x-default), in the HTML head or the sitemap.',
+          'For DACH: use “de” for one German version for all countries; use de-DE/de-AT/de-CH only if content really differs.',
+          'Effect on AI answers is indirect: it helps search engines pick the right version for German questions.',
+        ],
+      } : {
+        title: 'Sprachversionen per hreflang verknüpfen',
+        why: `Die Website hat Sprachversionen (${langs.map((x) => `/${x}/`).join(', ')}) ohne hreflang – Suchen zeigen womöglich die falsche Sprachfassung.`,
+        steps: [
+          'hreflang-Verweise zwischen jeder Seite und ihren Übersetzungen ergänzen (inkl. x-default), im HTML-Head oder in der Sitemap.',
+          'Für DACH: „de“ für eine deutsche Fassung für alle Länder; de-DE/de-AT/de-CH nur, wenn sich die Inhalte wirklich unterscheiden.',
+          'Die Wirkung auf KI-Antworten ist indirekt: Suchmaschinen finden für deutsche Fragen eher die deutsche Fassung.',
+        ],
+      },
+      impact: 1, effort: 2, reach: 0.2, certainty: 'uncertain',
+      evidence: { metrics: metricsBase, examples: [], domains: domainsOf(noHreflang), languages: langs },
+      signature: { d: domainsOf(noHreflang), l: langs },
+    }));
+  }
+
+  // langsame Antwort (vom Askmetry-Server gemessen, inkl. Body): KI-Abrufe im Auftrag der Nutzer warten nur kurz – Wirkung unsicher
+  const slow = allPages.filter((p) => (p.ms ?? 0) > SLOW_MS);
+  if (slow.length) {
+    const maxS = Math.max(...slow.map((p) => p.ms ?? 0)) / 1000;
+    out.push(make(ix.lang, {
+      key: 'technical:speed', type: 'technical',
+      text: (l) => l === 'en' ? {
+        title: 'Speed up slow pages',
+        why: `${slow.length} key ${slow.length === 1 ? 'page needs' : 'pages need'} up to ${maxS.toFixed(1)} s to load as HTML – live fetches by AI assistants may give up.`,
+        steps: [
+          `Affected: ${pageList(slow, 'en')}.`,
+          'Check server response time and caching (CDN, page cache) – the HTML itself should arrive in well under a second.',
+          'Measured once from our server: re-test before investing; the effect on AI answers is plausible but not proven.',
+        ],
+      } : {
+        title: 'Langsame Seiten beschleunigen',
+        why: `${slow.length} ${slow.length === 1 ? 'Kernseite braucht' : 'Kernseiten brauchen'} bis zu ${maxS.toFixed(1).replace('.', ',')} s für das HTML – Live-Abrufe von KI-Assistenten brechen womöglich ab.`,
+        steps: [
+          `Betroffen: ${pageList(slow, 'de')}.`,
+          'Server-Antwortzeit und Caching prüfen (CDN, Seiten-Cache) – das HTML selbst sollte deutlich unter einer Sekunde da sein.',
+          'Einmalig von unserem Server gemessen: vor größerem Aufwand nachmessen; die Wirkung auf KI-Antworten ist plausibel, aber nicht belegt.',
+        ],
+      },
+      impact: 1, effort: 2, reach: 0.2, certainty: 'uncertain',
+      evidence: { metrics: { ...metricsBase, maxMs: Math.max(...slow.map((p) => p.ms ?? 0)) }, examples: [], domains: domainsOf(ok), urls: slow.map((p) => ({ url: p.url, title: `${p.ms} ms`, count: 0 })) },
+      signature: { u: slow.map((p) => p.url).sort() },
+    }));
+  }
   return out;
 }
+
+/** HTML langsamer als das gilt als langsam (inkl. Body, vom Askmetry-Server gemessen) */
+export const SLOW_MS = 4_000;
+const robotsStatusUnknownLocal = (status: number | null) => status === null || status === 429 || status >= 500;
+
+/**
+ * Suchindex-Lücke (datengetrieben, ohne Abruf): Nutzt ChatGPT (Bing-Index) bzw. Claude (Brave Search) die eigene Website
+ * deutlich seltener als die anderen KI-Suchen, ist die Website dort womöglich schlecht indexiert. Andere Ursachen sind möglich →
+ * Wirkung unsicher.
+ */
+export function ruleSearchIndex(ix: Indexed, checks: SiteCheckResult[] | undefined): Candidate[] {
+  const own = ix.own;
+  if (!own?.domains.length || !checks?.length) return [];
+  const blocked = new Set(checks.flatMap((c) => c.robots.blocked));
+  const n = new Map<string, number>(), used = new Map<string, number>();
+  for (const r of ix.respById.values()) {
+    // nur Antworten mit Quellen: Claude sucht z. B. nicht bei jeder Frage – ohne Suche kann keine Quelle fehlen
+    if (!(ix.allCits.get(r.id)?.length)) continue;
+    n.set(r.engine, (n.get(r.engine) ?? 0) + 1);
+    if (ix.ownSiteResps.has(r.id)) used.set(r.engine, (used.get(r.engine) ?? 0) + 1);
+  }
+  const share = (e: string) => (n.get(e) ? (used.get(e) ?? 0) / n.get(e)! : 0);
+  const INDEX: Record<string, { index: string; tool: string; bots: string[] }> = {
+    chatgpt: { index: 'Bing', tool: 'Bing Webmaster Tools', bots: ['OAI-SearchBot', 'Bingbot'] },
+    claude: { index: 'Brave Search', tool: 'Brave Search', bots: ['Claude-SearchBot'] },
+  };
+  const weak = Object.keys(INDEX).filter((e) => {
+    const others = [...n.keys()].filter((x) => x !== e && x !== 'mock' && (n.get(x) ?? 0) >= 10);
+    // Vergleich mit dem Median der anderen KI-Suchen (nicht der besten – eine Ausreißer-Engine allein soll nicht auslösen)
+    const sh = others.map(share).sort((a, b) => a - b);
+    const mid = sh.length ? (sh.length % 2 ? sh[(sh.length - 1) / 2] : (sh[sh.length / 2 - 1] + sh[sh.length / 2]) / 2) : 0;
+    return (n.get(e) ?? 0) >= 10 && others.length >= 2 && mid >= 0.05 && share(e) < 0.35 * mid && !INDEX[e].bots.some((b) => blocked.has(b));
+  });
+  if (!weak.length) return [];
+  const others = [...n.keys()].filter((x) => !weak.includes(x) && x !== 'mock' && (n.get(x) ?? 0) >= 10).sort((a, b) => share(b) - share(a));
+  const best = others[0];
+  const fmt = (e: string) => `${Math.round(share(e) * 100)} %`;
+  const domain = own.domains[0];
+  const idx = weak.map((e) => INDEX[e].index);
+  return [make(ix.lang, {
+    key: 'technical:search_index', type: 'technical',
+    text: (l) => l === 'en' ? {
+      title: `Check that ${domain} is indexed in ${listL(idx, 'en')}`,
+      why: `${listL(weak.map((e) => engineLabel(e)), 'en')} ${weak.length === 1 ? 'uses' : 'use'} ${domain} in ${listL(weak.map(fmt), 'en')} of answers with sources, ${engineLabel(best)} in ${fmt(best)} – possibly an index gap.`,
+      steps: [
+        ...(weak.includes('chatgpt') ? ['Register the site in Bing Webmaster Tools, submit the sitemap and check the indexed pages and crawl errors – ChatGPT search draws heavily on Bing.'] : []),
+        ...(weak.includes('claude') ? [`Search for your key pages on search.brave.com (e.g. “site:${domain}”) – Claude’s web search uses Brave.`] : []),
+        'Enable IndexNow (supported by Bing and others) so new pages are found quickly.',
+        'Other causes are possible (different sources per engine) – re-check after the next measurement.',
+      ],
+    } : {
+      title: `Indexierung von ${domain} in ${listL(idx, 'de')} prüfen`,
+      why: `${listL(weak.map((e) => engineLabel(e)), 'de')} ${weak.length === 1 ? 'nutzt' : 'nutzen'} ${domain} in ${listL(weak.map(fmt), 'de')} der Antworten mit Quellen, ${engineLabel(best)} in ${fmt(best)} – womöglich eine Index-Lücke.`,
+      steps: [
+        ...(weak.includes('chatgpt') ? ['Website in den Bing Webmaster Tools anmelden, Sitemap einreichen und indexierte Seiten sowie Crawling-Fehler prüfen – die ChatGPT-Suche stützt sich stark auf Bing.'] : []),
+        ...(weak.includes('claude') ? [`Wichtige Seiten auf search.brave.com suchen (z. B. „site:${domain}“) – die Websuche von Claude nutzt Brave.`] : []),
+        'IndexNow aktivieren (von Bing u. a. unterstützt), damit neue Seiten schnell gefunden werden.',
+        'Andere Ursachen sind möglich (jede KI-Suche nutzt andere Quellen) – nach der nächsten Messung erneut prüfen.',
+      ],
+    },
+    impact: 2, effort: 1, reach: 0.3, certainty: 'uncertain',
+    evidence: {
+      metrics: { responses: ix.N, ownSiteResponses: ix.ownSiteResps.size, ...Object.fromEntries([...n.keys()].map((e) => [`share_${e}`, Math.round(share(e) * 1000) / 1000])) },
+      examples: [], domain, engines: weak, comparedTo: best,
+    },
+    signature: { w: weak, b: bucket(share(best)) },
+  })];
+}
+
 
 // ---------------------------------------------------------------------------
 // positioning
@@ -1060,16 +1576,284 @@ export function ruleSentiment(ix: Indexed): Candidate[] {
   })];
 }
 
+// ---------------------------------------------------------------------------
+// listicle: in fremde Bestenlisten und Vergleichsartikel aufgenommen werden
+// ---------------------------------------------------------------------------
+/** URL/Titel klingt nach Liste oder Vergleich („Die 10 besten …“, „X vs. Y“, „Alternativen zu …“, „Top Tools“). */
+// Wortgrenzen mit Unicode-Lookarounds: \b behandelt Umlaute als Grenze („Bestände“ wäre sonst „best“)
+const LIST_RE = /(?<![\p{L}\p{N}])(best|beste[nrs]?|besten|top[\s-]?\d*|\d+[\s-]*(best|top|tools|software|anbieter|alternativ\p{L}*|plattformen|platforms|programme|lösungen|solutions)|vergleich\p{L}*|comparison|compared|alternativ\p{L}*|ranking|vs|versus)(?![\p{L}\p{N}])/iu;
+export const LISTICLE_MAX = 6;
+
+export function ruleListicle(ix: Indexed, opts: { skipHosts?: Set<string> } = {}): Candidate[] {
+  const own = ix.own;
+  if (!own || !ix.competitors.length) return [];
+  const vendorOf = vendorMatcher(ix);
+  const pages = new Map<string, { host: string; title: string | null; resps: Set<string>; prompts: Set<string>; comps: Map<string, number> }>();
+  for (const [rid, cs] of ix.compsByResp) {
+    if (ix.ownNamed.has(rid)) continue;
+    const names = uniq(cs.map((m) => ix.compById.get(m.brandId!)!.name));
+    const seen = new Set<string>();
+    for (const c of ix.metricCits.get(rid) ?? []) {
+      const host = hostOf(c);
+      if (!host || domainMatches(host, own.domains) || ix.competitors.some((b) => domainMatches(host, b.domains))) continue;
+      if (communityGroup(c.url) || NO_OUTREACH.some((re) => re.test(host)) || REVIEW_SITES.test(host) || vendorOf(host) || opts.skipHosts?.has(host)) continue;
+      if (own.kind === 'portal' && sourceKindOf(host) === 'comparison') continue;
+      const u = cleanUrl(c.url);
+      if (seen.has(u)) continue;
+      seen.add(u);
+      const e = pages.get(u) ?? { host, title: c.title, resps: new Set(), prompts: new Set(), comps: new Map() };
+      e.title ||= c.title;
+      e.resps.add(rid);
+      e.prompts.add(ix.respById.get(rid)!.promptId);
+      for (const n of names) e.comps.set(n, (e.comps.get(n) ?? 0) + 1);
+      pages.set(u, e);
+    }
+  }
+  // Liste/Vergleich: am Titel bzw. Pfad erkennbar („beste“, „Top 10“, „Alternativen“, „vs“, „Tools“ …)
+  const listLike = (u: string, t: string | null) => { try { return LIST_RE.test(`${t ?? ''} ${decodeURIComponent(new URL(u).pathname).replace(/[-_/]+/g, ' ')}`); } catch { return false; } };
+  const rows = [...pages.entries()].filter(([u, e]) => e.resps.size >= 2 && listLike(u, e.title))
+    .sort((a, b) => b[1].resps.size - a[1].resps.size || b[1].comps.size - a[1].comps.size || a[0].localeCompare(b[0]));
+  if (!rows.length || (rows.length < 2 && rows[0][1].resps.size < 3)) return [];
+  const top = rows.slice(0, LISTICLE_MAX);
+  const affected = new Set(top.flatMap(([, e]) => [...e.resps]));
+  const share = affected.size / ix.N;
+  const comps = new Map<string, number>();
+  for (const [, e] of top) for (const [n, v] of e.comps) comps.set(n, (comps.get(n) ?? 0) + v);
+  const compNames = [...comps.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
+  const list = top.slice(0, 3).map(([u]) => shortPath(u)).join(', ');
+  const examples: Example[] = top.slice(0, 5).map(([url, e]) => {
+    const rid = [...e.resps][0];
+    const r = ix.respById.get(rid)!;
+    const m = (ix.compsByResp.get(rid) ?? []).sort((a, b) => a.position - b.position)[0];
+    return { prompt: ix.promptText(r.promptId), engine: r.engine, url, title: titleFromUrl(url, e.title), snippet: m?.snippet ? quote(m.snippet) : undefined };
+  });
+  const n = top.length;
+  return [make(ix.lang, {
+    key: 'listicle:roundups',
+    type: 'listicle',
+    text: (l) => l === 'en' ? {
+      title: `Get ${own.name} into ${n} best-of lists and comparison articles`,
+      why: `${n} list and comparison ${n === 1 ? 'article is a source' : 'articles are sources'} in ${affected.size} of ${ix.N} answers that name ${compNames[0]}, but not ${own.name}.`,
+      steps: [
+        `Start with these articles: ${list} – who writes them, when were they last updated, which providers are listed and by which criteria?`,
+        'Find out how providers get included: contact the author or editor, a submission form, or an affiliate/partner program (imprint, “for vendors”, footer).',
+        `Send the author a short fact sheet that matches the article’s criteria (category, target group, pricing, customer examples) plus a test account – facts, not marketing copy.`,
+        'Paid placements only if the article marks them as advertising; never offer hidden rewards for a positive mention.',
+        `After it’s published, wait for the next measurement: is ${own.name} named in answers that use these articles?`,
+      ],
+    } : {
+      title: `${own.name} in ${n} Bestenlisten und Vergleichsartikel bringen`,
+      why: `${n} Listen- und Vergleichsartikel sind Quelle in ${affected.size} von ${ix.N} Antworten, die ${compNames[0]} nennen, ${own.name} aber nicht.`,
+      steps: [
+        `Mit diesen Artikeln beginnen: ${list} – wer schreibt dort, wann zuletzt aktualisiert, welche Anbieter stehen drin und nach welchen Kriterien?`,
+        'Herausfinden, wie Anbieter aufgenommen werden: Autor bzw. Redaktion direkt, Einreichungsformular oder Affiliate-/Partnerprogramm (Impressum, „Für Anbieter“, Fußzeile).',
+        'Dem Autor ein kurzes Faktenblatt passend zu den Kriterien des Artikels schicken (Kategorie, Zielgruppe, Preise, Kundenbeispiele) plus Testzugang – Fakten statt Werbetext.',
+        'Bezahlte Platzierungen nur, wenn der Artikel sie als Anzeige kennzeichnet; nie verdeckte Gegenleistungen für eine positive Nennung anbieten.',
+        `Nach der Veröffentlichung die nächste Messung abwarten: Wird ${own.name} in Antworten mit diesen Artikeln als Quelle genannt?`,
+      ],
+    },
+    impact: share >= 0.15 ? 3 : share >= 0.03 ? 2 : 1,
+    effort: 2,
+    reach: share,
+    evidence: {
+      metrics: { responses: ix.N, affected: affected.size, share, pages: n, candidates: rows.length },
+      examples,
+      promptIds: uniq(top.flatMap(([, e]) => [...e.prompts])),
+      urls: top.map(([url, e]) => ({ url, title: titleFromUrl(url, e.title), count: e.resps.size })),
+      competitors: compNames.slice(0, 6).map((name) => ({ name, count: comps.get(name)! })),
+      domains: uniq(top.map(([, e]) => e.host)),
+    },
+    signature: { u: top.slice(0, 3).map(([u]) => u), b: bucket(share) },
+  })];
+}
+
+// ---------------------------------------------------------------------------
+// reviews: Bewertungsportale (G2, Capterra, OMR Reviews, Trustpilot …)
+// ---------------------------------------------------------------------------
+export function ruleReviews(ix: Indexed): Candidate[] {
+  const own = ix.own;
+  if (!own) return [];
+  const ownKey = brandKey(own.name);
+  const hosts = new Map<string, { resps: Set<string>; compResps: Set<string>; urls: Map<string, { title: string | null; n: number }>; prompts: Set<string> }>();
+  for (const [rid, cs] of ix.metricCits) {
+    for (const c of cs) {
+      const host = hostOf(c);
+      if (!REVIEW_SITES.test(host)) continue;
+      const e = hosts.get(host) ?? { resps: new Set(), compResps: new Set(), urls: new Map(), prompts: new Set() };
+      e.resps.add(rid);
+      e.prompts.add(ix.respById.get(rid)!.promptId);
+      if (ix.compsByResp.has(rid) && !ix.ownNamed.has(rid)) e.compResps.add(rid);
+      const u = cleanUrl(c.url);
+      const ue = e.urls.get(u) ?? { title: c.title, n: 0 };
+      ue.n++; ue.title ||= c.title;
+      e.urls.set(u, ue);
+      hosts.set(host, e);
+    }
+  }
+  const rows = [...hosts.entries()].sort((a, b) => b[1].resps.size - a[1].resps.size || a[0].localeCompare(b[0]));
+  const affected = new Set(rows.flatMap(([, e]) => [...e.resps]));
+  if (affected.size < 2) return [];
+  const share = affected.size / ix.N;
+  const compOnly = new Set(rows.flatMap(([, e]) => [...e.compResps]));
+  // eigenes Profil schon von einer KI genutzt? (Markenname im Pfad, z. B. g2.com/products/synera)
+  const ownProfiles = rows.flatMap(([, e]) => [...e.urls.keys()]).filter((u) => ownKey.length >= 3 && new URL(u).pathname.split('/').some((seg) => {
+    // ganzes Pfadsegment oder Wortfolge darin (synera, synera-gmbh), nicht Teilwort („nova“ ≠ „innovation“)
+    const toks = seg.toLowerCase().split(/[-_.]+/).map(brandKey).filter(Boolean);
+    return toks.some((_, i) => toks.slice(i).some((__, j) => toks.slice(i, i + j + 1).join('') === ownKey));
+  }));
+  const names = rows.slice(0, 3).map(([h]) => h);
+  const comps = new Map<string, number>();
+  for (const rid of affected) for (const m of ix.compsByResp.get(rid) ?? []) { const n = ix.compById.get(m.brandId!)!.name; comps.set(n, (comps.get(n) ?? 0) + 1); }
+  const compNames = [...comps.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
+  const examples: Example[] = rows.flatMap(([, e]) => [...e.urls.entries()].slice(0, 2)).slice(0, 5).map(([url, u]) => {
+    const c = ix.cits.find((x) => cleanUrl(x.url) === url)!;
+    const r = ix.respById.get(c.responseId)!;
+    return { prompt: ix.promptText(r.promptId), engine: r.engine, url, title: titleFromUrl(url, u.title) };
+  });
+  return [make(ix.lang, {
+    key: 'reviews:profiles',
+    type: 'reviews',
+    text: (l) => l === 'en' ? {
+      title: `Maintain review profiles on ${listL(names.slice(0, 2), 'en')}`,
+      why: `Review sites like ${names[0]} are a source in ${affected.size} of ${ix.N} answers${compNames[0] ? ` – often next to ${compNames[0]}` : ''}.`,
+      steps: [
+        `${ownProfiles.length ? `AI already uses your profile (${shortPath(ownProfiles[0])}); check the others too: ` : 'Check whether '}${own.name} has a complete profile on ${listL(names, 'en')}; if not, claim or create it (description, category, pricing, screenshots, integrations).`,
+        'Pick the categories that match the questions in your measurement – AI uses review sites to compare providers within a category.',
+        'Ask happy customers for honest reviews, e.g. 10 emails after a successful project. No fake or bought reviews and no rewards that depend on a positive rating – that breaks platform rules and consumer-protection law.',
+        'Reply to reviews in a factual tone, including critical ones, and link the profiles from your website.',
+      ],
+    } : {
+      title: `Bewertungsprofile auf ${listL(names.slice(0, 2), 'de')} pflegen`,
+      why: `Bewertungsportale wie ${names[0]} sind Quelle in ${affected.size} von ${ix.N} Antworten${compNames[0] ? ` – oft neben ${compNames[0]}` : ''}.`,
+      steps: [
+        `${ownProfiles.length ? `Dein Profil wird schon genutzt (${shortPath(ownProfiles[0])}); die anderen auch prüfen: ` : 'Prüfen, ob '}${own.name} auf ${listL(names, 'de')} ein vollständiges Profil hat; falls nicht, übernehmen bzw. anlegen (Beschreibung, Kategorie, Preise, Screenshots, Integrationen).`,
+        'Die Kategorien wählen, die zu den Fragen der Messung passen – KIs nutzen Bewertungsportale, um Anbieter einer Kategorie zu vergleichen.',
+        'Zufriedene Kunden um ehrliche Bewertungen bitten, z. B. 10 Mails nach einem erfolgreichen Projekt. Keine gekauften oder gefälschten Bewertungen und keine Belohnung, die von einer positiven Bewertung abhängt – das verstößt gegen Portalregeln und UWG.',
+        'Auf Bewertungen sachlich antworten, auch auf kritische, und die Profile von der eigenen Website verlinken.',
+      ],
+    },
+    impact: share >= 0.1 ? 3 : share >= 0.02 ? 2 : 1,
+    effort: 2,
+    reach: share,
+    evidence: {
+      metrics: { responses: ix.N, affected: affected.size, share, competitorOnly: compOnly.size, portals: rows.length },
+      examples,
+      promptIds: uniq(rows.flatMap(([, e]) => [...e.prompts])),
+      domains: rows.map(([h]) => h),
+      urls: rows.flatMap(([, e]) => [...e.urls.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 3)).slice(0, 8).map(([url, u]) => ({ url, title: titleFromUrl(url, u.title), count: u.n })),
+      competitors: compNames.slice(0, 6).map((name) => ({ name, count: comps.get(name)! })),
+      ownProfiles: ownProfiles.slice(0, 3),
+    },
+    signature: { h: names, b: bucket(share), o: ownProfiles.length > 0 },
+  })];
+}
+
+// ---------------------------------------------------------------------------
+// entity: Wikidata / Wikipedia
+// ---------------------------------------------------------------------------
+const WIKIPEDIA = /(^|\.)wikipedia\.org$/;
+export function ruleEntity(ix: Indexed, checks: SiteCheckResult[] | undefined): Candidate[] {
+  const own = ix.own;
+  if (!own || !checks?.length) return [];
+  const wd = checks.map((c) => c.wikidata).filter((w): w is NonNullable<SiteCheckResult['wikidata']> => !!w);
+  if (!wd.length || wd.every((w) => w.status === 'error')) return [];
+  const found = wd.find((w) => w.status === 'found');
+  // Wikipedia als Quelle (alle Quellen, auch nur gelesene: Wikipedia prägt das Grundwissen der Modelle)
+  const wikiResps = new Set<string>();
+  const articles = new Map<string, { title: string | null; n: number }>();
+  for (const [rid, cs] of ix.allCits) {
+    for (const c of cs) {
+      if (!WIKIPEDIA.test(hostOf(c))) continue;
+      wikiResps.add(rid);
+      const u = cleanUrl(c.url);
+      const a = articles.get(u) ?? { title: c.title, n: 0 };
+      a.n++; a.title ||= c.title;
+      articles.set(u, a);
+    }
+  }
+  const share = wikiResps.size / ix.N;
+  // Wikipedia-Artikel unbekannt (Sitelinks-Abfrage gescheitert): keine Aussage
+  if (found && found.wikipedia === null) return [];
+  const hasWikipedia = !!found?.wikipedia?.length;
+  if (hasWikipedia) return [];
+  // mit Wikidata-Eintrag, aber ohne Wikipedia: nur relevant, wenn die KIs Wikipedia hier oft nutzen
+  if (found && share < 0.2) return [];
+  const top = [...articles.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0])).slice(0, 5);
+  const wikiTitle = (u: string, t: string | null) => {
+    if (t?.trim()) return t.replace(/\s+[–—-]\s+Wikipedia$/i, '').trim();
+    try { return decodeURIComponent(new URL(u).pathname.split('/').pop() ?? '').replace(/_/g, ' ') || u; } catch { return u; }
+  };
+  const artList = (l: Lang) => top.slice(0, 3).map(([u, a]) => (l === 'en' ? `“${wikiTitle(u, a.title)}”` : `„${wikiTitle(u, a.title)}“`)).join(', ');
+  const domain = own.domains[0];
+  const wikiWhy = (l: Lang) => (l === 'en'
+    ? share >= 0.01 ? `Wikipedia is a source in ${wikiResps.size} of ${ix.N} answers` : 'Wikipedia shapes what models know about companies'
+    : share >= 0.01 ? `Wikipedia ist Quelle in ${wikiResps.size} von ${ix.N} Antworten` : 'Wikipedia prägt, was Modelle über Firmen wissen');
+  return [make(ix.lang, {
+    key: 'entity:wikidata',
+    type: 'entity',
+    text: (l) => l === 'en' ? {
+      title: found ? `Build Wikipedia presence for ${own.name} via independent sources` : `Create a Wikidata item for ${own.name}`,
+      why: found
+        ? `${wikiWhy('en')}; ${own.name} has a Wikidata item but no Wikipedia article.`
+        : `${wikiWhy('en')}; there’s no Wikidata item listing ${domain} as the official website.`,
+      steps: [
+        found
+          ? `Complete the Wikidata item (${found.ids[0]}): description, official website, founding date, headquarters, industry, LinkedIn – each with a reliable source.`
+          : `First search wikidata.org for “${own.name}” – an item may exist without (or with a different) official website; then add ${domain} there instead of creating a duplicate. Otherwise create a Wikidata item: name, one-line description (“${own.name}, …”), official website ${domain}, founding date, headquarters, industry, LinkedIn – only facts with public, reliable sources (press, register entry). Wikidata requires that the company is identifiable through such sources.`,
+        'Disclose your conflict of interest on your user page – paid or employer-related edits must be disclosed under the Wikimedia terms of use.',
+        `Don’t write or commission a Wikipedia article about ${own.name}: relevance criteria and conflict-of-interest rules make that risky. Wikipedia presence comes from independent coverage (trade press, studies, analyst reports) – work on that first.`,
+        top.length
+          ? `In the articles the AI reads (${artList('en')}) suggest additions at most on the talk page, with disclosure and independent sources – no promotional edits.`
+          : 'Link the Wikidata item from your website (sameAs, task for your web agency) and from your profiles.',
+      ],
+    } : {
+      title: found ? `Wikipedia-Präsenz für ${own.name} über unabhängige Quellen aufbauen` : `Wikidata-Eintrag für ${own.name} anlegen`,
+      why: found
+        ? `${wikiWhy('de')}; ${own.name} hat einen Wikidata-Eintrag, aber keinen Wikipedia-Artikel.`
+        : `${wikiWhy('de')}; einen Wikidata-Eintrag mit ${domain} als offizieller Website gibt es nicht.`,
+      steps: [
+        found
+          ? `Den Wikidata-Eintrag (${found.ids[0]}) vervollständigen: Beschreibung, offizielle Website, Gründung, Sitz, Branche, LinkedIn – jeweils mit seriöser Quelle.`
+          : `Zuerst auf wikidata.org nach „${own.name}“ suchen – ein Eintrag kann existieren, aber ohne oder mit anderer Website-Angabe; dann dort die offizielle Website ${domain} ergänzen statt einen zweiten anzulegen. Sonst einen Wikidata-Eintrag anlegen: Name, Kurzbeschreibung („${own.name}, …“), offizielle Website ${domain}, Gründung, Sitz, Branche, LinkedIn – nur Angaben mit öffentlichen, seriösen Belegen (Presse, Handelsregister). Wikidata verlangt, dass das Unternehmen über solche Quellen identifizierbar ist.`,
+        'Interessenkonflikt auf der Benutzerseite offenlegen – bezahlte bzw. vom Arbeitgeber veranlasste Bearbeitungen müssen laut Wikimedia-Nutzungsbedingungen offengelegt werden.',
+        `Keinen Wikipedia-Artikel über ${own.name} selbst schreiben oder in Auftrag geben: Relevanzkriterien und Interessenkonflikt-Regeln machen das riskant. Wikipedia-Präsenz entsteht über unabhängige Berichterstattung (Fachmedien, Studien, Analystenberichte) – daran zuerst arbeiten.`,
+        top.length
+          ? `In den Artikeln, die die KIs lesen (${artList('de')}), Ergänzungen höchstens auf der Diskussionsseite vorschlagen – mit Offenlegung und unabhängigen Belegen, keine Werbe-Edits.`
+          : 'Den Wikidata-Eintrag von der Website (sameAs, Aufgabe der Webagentur) und den Profilen aus verlinken.',
+      ],
+    },
+    impact: !found && share >= 0.2 ? 2 : 1,
+    effort: 1,
+    certainty: 'uncertain',
+    reach: Math.min(1, share),
+    evidence: {
+      metrics: { responses: ix.N, wikipediaResponses: wikiResps.size, share },
+      examples: [],
+      domain,
+      wikidata: found ? { ids: found.ids, wikipedia: found.wikipedia } : null,
+      urls: top.map(([url, a]) => ({ url, title: wikiTitle(url, a.title), count: a.n })),
+    },
+    signature: { f: !!found, b: bucket(share) },
+  })];
+}
+
 /** Alle Regeln auf eine Messung anwenden. Ohne eigene Marke gibt es keine Maßnahmen. */
 export function buildCandidates(d: RecData): Candidate[] {
   const ix = indexData(d);
   if (!ix.own || !ix.N) return [];
+  const outreach = ruleOutreach(ix);
   const all = [
     ...ruleNameOnOwnPage(ix, d),
-    ...ruleOutreach(ix),
+    ...outreach,
     ...ruleContentGap(ix, d),
+    ...ruleComparison(ix, d),
+    // Listen auf Domains, die schon eine eigene Outreach-Maßnahme haben, nicht doppelt
+    ...ruleListicle(ix, { skipHosts: new Set(outreach.map((c) => c.evidence.domain).filter((x): x is string => !!x)) }),
+    ...ruleReviews(ix),
+    ...ruleEntity(ix, d.siteChecks),
     ...ruleCommunity(ix),
     ...ruleTechnical(ix, d.siteChecks),
+    ...ruleSearchIndex(ix, d.siteChecks),
     ...rulePositioning(ix),
     ...ruleSentiment(ix),
   ];

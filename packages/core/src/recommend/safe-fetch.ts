@@ -29,7 +29,11 @@ export type SafeFetchOptions = {
   /** Body als Bytes statt Text (Bilder) */
   binary?: boolean;
 };
-export type SafeFetchResult = { status: number; url: string; text: string; truncated: boolean; bytes?: Uint8Array; contentType?: string | null };
+export type SafeFetchResult = {
+  status: number; url: string; text: string; truncated: boolean; bytes?: Uint8Array; contentType?: string | null;
+  /** X-Robots-Tag der letzten Antwort (noindex-Prüfung im Website-Check) */
+  xRobotsTag?: string | null;
+};
 
 export const SAFE_FETCH_MAX_BYTES = 2_000_000;
 export const SAFE_FETCH_MAX_REDIRECTS = 3;
@@ -237,12 +241,13 @@ export async function safeFetch(input: string, opts: SafeFetchOptions = {}): Pro
       continue;
     }
     const contentType = header(res.headers, 'content-type') ?? null;
+    const xRobotsTag = header(res.headers, 'x-robots-tag') ?? null;
     if (opts.binary) {
       const { bytes, truncated } = await readLimitedBytes(res, maxBytes);
-      return { status: res.status, url: url.toString(), text: '', truncated, bytes, contentType };
+      return { status: res.status, url: url.toString(), text: '', truncated, bytes, contentType, xRobotsTag };
     }
     // Große Antworten nicht komplett laden – auch wenn content-length das Limit schon überschreitet, nur den Anfang lesen
     const { text, truncated } = await readLimited(res, maxBytes);
-    return { status: res.status, url: url.toString(), text, truncated, contentType };
+    return { status: res.status, url: url.toString(), text, truncated, contentType, xRobotsTag };
   }
 }

@@ -25,7 +25,7 @@ export interface PhraseContext {
 }
 
 /** Version von Prompt/Standardtexten je Typ – erhöhen, wenn diese Maßnahmen neu formuliert werden sollen. */
-export const PHRASE_VERSION: Record<string, number> = { default: 5, content_gap: 6 };
+export const PHRASE_VERSION: Record<string, number> = { default: 5, content_gap: 7 };
 export const phraseVersion = (type: string) => PHRASE_VERSION[type] ?? PHRASE_VERSION.default;
 
 /** Hash der Kernzahlen: ändert er sich, wird neu formuliert. */
@@ -61,7 +61,7 @@ const schema = {
 /** Evidenz kompakt für das Modell (keine IDs, gekürzte Listen). */
 function compactEvidence(c: Candidate) {
   // keine IDs; Texte in anderen Sprachen (…ByLang) gehen nicht an die KI
-  const { promptIds: _p, competitorId: _c, texts: _t, redirectsByLang: _r, consequenceByLang: _q, ...ev } = c.evidence as Record<string, unknown>;
+  const { promptIds: _p, competitorId: _c, texts: _t, redirectsByLang: _r, consequenceByLang: _q, facetsByLang: _f, ...ev } = c.evidence as Record<string, unknown>;
   const ex = (c.evidence.examples ?? []).map((e) => ({ ...e, engine: engineLabel(e.engine) }));
   return { ...ev, examples: ex };
 }
@@ -69,7 +69,11 @@ function compactEvidence(c: Candidate) {
 const TYPE_HINTS: Record<string, string> = {
   name_on_own_page: 'Eigene Seiten werden als Quelle genutzt, die Marke aber nicht genannt → Marke einmal im ersten Absatz mit Kategorie verknüpfen, eigene Daten/Rechner mit Markennamen benennen. KEIN Markenname in jeder Überschrift oder jedem Titel (unbelegt, wirkt wie Keyword-Stuffing).',
   outreach: 'Drittseite wird bei Wettbewerber-Antworten zitiert. evidence.sourceKind bestimmt die realistische Ansprache: reviews = Profil anlegen und Kunden um Bewertungen bitten; comparison = Listung als Anbieter beantragen (Formular, Partner-/Affiliate-Programm); media = Redaktion eigene Daten oder ein Experten-Zitat anbieten (Digital PR, Erfolg unsicher); site = Autor Fakten bzw. Daten anbieten. Nie vorschlagen, einen Wettbewerber um Nennung zu bitten.',
-  content_gap: 'Für diese Frage fehlt eine eigene Seite bzw. sie wird nicht genutzt → Seite erstellen/ausbauen, Titelvorschlag machen.',
+  content_gap: 'Themen-Cluster: EINE Themenseite deckt mehrere getestete Fragen ab (evidence.prompts). Nie je Frage eine eigene Seite vorschlagen; die Fragen sind eine Stichprobe dessen, was Kunden fragen → nach Aspekten (evidence.facets) gliedern, Titelvorschlag machen.',
+  comparison: 'Eigene, transparente Vergleichs-/Alternativenseiten (Übersicht + je Wettbewerber aus evidence.targets) decken alle Vergleichsfragen ab. Fair, mit Absender und Datum; keine verdeckten Vergleichsdomains.',
+  listicle: 'Fremde Bestenlisten/Vergleichsartikel (evidence.urls), die die KIs zitieren und in denen Wettbewerber stehen → Autor Fakten anbieten; bezahlte Platzierung nur gekennzeichnet.',
+  reviews: 'Bewertungsportale (evidence.domains) als KI-Quelle → Profil vollständig pflegen, Kunden um ehrliche Bewertungen bitten; keine gekauften Bewertungen.',
+  entity: 'Wikidata/Wikipedia: Wikidata-Eintrag mit Belegen und Offenlegung; keinen Wikipedia-Artikel über die eigene Firma vorschlagen. Wirkung unsicher – so sagen.',
   community: 'Reddit/YouTube/Foren werden von den KIs gelesen → transparent und hilfreich mitdiskutieren (kein Astroturfing) oder eigene Videos.',
   technical: 'Technischer Befund aus dem Website-Check.',
   positioning: 'Wettbewerber wird häufiger vor der eigenen Marke empfohlen → Gründe der KIs aufgreifen, eigene Stärken klar dagegensetzen.',

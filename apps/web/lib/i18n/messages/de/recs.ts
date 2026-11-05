@@ -15,6 +15,7 @@ const recs = {
   types: {
     outreach: 'Outreach', name_on_own_page: 'Eigene Seiten', content_gap: 'Content-Lücke', technical: 'Technik',
     community: 'Community', positioning: 'Positionierung', sentiment: 'Tonalität',
+    comparison: 'Vergleichsseiten', listicle: 'Bestenlisten', reviews: 'Bewertungsportale', entity: 'Wikidata & Wikipedia',
   } as Record<string, string>,
   filterLabel: 'Nach Status filtern',
   filters: { open: 'Offen', in_progress: 'In Arbeit', done: 'Erledigt' },

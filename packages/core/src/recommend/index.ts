@@ -105,6 +105,8 @@ export function recommendationMetric(rec: RecLike, data: RecData): RecMetric | n
       return m(`${ownName} genannt in Antworten mit deiner Website als Quelle`, 'Antworten mit deiner Website als Quelle', num, den);
     }
     case 'technical':
+    case 'entity':
+      // keine Kennzahl: Wirkung zeigt sich nicht sauber in einer Messung (Erfolg zeigt der Website-Check)
       return null;
     case 'positioning': {
       const cid = ev.competitorId as string | undefined;
@@ -216,7 +218,7 @@ export async function upsertRecommendations(input: UpsertInput) {
         phrasedBy = 'llm';
       }
       else { text = { title: c.title, why: c.why, steps: c.steps }; phrasedBy = 'rules'; }
-      const noMetric = c.type === 'technical';
+      const noMetric = c.type === 'technical' || c.type === 'entity';
       const metric = noMetric ? undefined : input.metrics?.get(c.key);
       // abgehakte Schritte gelten nur für dieselben Schritte – ändern sich die Schritte, beginnt die Liste neu
       const stepsChanged = !!ex && JSON.stringify(ex.steps ?? []) !== JSON.stringify(text.steps);
@@ -322,8 +324,23 @@ export function technicalCovered(key: string, checks: SiteCheckResult[]): boolea
   switch (key) {
     case 'technical:robots': return checks.every((c) => !robotsStatusUnknown(c.robots.status));
     case 'technical:bot_protection': return checks.every((c) => c.home.status !== null);
+    // Sitemap: Abruf mit belastbarem Status (Checks vor Nov. 2026 haben kein sitemap-Feld → nicht abgedeckt)
+    case 'technical:sitemap': return checks.every((c) => !!c.sitemap && !robotsStatusUnknown(c.sitemap.status));
+    // aus der Messung abgeleitet, braucht nur einen gelaufenen Check
+    case 'technical:search_index': return true;
+    // Unterseiten-Befunde: nur mit vertieftem Check und ohne gescheiterten Unterseiten-Abruf
+    case 'technical:noindex': case 'technical:canonical': case 'technical:meta': case 'technical:speed': case 'technical:hreflang':
+      return checks.every((c) => homeDecided(c) && !!c.pages && c.pages.every((p) => p.status !== null && (p.status < 400 || p.status === 404 || p.status === 410)));
+    // nutzen seit dem vertieften Check auch Unterseiten (wenig Text, Schema auf „Über uns“): gescheiterter Unterseiten-Abruf = unbekannt
+    case 'technical:js_text': case 'technical:structured_data':
+      return checks.every((c) => homeDecided(c) && (c.pages ?? []).every((p) => p.status !== null && !(p.status === 429 || p.status >= 500)));
     default: return checks.every(homeDecided);
   }
+}
+
+/** Beruht auf der Wikidata-Abfrage des Website-Checks: nur abgedeckt, wenn sie für mindestens eine Domain geklappt hat. */
+export function entityCovered(checks: SiteCheckResult[]): boolean {
+  return checks.some((c) => c.wikidata && c.wikidata.status !== 'error');
 }
 
 /** Schätzung der KI-Kosten für die Budgetprüfung (Haiku, großzügig). */
@@ -446,9 +463,11 @@ async function generateUnlocked(workspaceId: string, opts: GenerateOptions): Pro
     } catch (e) {
       log(`Website-Check fehlgeschlagen: ${(e as Error)?.message ?? e}`);
       covered.delete('technical');
+      covered.delete('entity');
     }
   } else {
     covered.delete('technical'); // ohne Check bleiben technische Maßnahmen unverändert
+    covered.delete('entity');
   }
 
   const candidates = buildCandidates(data);
@@ -518,7 +537,8 @@ async function generateUnlocked(workspaceId: string, opts: GenerateOptions): Pro
 
   const up = await upsertRecommendations({
     workspaceId, collectionId: target.id, candidates, texts, costUsd, coveredTypes: [...covered], metrics, attempted, now: opts.now,
-    isCovered: (key) => !key.startsWith('technical:') || technicalCovered(key, data.siteChecks ?? []),
+    isCovered: (key) => (key.startsWith('technical:') ? technicalCovered(key, data.siteChecks ?? [])
+      : key.startsWith('entity:') ? entityCovered(data.siteChecks ?? []) : true),
   });
   log(`Maßnahmen: ${candidates.length} aktiv (${up.created} neu, ${up.updated} aktualisiert, ${up.deactivated} nicht mehr gestützt), `
     + `${texts.size} per KI formuliert, ${costUsd.toFixed(4)} $`);
