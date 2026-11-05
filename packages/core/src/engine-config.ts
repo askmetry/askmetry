@@ -69,8 +69,8 @@ export const prices: Record<string, PriceRow> = {
 export const estimatedCostPerRun: Record<string, number> = {
   // flex, Strategiebericht 05.11.2026: Ø 0,052 $ mit Cache-Preis für cached_tokens (Puffer für Rückfall auf Normalpreis)
   chatgpt: 0.08,
-  // Ø 0,012 $; ab 01.01.2027 doppelte Token-Preise (~0,024 $) → dann anheben
-  gemini: 0.012,
+  // Ø 0,012 $; ab 01.01.2027 doppelte Token-Preise (~0,024 $) – Reserve schon jetzt darauf ausgelegt
+  gemini: 0.024,
   // synchron mit Prompt-Caching, live gemessen 05.11.2026: 0,058–0,076 $
   claude: 0.08,
   // Batches API (Tokens −50 %) mit Prompt-Caching, live gemessen 05.11.2026: Ø 0,047 $ bei 3 Suchen (0,03 $ davon Suchgebühr)
