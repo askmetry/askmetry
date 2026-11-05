@@ -10,13 +10,62 @@ export type Cit = { responseId: string; url: string; domain: string; title: stri
 export type BrandLike = { id: string; name: string; aliases?: string[] | null; domains: string[]; isOwn: boolean; description?: string | null; kind?: string | null };
 export type PromptInfo = { id: string; text: string; topicId: string | null; topicName: string | null };
 
+/** Art einer wichtigen Unterseite, die der Website-Check sucht (über Links der Startseite und die Sitemap). */
+export type PageKind = 'pricing' | 'product' | 'comparison' | 'faq' | 'about';
+export const PAGE_KINDS: PageKind[] = ['product', 'pricing', 'comparison', 'faq', 'about'];
+
+/** Prüfergebnis einer einzelnen Seite (Startseite oder wichtige Unterseite). Alle Felder ab Version 2 des Checks (Nov. 2026). */
+export interface PageFacts {
+  /** <meta name="description"> (gekürzt), null = fehlt */
+  metaDescription?: string | null;
+  /** <link rel="canonical"> (absolut), null = fehlt */
+  canonical?: string | null;
+  /** noindex per <meta name="robots|googlebot|bingbot"> oder X-Robots-Tag */
+  noindex?: boolean;
+  /** Antwortzeit inkl. Body in ms (gemessen vom Askmetry-Server, grob) */
+  ms?: number | null;
+  /** HTML-Größe in Bytes */
+  bytes?: number | null;
+}
+
+export interface PageCheck extends PageFacts {
+  kind: PageKind;
+  url: string;
+  status: number | null;
+  error?: string | null;
+  title: string | null;
+  textChars: number | null;
+  jsonLd: string[];
+}
+
 export interface SiteCheckResult {
   domain: string;
   checkedAt?: string;
   /** Startseite: Status, Ziel-URL nach Weiterleitungen, Fehler */
-  home: { status: number | null; finalUrl: string | null; error?: string | null; title?: string | null; textChars: number | null; jsonLd: string[]; hasH1?: boolean };
+  home: { status: number | null; finalUrl: string | null; error?: string | null; title?: string | null; textChars: number | null; jsonLd: string[]; hasH1?: boolean;
+    /** <html lang> */
+    lang?: string | null;
+    /** hreflang-Werte der <link rel="alternate">-Tags */
+    hreflang?: string[];
+  } & PageFacts;
   robots: { status: number | null; found: boolean; error?: string | null; blocked: string[]; allowed: string[]; managedBy?: string | null };
   llmsTxt: { status: number | null; found: boolean };
+  /** XML-Sitemap (aus robots.txt „Sitemap:“, sonst /sitemap.xml); fehlt bei Checks vor Nov. 2026 */
+  sitemap?: {
+    status: number | null; found: boolean; url: string | null; source: 'robots' | 'default' | null;
+    /** Anzahl <loc> (bei Sitemap-Index: der ersten Teil-Sitemap) */
+    urls: number;
+    /** jüngstes <lastmod> (ISO), null = keine Angabe */
+    newest: string | null;
+    /** enthält hreflang-Angaben (xhtml:link) */
+    hreflang: boolean;
+  };
+  /** wichtige Unterseiten (je Art höchstens eine); fehlt bei Checks vor Nov. 2026 */
+  pages?: PageCheck[];
+  /** Sprachversionen als Pfadpräfix (z. B. ['de', 'en']), erkannt an Links und Sitemap */
+  languages?: string[];
+  /** Wikidata-Eintrag mit dieser Domain als offizieller Website (P856) und Wikipedia-Artikel dazu (Sprachcodes) */
+  wikidata?: { status: 'found' | 'none' | 'error'; ids: string[]; wikipedia: string[] };
 }
 
 /** Eine abgeschlossene Messung, aufbereitet für die Regeln. */

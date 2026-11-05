@@ -29,7 +29,7 @@ function richFixture(lang?: 'de' | 'en'): RecData {
   rows.forEach((r, i) => {
     const id = `r${i}`;
     resps.push({ id, promptId: r.p, engine: r.e });
-    if (!prompts.has(r.p)) prompts.set(r.p, { id: r.p, text: `Welches Kartenterminal passt für ${r.p}?`, topicId: null, topicName: null });
+    if (!prompts.has(r.p)) prompts.set(r.p, { id: r.p, text: r.p === 'p3' ? 'Welches Kartenterminal passt für p3 – SumUp oder Zettle?' : `Welches Kartenterminal passt für ${r.p}?`, topicId: null, topicName: null });
     for (const m of r.m) {
       const [name, pos, ...flags] = m.split(':');
       const b = brands.find((x) => x.name === name);
@@ -42,6 +42,7 @@ function richFixture(lang?: 'de' | 'en'): RecData {
     home: { status: 200, finalUrl: 'https://paylindo.de/', textChars: 120, jsonLd: [] },
     robots: { status: 200, found: true, blocked: ['OAI-SearchBot', 'GPTBot', 'Google-Extended'], allowed: [] },
     llmsTxt: { status: 404, found: false },
+    wikidata: { status: 'none', ids: [], wikipedia: [] },
   };
   return { workspaceId: 'ws', collectionId: 'c1', at: new Date('2026-11-02'), brands, prompts, resps, ments, cits, siteChecks: [check], ...(lang ? { lang } : {}) };
 }
@@ -49,14 +50,14 @@ function richFixture(lang?: 'de' | 'en'): RecData {
 const GERMAN = /[äöüÄÖÜß„]| und | oder | nicht | für | mit | der | die | das |Antworten|Seite |prüfen|Maßnahme/;
 const allText = (t: { title: string; why: string; steps: string[] }) => [t.title, t.why, ...t.steps].join(' \n ');
 // Fremdinhalt (Fragen, Ausschnitte, Thread-Titel aus der Fixture) ist deutsch – vor der Prüfung entfernen
-const stripData = (s: string) => s.replace(/Welches Kartenterminal passt für p\d\?/g, '').replace(/“[^”]*”/g, '“”');
+const stripData = (s: string) => s.replace(/Welches Kartenterminal passt für p\d( – SumUp oder Zettle)?\??/g, '').replace(/“[^”]*”/g, '“”');
 
 describe('Maßnahmen-Texte in zwei Sprachen', () => {
   const de = buildCandidates(richFixture());
   const en = buildCandidates(richFixture('en'));
 
   it('deckt alle Regeltypen ab', () => {
-    expect(new Set(de.map((c) => c.type))).toEqual(new Set(['name_on_own_page', 'outreach', 'content_gap', 'community', 'technical', 'positioning', 'sentiment']));
+    expect(new Set(de.map((c) => c.type))).toEqual(new Set(['name_on_own_page', 'outreach', 'content_gap', 'comparison', 'reviews', 'entity', 'community', 'technical', 'positioning', 'sentiment']));
     expect(de.some((c) => c.key === 'community:youtube:youtube')).toBe(true);
     expect(de.some((c) => c.key.startsWith('community:forum:'))).toBe(true);
   });

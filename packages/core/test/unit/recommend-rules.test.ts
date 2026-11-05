@@ -113,7 +113,9 @@ describe('Maßnahmen-Regeln', () => {
     }
     const provider = ruleOutreach(indexData(fixture(rows, { brands: brands.map((b) => (b.isOwn ? { ...b, kind: 'provider' } : b)) })), { max: 10 });
     const t = Object.fromEntries(provider.map((c) => [c.key, c]));
-    expect(t['outreach:capterra.de'].title).toMatch(/Profil.*Bewertungen/);
+    // Bewertungsportale bündelt die Maßnahme „reviews“ – kein eigenes Outreach mehr
+    expect(t['outreach:capterra.de']).toBeUndefined();
+    expect(outreachExclusionsFrom(indexData(fixture(rows))).find((e) => e.domain === 'capterra.de')).toMatchObject({ reason: 'reviews' });
     expect(t['outreach:kartenleservergleich.de'].title).toMatch(/als Anbieter listen/);
     expect(t['outreach:handelsblatt.com'].title).toMatch(/Daten oder ein Experten-Zitat/);
     expect(t['outreach:handelsblatt.com'].effort).toBe(3);
@@ -148,11 +150,14 @@ describe('Maßnahmen-Regeln', () => {
       { p: 'ok', e: 'gemini', m: ['SumUp:1'] },
     ]);
     const out = ruleContentGap(indexData(d), d);
-    expect(out.map((c) => c.key)).toEqual(['content_gap:gap']);
-    expect(out[0].evidence.titleSuggestion).toBe('Frage gap? (2026)');
+    // ohne Thema: Cluster nach Aspekt der Frage
+    expect(out.map((c) => c.key)).toEqual(['content_gap:intent:other']);
+    expect(out[0].evidence.promptIds).toEqual(['gap']);
+    expect(out[0].evidence.titleSuggestion).toBe('Weitere Fragen – Überblick (2026)');
     expect(out[0].evidence.prompts?.[0].missing?.sort()).toEqual(['chatgpt', 'claude', 'gemini']);
     expect(out[0].why).toMatch(/ nie\.$/);
     expect(out[0].effort).toBe(3); // keine eigene Seite → erstellen
+    expect(out[0].steps.join(' ')).toMatch(/Stichprobe/);
   });
 
   it('community: Reddit nach Subreddit gruppiert, inkl. nur gelesener Threads, nur bei schwacher eigener Marke', () => {
