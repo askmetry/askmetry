@@ -1,0 +1,5 @@
+{
+  // Für `next build` (auch im Docker-Image): ohne Tests – die importieren Skripte außerhalb von apps/web
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx"]
+}

@@ -26,6 +26,7 @@ COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
+COPY packages/report/package.json packages/report/
 
 # ---------------------------------------------------------------------------
 # web-build: install web deps and build the Next.js standalone bundle
@@ -87,12 +88,15 @@ COPY --from=worker-deps /app ./
 COPY packages/db packages/db
 COPY packages/core/package.json packages/core/tsconfig.json packages/core/
 COPY packages/core/src packages/core/src
+COPY packages/report/package.json packages/report/tsconfig.json packages/report/
+COPY packages/report/src packages/report/src
 COPY apps/worker/package.json apps/worker/tsconfig.json apps/worker/
 COPY apps/worker/src apps/worker/src
 # Fail the build (not the first start) if pruning broke tsx or the migrate command (type stripping, drizzle imports).
 # Importing migrate.ts does not run it (import.meta.main is false).
 RUN cd apps/worker && node --import tsx -e 0 \
- && node -e "import('/app/packages/db/src/migrate.ts').then((m) => { if (typeof m.runMigrations !== 'function') process.exit(1) })"
+ && node -e "import('/app/packages/db/src/migrate.ts').then((m) => { if (typeof m.runMigrations !== 'function') process.exit(1) })" \
+ && node --import tsx -e "import('@askmetry/report').then((m) => { if (typeof m.renderReportPdf !== 'function') process.exit(1) })"
 USER node
 WORKDIR /app/apps/worker
 # `migrate` service overrides this with: node src/migrate.ts (in /app/packages/db)

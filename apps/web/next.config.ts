@@ -15,6 +15,8 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@askmetry/db', '@askmetry/core'],
   serverExternalPackages: ['pg'],
   poweredByHeader: false,
+  // Typprüfung beim Build ohne Testdateien (pnpm typecheck prüft sie weiterhin)
+  typescript: { tsconfigPath: 'tsconfig.build.json' },
   // Alte Routen (vor der Vereinfachung) auf die neue Struktur umleiten; Query-Parameter bleiben erhalten
   async redirects() {
     return [
