@@ -13,3 +13,4 @@ e2e/.slug
 .claude/
 spike/quality/results/
 *.tsbuildinfo
+.mail-outbox/

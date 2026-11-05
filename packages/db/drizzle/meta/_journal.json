@@ -8,6 +8,13 @@
       "when": 1793738765572,
       "tag": "0000_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793868378103,
+      "tag": "0001_hesitant_starbolt",
+      "breakpoints": true
     }
   ]
 }

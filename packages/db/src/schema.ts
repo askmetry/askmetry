@@ -36,6 +36,9 @@ export const workspace = pgTable('workspace', {
   monthlyBudgetUsd: numeric('monthly_budget_usd', { precision: 10, scale: 2 }).notNull().default('50'),
   country: text('country').notNull().default('DE'),
   language: text('language').notNull().default('de'),
+  // Nur gehostete Version (ASKMETRY_HOSTED=1): 'check' = Arbeitsbereich eines Gratis-Schnell-Checks (ohne Mitglieder),
+  // 'customer' = Arbeitsbereich eines Kunden (Messungen nur über gekaufte Berichte). null = selbst gehostet, unverändert.
+  hostedKind: text('hosted_kind'),
   createdAt: createdAt(),
 });
 
@@ -94,6 +97,9 @@ export const collection = pgTable('collection', {
   trigger: collectionTrigger('trigger').notNull().default('manual'),
   costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).notNull().default('0'),
   error: text('error'),
+  // Optionaler Messumfang statt „alle aktiven Prompts × workspace.engines × workspace.repetitions“ (gehostete Checks/Berichte):
+  // { promptIds?: string[], engines?: string[], repetitions?: number, engineMaxPrompts?: { [engine]: n }, batch?: boolean }
+  plan: jsonb('plan'),
   startedAt: timestamp('started_at', { withTimezone: true }),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
   createdAt: createdAt(),
@@ -241,3 +247,108 @@ export const recommendationGeneration = pgTable('recommendation_generation', {
   costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).notNull().default('0'),
   createdAt: createdAt(),
 }, (t) => [index('recommendation_generation_ws_idx').on(t.workspaceId, t.createdAt)]);
+
+// ---------------------------------------------------------------------------
+// Gehostete Version (ASKMETRY_HOSTED=1): Gratis-Schnell-Check, gekaufte Berichte, Funnel-Kennzahlen. Siehe HOSTED.md.
+
+// Gratis-Schnell-Check: URL eingeben → Profil/Wettbewerber/Fragen → E-Mail bestätigen → kleine Messung → Teaser.
+// status: discovering → awaiting_email → queued → measuring → ready | failed | blocked
+export const checkRequest = pgTable('check_request', {
+  id: id(),
+  // geheimer Zugangsschlüssel für /check/<token> (32 Byte, base64url); wer ihn kennt, sieht den Teaser
+  token: text('token').notNull().unique(),
+  url: text('url').notNull(),
+  domain: text('domain').notNull(),
+  locale: text('locale').notNull().default('de'),
+  status: text('status').notNull().default('discovering'),
+  email: text('email'),
+  // sha256 des Bestätigungscodes aus der E-Mail (Klartext nie speichern)
+  verifyCodeHash: text('verify_code_hash'),
+  verifySentAt: timestamp('verify_sent_at', { withTimezone: true }),
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
+  // sha256(IP + BETTER_AUTH_SECRET) für Ratenbegrenzung, nie die IP selbst
+  ipHash: text('ip_hash'),
+  workspaceId: uuid('workspace_id').references(() => workspace.id, { onDelete: 'set null' }),
+  collectionId: uuid('collection_id').references(() => collection.id, { onDelete: 'set null' }),
+  // dieser Check zeigt das Ergebnis eines früheren Checks derselben Domain (30-Tage-Cache)
+  reusedFromId: uuid('reused_from_id'),
+  costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).notNull().default('0'),
+  error: text('error'),
+  // Teaser-Zusammenfassung, beim Fertigstellen berechnet (Zahlen, keine gesperrten Texte)
+  summary: jsonb('summary'),
+  readyAt: timestamp('ready_at', { withTimezone: true }),
+  readyMailSentAt: timestamp('ready_mail_sent_at', { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [
+  index('check_request_domain_idx').on(t.domain, t.createdAt),
+  index('check_request_ip_idx').on(t.ipHash, t.createdAt),
+  index('check_request_status_idx').on(t.status),
+]);
+
+// Gekaufter Bericht. tier: compact (Standortbestimmung) | strategy (Strategiebericht); kind: initial | remeasure (Nachmessung).
+// status: pending_payment → paid (wartet auf „Messung starten“) → measuring → ready | failed; canceled (Checkout abgebrochen/abgelaufen), refunded
+export const report = pgTable('report', {
+  id: id(),
+  workspaceId: workspaceRef(),
+  userId: text('user_id').notNull(),
+  tier: text('tier').notNull(),
+  kind: text('kind').notNull().default('initial'),
+  status: text('status').notNull().default('pending_payment'),
+  previousReportId: uuid('previous_report_id'),
+  checkId: uuid('check_id').references(() => checkRequest.id, { onDelete: 'set null' }),
+  // Zahlung (Stripe oder Fake-Anbieter in Entwicklung/E2E)
+  paymentProvider: text('payment_provider').notNull().default('stripe'),
+  checkoutSessionId: text('checkout_session_id').unique(),
+  paymentIntentId: text('payment_intent_id'),
+  invoiceId: text('invoice_id'),
+  amountCents: integer('amount_cents').notNull(),
+  currency: text('currency').notNull().default('eur'),
+  // Kauf nur für Unternehmen: Bestätigung + AGB-Zustimmung mit Zeitpunkt
+  b2bConfirmedAt: timestamp('b2b_confirmed_at', { withTimezone: true }),
+  termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }),
+  termsVersion: text('terms_version'),
+  collectionId: uuid('collection_id').references(() => collection.id, { onDelete: 'set null' }),
+  costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).notNull().default('0'),
+  error: text('error'),
+  paidAt: timestamp('paid_at', { withTimezone: true }),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  readyAt: timestamp('ready_at', { withTimezone: true }),
+  pdfGeneratedAt: timestamp('pdf_generated_at', { withTimezone: true }),
+  emailedAt: timestamp('emailed_at', { withTimezone: true }),
+  // Erinnerung „Zeit für die Nachmessung“ (8 Wochen nach readyAt), einmalig
+  remindedAt: timestamp('reminded_at', { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [
+  index('report_ws_idx').on(t.workspaceId, t.createdAt),
+  index('report_user_idx').on(t.userId),
+  index('report_status_idx').on(t.status),
+]);
+
+// PDF eines Berichts (getrennt, damit report-Zeilen klein bleiben). data = Base64.
+export const reportFile = pgTable('report_file', {
+  reportId: uuid('report_id').primaryKey().references(() => report.id, { onDelete: 'cascade' }),
+  contentType: text('content_type').notNull().default('application/pdf'),
+  data: text('data').notNull(),
+  bytes: integer('bytes').notNull(),
+  createdAt: createdAt(),
+});
+
+// Funnel-Ereignisse für die Beta-Kennzahlen (keine personenbezogenen Daten in props).
+// name: check_started | check_email_submitted | check_verified | check_ready | checkout_started | report_paid | report_started
+//       | report_ready | report_emailed | remeasure_reminded | remeasure_paid | recommendation_done
+export const funnelEvent = pgTable('funnel_event', {
+  id: id(),
+  name: text('name').notNull(),
+  checkId: uuid('check_id'),
+  reportId: uuid('report_id'),
+  workspaceId: uuid('workspace_id'),
+  userId: text('user_id'),
+  props: jsonb('props'),
+  createdAt: createdAt(),
+}, (t) => [index('funnel_event_name_idx').on(t.name, t.createdAt)]);
+
+// Abmeldung von Erinnerungs-Mails (Nachmessung) – E-Mail in Kleinbuchstaben
+export const mailOptOut = pgTable('mail_opt_out', {
+  email: text('email').primaryKey(),
+  createdAt: createdAt(),
+});

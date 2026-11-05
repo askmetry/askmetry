@@ -47,6 +47,19 @@ async function cleanup() {
 beforeAll(cleanup);
 afterAll(async () => { await cleanup(); await closeDb(); });
 
+describe('Collection-Plan (Messumfang)', () => {
+  it('misst nur die geplanten Prompts, Engines, Wiederholungen und Engine-Obergrenzen', async () => {
+    const ws = await seedWorkspace(`${PREFIX}plan`);
+    const ps = await db.select().from(prompt).where(and(eq(prompt.workspaceId, ws.id), eq(prompt.active, true)));
+    const [a, b] = ps;
+    const c = await createCollection(ws.id, 'manual', { promptIds: [b.id, a.id], engines: ['chatgpt', 'google_aio'], repetitions: 1, engineMaxPrompts: { chatgpt: 1 } });
+    const runs = await db.select().from(run).where(eq(run.collectionId, c.id));
+    // google_aio: beide Prompts; chatgpt: nur der erste laut Plan (b)
+    expect(runs.map((r) => `${r.engine}:${r.promptId === b.id ? 'b' : 'a'}`).sort()).toEqual(['chatgpt:b', 'google_aio:a', 'google_aio:b']);
+    await processCollection(c.id, fast);
+  });
+});
+
 describe('Collection-Runner (Mock-Engines)', () => {
   it('legt Runs an, verarbeitet sie und speichert Antworten, Nennungen, Quellen', async () => {
     expect(process.env.DATABASE_URL).toMatch(/askmetry_test$/);

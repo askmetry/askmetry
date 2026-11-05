@@ -37,13 +37,23 @@ export async function ensureRuns(collectionId: string): Promise<number> {
   const [c] = await db.select().from(collection).where(eq(collection.id, collectionId));
   if (!c) throw new Error(`Collection ${collectionId} nicht gefunden`);
   const [ws] = await db.select().from(workspace).where(eq(workspace.id, c.workspaceId));
-  const prompts = await db.select({ id: prompt.id }).from(prompt)
+  const plan = parseCollectionPlan(c.plan);
+  let prompts = await db.select({ id: prompt.id }).from(prompt)
     .where(and(eq(prompt.workspaceId, ws.id), eq(prompt.active, true))).orderBy(asc(prompt.createdAt));
+  if (plan.promptIds) {
+    const order = new Map(plan.promptIds.map((id, i) => [id, i]));
+    prompts = prompts.filter((p) => order.has(p.id)).sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+  }
+  const engineList = plan.engines ?? ws.engines;
   const rows: (typeof run.$inferInsert)[] = [];
-  for (let rep = 1; rep <= Math.max(1, ws.repetitions); rep++) {
-    for (const p of prompts) {
-      for (const engine of ws.engines) rows.push({ collectionId, workspaceId: ws.id, promptId: p.id, engine, repetition: rep });
-    }
+  for (let rep = 1; rep <= Math.max(1, plan.repetitions ?? ws.repetitions); rep++) {
+    prompts.forEach((p, i) => {
+      for (const engine of engineList) {
+        const max = plan.engineMaxPrompts?.[engine];
+        if (max !== undefined && i >= max) continue;
+        rows.push({ collectionId, workspaceId: ws.id, promptId: p.id, engine, repetition: rep });
+      }
+    });
   }
   if (rows.length) await db.insert(run).values(rows).onConflictDoNothing();
   return rows.length;
@@ -63,10 +73,42 @@ export async function hasActiveCollection(workspaceId: string): Promise<boolean>
   return rows.length > 0;
 }
 
-export async function createCollection(workspaceId: string, trigger: Trigger = 'manual') {
+/**
+ * Optionaler Messumfang einer Collection (gehostete Checks und Berichte, siehe HOSTED.md). Ohne Plan gilt:
+ * alle aktiven Prompts × workspace.engines × workspace.repetitions.
+ */
+export interface CollectionPlan {
+  /** nur diese Prompts (Reihenfolge = Rang für engineMaxPrompts); inaktive werden trotzdem übersprungen */
+  promptIds?: string[];
+  engines?: string[];
+  repetitions?: number;
+  /** je Engine höchstens die ersten n Prompts, z. B. { chatgpt: 5 } */
+  engineMaxPrompts?: Record<string, number>;
+  /** Claude über die Batches API (wie geplante Messungen), auch wenn trigger = manual */
+  batch?: boolean;
+}
+
+export function parseCollectionPlan(raw: unknown): CollectionPlan {
+  if (!raw || typeof raw !== 'object') return {};
+  const r = raw as Record<string, unknown>;
+  const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string') ? v as string[] : undefined;
+  const plan: CollectionPlan = {};
+  const ids = strings(r.promptIds); if (ids) plan.promptIds = ids;
+  const eng = strings(r.engines); if (eng) plan.engines = eng;
+  if (typeof r.repetitions === 'number' && Number.isInteger(r.repetitions) && r.repetitions >= 1 && r.repetitions <= 10) plan.repetitions = r.repetitions;
+  if (r.engineMaxPrompts && typeof r.engineMaxPrompts === 'object') {
+    const m: Record<string, number> = {};
+    for (const [k, v] of Object.entries(r.engineMaxPrompts as Record<string, unknown>)) if (typeof v === 'number' && v >= 0) m[k] = Math.floor(v);
+    plan.engineMaxPrompts = m;
+  }
+  if (typeof r.batch === 'boolean') plan.batch = r.batch;
+  return plan;
+}
+
+export async function createCollection(workspaceId: string, trigger: Trigger = 'manual', plan?: CollectionPlan) {
   let c: typeof collection.$inferSelect;
   try {
-    [c] = await db.insert(collection).values({ workspaceId, trigger, status: 'queued' }).returning();
+    [c] = await db.insert(collection).values({ workspaceId, trigger, status: 'queued', ...(plan && { plan }) }).returning();
   } catch (e) {
     if (isUniqueViolation(e)) throw new CollectionActiveError();
     throw e;
@@ -299,7 +341,8 @@ export async function processCollection(collectionId: string, opts: ProcessOptio
       .where(eq(collection.id, c.id));
 
     const brands = await loadWorkspaceBrands(ws.id);
-    const batchMode = useClaudeBatch(c.trigger, opts);
+    const planBatch = parseCollectionPlan(c.plan).batch;
+    const batchMode = useClaudeBatch(c.trigger, planBatch !== undefined && opts.batch === undefined ? { batch: planBatch && !isMockMode() } : opts);
     const transport = opts.batchTransport ?? anthropicBatchTransport();
     // Budget serverseitig gedeckelt (ASKMETRY_MAX_BUDGET_USD)
     const budget = Math.min(Number(ws.monthlyBudgetUsd), maxBudgetUsd());
