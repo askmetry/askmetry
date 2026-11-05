@@ -95,9 +95,9 @@ const check = {
     scoreHint: 'Anteil der KI-Antworten, in denen deine Marke vorkommt – dieselbe Kennzahl wie im Bericht. Hier aus einer kleinen Stichprobe, deshalb grob gerundet und mit Spanne.',
     namedIn: (n: number, of: number) => `Genannt in ${n} von ${of} KI-Antworten.`,
     range: (low: number, high: number) => `Wahrscheinlich zwischen ${low} und ${high} von 100.`,
-    tooFew: 'Für einen belastbaren Wert sind das zu wenige Antworten – der Bericht misst gründlich.',
+    tooFew: 'Für einen belastbaren Wert sind das zu wenige Antworten – der Bericht misst gründlicher.',
     caveat: (prompts: number, reportPrompts: number, reps: number, engines: number) =>
-      `Erste Stichprobe aus ${prompts} Fragen. Der Strategiebericht stellt ${reportPrompts} Fragen je ${reps}× in ${engines} KI-Suchen, auch allgemeinere Fragen und Claude – dort fällt der Wert oft niedriger aus.`,
+      `Erste Stichprobe aus ${prompts} Fragen. Der Strategiebericht stellt ${reportPrompts} Fragen je ${reps}× in ${engines} KI-Suchen, auch allgemeinere Fragen und Claude – dort kann der Wert deutlich niedriger ausfallen.`,
     noneNamed: 'Noch nennt dich keine der KIs – das ist häufig und lässt sich ändern.',
     recsFound: (n: number) => (n === 1 ? '1 Verbesserungsmaßnahme gefunden' : `${n} Verbesserungsmaßnahmen gefunden`),
     recsNone: 'In dieser Stichprobe haben wir keine Maßnahmen gefunden. Der Bericht misst gründlicher.',

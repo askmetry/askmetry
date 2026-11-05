@@ -264,7 +264,9 @@ export async function discoverBrand(input: { url: string; domain: string; locale
   }
   const brandName = clean(json?.brand_name, 80) || provisional;
   const prompts = orderForCheck(sanitizePrompts(json?.prompts, brandName, CHECK_SCOPE.generated), brandName);
-  if (prompts.length < CHECK_SCOPE.measured) throw new DiscoveryError('failed', `KI-Discovery lieferte nur ${prompts.length} brauchbare Fragen`, costUsd);
+  // gemessen werden nur Fragen ohne Markennamen – davon braucht es mindestens CHECK_SCOPE.measured
+  const usable = brandName.trim().length >= 3 ? prompts.filter((t) => !t.toLowerCase().includes(brandName.trim().toLowerCase())).length : prompts.length;
+  if (usable < CHECK_SCOPE.measured) throw new DiscoveryError('failed', `KI-Discovery lieferte nur ${usable} brauchbare Fragen ohne Markennamen`, costUsd);
   return {
     brandName, description: profile.description, kind: profile.kind,
     topic: clean(json?.category, 60) || (lang === 'en' ? 'General' : 'Allgemein'),
