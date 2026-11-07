@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { mailTemplates, sendMail } from '../mail/index.ts';
 import { CollectionActiveError, createCollection, hasActiveCollection, parseCollectionPlan } from '../runner.ts';
 import { hostedConfig, publicUrl, REMEASURE_REMINDER_DAYS, REPORT_CONCURRENCY, REPORT_SCOPE, type PaymentProvider, type ReportKind, type ReportTier } from './config.ts';
+import { applyCheckQuestions } from './check-edit.ts';
 import { generateMorePrompts, type DiscoveryAsker } from './discovery.ts';
 import { trackEvent } from './funnel.ts';
 import { canStartMeasurement, estimateMeasurementUsd } from './limits.ts';
@@ -99,6 +100,8 @@ export async function prepareReport(input: PrepareReportInput): Promise<{ report
         await tx.insert(workspaceMember).values({ workspaceId: ws.id, userId: input.userId, role: 'owner' });
         fromCheck = true;
       }
+      // vor dem Kauf auf der Check-Seite bearbeitete Fragen übernehmen (nur solange in der Kopie nichts gemessen wurde)
+      if (c.prompts && (fromCheck || !(await tx.$count(collection, eq(collection.workspaceId, ws.id))))) await applyCheckQuestions(tx, ws.id, c.prompts);
     } else if (input.workspaceId) {
       const [w] = await tx.select().from(workspace).where(eq(workspace.id, input.workspaceId));
       if (!w) throw new Error('Arbeitsbereich nicht gefunden');
@@ -344,7 +347,9 @@ export async function processReports(opts: ProcessReportsOptions = {}): Promise<
     if (!missing) continue;
     await step(r, 'Zusatzfragen', async () => {
       try {
-        const g = await generateMorePrompts(r.workspaceId, missing, undefined, { ask: opts.ask });
+        // Themen, die der Kunde vor dem Kauf auf der Check-Seite festgelegt hat
+        const [c] = r.checkId ? await db.select({ topics: checkRequest.topics }).from(checkRequest).where(eq(checkRequest.id, r.checkId)) : [];
+        const g = await generateMorePrompts(r.workspaceId, missing, c?.topics?.length ? c.topics : undefined, { ask: opts.ask });
         await db.update(report).set({ promptsGeneratedAt: new Date() }).where(eq(report.id, r.id));
         log(`Bericht ${r.id}: ${g.created} Zusatzfragen in ${g.topics.length} Themen (${g.costUsd.toFixed(4)} $)`);
       } catch (e) {

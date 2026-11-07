@@ -280,6 +280,18 @@ export const checkRequest = pgTable('check_request', {
   progress: jsonb('progress'),
   readyAt: timestamp('ready_at', { withTimezone: true }),
   readyMailSentAt: timestamp('ready_mail_sent_at', { withTimezone: true }),
+  // Themenvorschläge der Discovery für den Strategiebericht (vom Nutzer vor dem Kauf änderbar, höchstens 6)
+  topics: text('topics').array(),
+  // vor dem Kauf bearbeitete Fragen der Standortbestimmung (null = unverändert, also die Fragen des Check-Arbeitsbereichs).
+  // Bewusst am Check statt im Arbeitsbereich: der Check-Arbeitsbereich ist ein geteilter Schnappschuss (30-Tage-Cache).
+  prompts: text('prompts').array(),
+  // freiwillige Einwilligung in Erinnerung + Tipps per Mail (UWG § 7): Zeitpunkt und Version des Einwilligungstexts
+  marketingConsentAt: timestamp('marketing_consent_at', { withTimezone: true }),
+  marketingConsentVersion: text('marketing_consent_version'),
+  // einmalige Erinnerungsmail 24 h nach dem fertigen Check (auch gesetzt, wenn sie entfällt)
+  reminderSentAt: timestamp('reminder_sent_at', { withTimezone: true }),
+  // erster sichtbarer Zwischenstand auf der Check-Seite (Funnel: Zeit bis dahin)
+  progressSeenAt: timestamp('progress_seen_at', { withTimezone: true }),
   createdAt: createdAt(),
 }, (t) => [
   index('check_request_domain_idx').on(t.domain, t.createdAt),

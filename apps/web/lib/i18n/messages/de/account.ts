@@ -60,7 +60,7 @@ const account = {
   optout: {
     metaTitle: 'Abmelden',
     title: 'Keine Erinnerungen mehr?',
-    text: 'Wir schicken dir dann keine Erinnerungen an eine Nachmessung mehr. Mails zu laufenden Bestellungen bekommst du weiterhin.',
+    text: 'Wir schicken dir dann keine Erinnerungen und Tipps mehr – weder zu deinem Schnell-Check noch zur Nachmessung. Mails zu laufenden Bestellungen bekommst du weiterhin.',
     submit: 'Abmelden',
     done: 'Erledigt – du bekommst keine Erinnerungen mehr.',
     invalid: 'Dieser Abmeldelink ist ungültig. Schreib uns einfach, dann tragen wir dich aus.',

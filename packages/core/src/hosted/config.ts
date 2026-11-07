@@ -53,6 +53,21 @@ export const CHECK_SCOPE = {
   minResponsesForScore: 12,
 };
 
+/**
+ * Version des Einwilligungstexts „Erinnere mich an meine Ergebnisse und schick mir Tipps“ auf der Check-Seite
+ * (apps/web, check.notify.consent). Bei jeder Änderung des Texts hochzählen – gespeichert wird die Version, der zugestimmt wurde.
+ */
+export const CHECK_CONSENT_VERSION = '2026-11-07';
+
+/** Stunden nach dem fertigen Check bis zur Erinnerungsmail (nur mit Einwilligung und ohne Kauf). */
+export const CHECK_REMINDER_HOURS = 24;
+
+/** So viele neueste Antworten zeigt die Warteansicht live. */
+export const CHECK_LIVE_ANSWERS = 6;
+
+/** Grenzen beim Bearbeiten der Fragen auf der Check-Seite (gleiche Regeln wie sanitizePrompts). */
+export const CHECK_QUESTION_RULES = { max: 20, minLength: 10, maxLength: 300, maxWithBrand: 2, editsPerHour: 120 };
+
 /** Version der AGB, der beim Kauf zugestimmt wird (bei Änderung der AGB hochzählen). */
 export const TERMS_VERSION = '2026-11-05';
 

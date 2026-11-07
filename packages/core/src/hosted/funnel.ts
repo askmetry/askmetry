@@ -3,7 +3,10 @@ import { db, funnelEvent } from '@askmetry/db';
 
 export type FunnelEventName =
   | 'check_started' | 'check_email_submitted' | 'check_verified' | 'check_ready' | 'checkout_started' | 'report_paid'
-  | 'report_started' | 'report_ready' | 'report_emailed' | 'remeasure_reminded' | 'remeasure_paid' | 'recommendation_done';
+  | 'report_started' | 'report_ready' | 'report_emailed' | 'remeasure_reminded' | 'remeasure_paid' | 'recommendation_done'
+  // Check-Seite vor dem Kauf: erster sichtbarer Zwischenstand (props.ms = Zeit seit Start), Einwilligung in Erinnerung/Tipps,
+  // Fragen/Themen bearbeitet, Kaufformular geöffnet („Kasse geöffnet“; checkout_started = weiter zur Zahlung), Erinnerungsmail
+  | 'check_progress_seen' | 'check_consent_given' | 'check_questions_edited' | 'check_topics_edited' | 'checkout_opened' | 'check_reminded';
 
 const PII_KEYS = /mail|name|phone|ip|address|token|code/i;
 

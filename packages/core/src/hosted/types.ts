@@ -14,7 +14,13 @@ export type CheckError =
   | 'not_found'
   | 'wrong_state'
   | 'code_invalid'
-  | 'code_expired';
+  | 'code_expired'
+  | 'locked'            // Fragen/Themen nach dem Kauf nicht mehr am Check änderbar
+  | 'too_many'          // mehr Fragen/Themen als erlaubt
+  | 'too_short'
+  | 'too_long'
+  | 'duplicate'
+  | 'brand_limit';      // eigene Marke in zu vielen Fragen
 
 /** Bereiche der Maßnahmen im Teaser (gleiche Einteilung wie die Maßnahmen-Seite). */
 export type RecArea = 'own_content' | 'other_sites' | 'community' | 'technical';
@@ -60,6 +66,70 @@ export interface CheckView {
   summary: CheckSummary | null;
   freeRecommendations: TeaserRecommendation[];   // nur die freien (CHECK_SCOPE.freeRecommendations)
   turnstileSiteKey: string | null;
+  /** Einwilligung in Erinnerung + Tipps per Mail liegt vor */
+  marketingConsent: boolean;
+  /** Zwischenstände für die Warteansicht (Marke, Wettbewerber, gemessene Fragen, erste Antworten); null vor der Discovery-Planung */
+  live: CheckLive | null;
+  /** konkrete Befunde fürs Ergebnis (nur bei ready) */
+  findings: CheckFindings | null;
+  /** die 20 Fragen der Standortbestimmung (nur bei ready) */
+  questions: CheckQuestions | null;
+  /** Themen für den Strategiebericht (nur bei ready; leer = KI wählt beim Kauf) */
+  topics: string[];
+  /** Fragen/Themen sind noch änderbar (fertig, noch kein bezahlter Bericht aus diesem Check) */
+  editable: boolean;
+}
+
+/** Eine KI-Antwort der Check-Messung, wie sie die Warteansicht live zeigt. Nur Markennamen, kein Antworttext. */
+export interface LiveAnswer {
+  id: string;
+  engine: string;
+  question: string;
+  /** genannte Marken in Reihenfolge der Nennung (eigene markiert; nur getrackte Marken und erkannte Wettbewerber) */
+  brands: { name: string; own: boolean }[];
+  ownNamed: boolean;
+  /** analyzed = ausgewertet · pending = Auswertung läuft · empty = keine KI-Antwort (z. B. keine AI Overview) */
+  state: 'analyzed' | 'pending' | 'empty';
+}
+
+export interface CheckLive {
+  /** Kurzbeschreibung aus dem Markenprofil (falls erkannt) */
+  description: string | null;
+  competitors: string[];
+  /** die gerade gemessenen Fragen (erste CHECK_SCOPE.measured) */
+  questions: string[];
+  /** neueste Antworten zuerst (höchstens CHECK_LIVE_ANSWERS) */
+  answers: LiveAnswer[];
+  /** alle bisher eingegangenen Antworten */
+  answersTotal: number;
+}
+
+/** Ein konkreter Fall: auf <Frage> nennt <KI> <Wettbewerber> – dich nicht (bzw. bei `own` dich). */
+export interface FindingCase {
+  engine: string;
+  question: string;
+  /** genannte Wettbewerber (höchstens 3, Reihenfolge der Nennung) */
+  competitors: string[];
+  /** kurzer Ausschnitt aus der Antwort um die Nennung, reiner Text (ohne Markdown/HTML) */
+  excerpt: string | null;
+}
+
+export interface CheckFindings {
+  /** Antworten mit Wettbewerbern, aber ohne dich – höchstens 3, möglichst verschiedene KIs und Fragen */
+  gaps: FindingCase[];
+  /** Fallback ohne Lücken: Antworten, in denen du genannt wirst */
+  wins: FindingCase[];
+  /** Antworten, in denen irgendein Wettbewerber genannt wird, ohne dich (Zähler für „in X von Y“) */
+  gapAnswers: number;
+  answers: number;
+  simulated: boolean;
+}
+
+export interface CheckQuestions {
+  list: string[];
+  /** vom Nutzer geändert (sonst Vorschlag der Discovery) */
+  edited: boolean;
+  max: number;
 }
 
 export interface CheckProgress {
