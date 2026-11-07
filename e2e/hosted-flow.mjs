@@ -91,7 +91,10 @@ try {
   // 2. Agent-Checkliste ohne E-Mail-Gate; optional per Mail benachrichtigen lassen
   await page.locator('[data-testid="agent-checklist"]').waitFor({ timeout: 15_000 });
   if (await page.locator('#check-email').count() === 0) fail('Benachrichtigungs-Feld fehlt in der Warteansicht');
+  await page.locator('[data-testid="check-live"]').waitFor({ timeout: 30_000 });
   await page.locator('#check-email').fill(email);
+  if (await page.locator('[data-testid="check-consent"]').isChecked()) fail('Einwilligung ist vorangekreuzt');
+  await page.locator('[data-testid="check-consent"]').check();
   await page.locator('[data-testid="check-email-form"] button[type="submit"]').click();
   await page.locator('[data-testid="check-email-sent"]').waitFor({ timeout: 15_000 });
   const verifyMail = await waitMail(email, (m) => m.links.some((l) => l.includes('/bestaetigen')));
@@ -131,6 +134,23 @@ try {
   if (await page.locator('[data-testid="teaser-ranking"], [data-testid="teaser-domains"], [data-testid="teaser-areas"]').count()) fail('Teaser zeigt noch Wettbewerber/Quellen/Bereiche');
   if (!(await page.locator('article[data-tier="strategy"][data-recommended]').count())) fail('Strategiebericht ist nicht als empfohlen markiert');
   ok(`Teaser: ${recs.length} Maßnahmen, 1 frei, keine gesperrten Texte im HTML, Strategiebericht empfohlen`);
+  await page.locator('[data-testid="check-findings"]').waitFor({ timeout: 10_000 });
+  const [cons] = await sql(`select marketing_consent_at is not null as ok from check_request where token = $1`, [token]);
+  if (!cons?.ok) fail('Einwilligung wurde nicht gespeichert');
+  // Fragen vor dem Kauf ändern: eine eigene Frage hinzufügen (vorher eine entfernen, falls schon 20)
+  const ownQ = `E2E-Testfrage: Welcher Anbieter passt für ein kleines Café ${Date.now() % 10000}?`;
+  const qBox = page.locator('[data-testid="question-editor"]');
+  if (await page.locator('[data-testid="question-editor-toggle"]').count()) await page.locator('[data-testid="question-editor-toggle"]').click();
+  const addInput = qBox.locator('input[name="text"][required]');
+  if (await addInput.count() === 0) {
+    await qBox.locator('form:has(input[name="action"][value="delete"]) button').last().click();
+    await page.waitForTimeout(1500);
+  }
+  await qBox.locator('input[name="text"][required]').fill(ownQ);
+  await qBox.locator('input[name="text"][required]').press('Enter');
+  await until(page, async () => ((await sql(`select prompts from check_request where token = $1`, [token]))[0]?.prompts ?? []).includes(ownQ), 15_000, 'Frage gespeichert');
+  ok('Konkrete Befunde sichtbar, Einwilligung gespeichert, eigene Frage vor dem Kauf hinzugefügt');
+  await shot(page, 'check-fragen');
   const readyMail = await waitMail(email, (m) => m.links.some((l) => l.includes(`/check/${token}`)) && !m.links.some((l) => l.includes('/bestaetigen')));
   ok(`Fertig-Mail: „${readyMail.subject}“`);
 
@@ -166,13 +186,16 @@ try {
   const slug = reportUrl.split('/w/')[1].split('/')[0];
   ok(`Testzahlung abgeschlossen → Bericht ${reportId}`);
 
-  // 5. Bericht starten → fertig → PDF + Mail
-  await until(page, async () => (await sql(`select status from report where id = $1`, [reportId]))[0]?.status === 'paid', 60_000, 'Status paid');
-  await page.goto(reportUrl, { waitUntil: 'domcontentloaded' });
-  await shot(page, 'bericht-vorbereiten');
-  await page.getByRole('button', { name: /messung starten/i }).first().click();
-  await until(page, async () => ['measuring', 'ready'].includes((await sql(`select status from report where id = $1`, [reportId]))[0]?.status), 60_000, 'Messung läuft');
-  ok('Messung gestartet');
+  // 5. Messung startet von selbst → fertig → PDF + Mail
+  await until(page, async () => ['measuring', 'ready'].includes((await sql(`select status from report where id = $1`, [reportId]))[0]?.status), 60_000, 'Messung läuft (Auto-Start)');
+  const [rp] = await sql(`select r.status, exists(select 1 from prompt p where p.workspace_id = r.workspace_id and p.active and p.text = $2) as has_q from report r where r.id = $1`, [reportId, ownQ]);
+  if (!rp.has_q) fail('Vor dem Kauf hinzugefügte Frage fehlt im Bericht');
+  if (rp.status === 'measuring') {
+    await page.goto(reportUrl, { waitUntil: 'domcontentloaded' });
+    await page.locator('[data-testid="report-measuring"]').waitFor({ timeout: 15_000 }).catch(() => {});
+    await shot(page, 'bericht-messung');
+  }
+  ok('Messung nach der Zahlung automatisch gestartet, eigene Frage übernommen');
   await until(page, async () => (await sql(`select status from report where id = $1`, [reportId]))[0]?.status === 'ready', 600_000, 'Bericht fertig');
   await page.goto(reportUrl, { waitUntil: 'domcontentloaded' });
   await shot(page, 'bericht-fertig');
@@ -205,9 +228,6 @@ try {
   await page.waitForURL(/\/bericht\//, { timeout: 30_000 });
   const reUrl = page.url().split('?')[0];
   const reId = reUrl.split('/bericht/')[1];
-  await until(page, async () => (await sql(`select status from report where id = $1`, [reId]))[0]?.status === 'paid', 60_000, 'Nachmessung paid');
-  await page.goto(reUrl, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: /messung starten/i }).first().click();
   await until(page, async () => (await sql(`select status from report where id = $1`, [reId]))[0]?.status === 'ready', 600_000, 'Nachmessung fertig');
   const [same] = await sql(`select (select plan->'promptIds' from collection where id = a.collection_id) = (select plan->'promptIds' from collection where id = b.collection_id) as same, b.previous_report_id = a.id as linked
     from report a, report b where a.id = $1 and b.id = $2`, [reportId, reId]);

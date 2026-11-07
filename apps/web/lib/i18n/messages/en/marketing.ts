@@ -271,7 +271,7 @@ const marketing: typeof de = {
       },
       {
         q: 'What happens after I buy?',
-        a: "To buy, you create an account with your email address and confirm that you're buying as a business. After payment, you review the questions and competitors and start the measurement. When the report is ready, you get it as a PDF by email and can view it online. After about 8 weeks, we'll remind you once about the re-measurement – one click to unsubscribe.",
+        a: "To buy, you create an account with your email address and confirm that you're buying as a business. The measurement starts right after payment – you can adjust the questions beforehand on your quick-check page. When the report is ready, you get it as a PDF by email and can view it online. After about 8 weeks, we'll remind you once about the re-measurement – one click to unsubscribe.",
       },
       {
         q: 'Can I run Askmetry myself?',

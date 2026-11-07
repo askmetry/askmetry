@@ -202,7 +202,7 @@ const check = {
   },
   buy: {
     title: 'Alle Maßnahmen und den Plan dazu holen',
-    intro: 'Einmal zahlen, kein Abo. Du prüfst Fragen und Wettbewerber, wir messen gründlich und schicken dir den Bericht als PDF – mit allen Maßnahmen zum Umsetzen.',
+    intro: 'Einmal zahlen, kein Abo. Die Messung startet direkt nach der Bezahlung, wir messen gründlich und schicken dir den Bericht als PDF – mit allen Maßnahmen zum Umsetzen.',
     compact: 'Standortbestimmung',
     strategy: 'Strategiebericht',
     recommended: 'Empfohlen',

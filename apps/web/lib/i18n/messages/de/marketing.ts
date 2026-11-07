@@ -273,7 +273,7 @@ const marketing = {
       },
       {
         q: 'Was passiert nach dem Kauf?',
-        a: 'Zum Kauf legst du ein Konto mit deiner E-Mail-Adresse an und bestätigst, dass du als Unternehmen kaufst. Nach der Zahlung prüfst du Fragen und Wettbewerber und startest die Messung. Wenn der Bericht fertig ist, bekommst du ihn per E-Mail als PDF und kannst ihn online ansehen. Nach etwa 8 Wochen erinnern wir dich einmal an die Nachmessung – abbestellbar mit einem Klick.',
+        a: 'Zum Kauf legst du ein Konto mit deiner E-Mail-Adresse an und bestätigst, dass du als Unternehmen kaufst. Die Messung startet direkt nach der Zahlung – die Fragen kannst du vorher auf deiner Check-Seite anpassen. Wenn der Bericht fertig ist, bekommst du ihn per E-Mail als PDF und kannst ihn online ansehen. Nach etwa 8 Wochen erinnern wir dich einmal an die Nachmessung – abbestellbar mit einem Klick.',
       },
       {
         q: 'Kann ich Askmetry selbst betreiben?',

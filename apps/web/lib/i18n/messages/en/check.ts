@@ -193,7 +193,7 @@ const check: typeof de = {
   },
   buy: {
     title: 'Get all actions and the plan',
-    intro: 'Pay once, no subscription. You review the questions and competitors, we measure thoroughly and send you the report as a PDF – with every action ready to implement.',
+    intro: 'Pay once, no subscription. Measuring starts right after payment, we measure thoroughly and send you the report as a PDF – with every action ready to implement.',
     compact: 'Baseline report',
     strategy: 'Strategy report',
     recommended: 'Recommended',
