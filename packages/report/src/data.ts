@@ -363,7 +363,7 @@ export function buildReportModel(input: ReportInput): ReportModel {
     const others = comps.map((c) => brandStat(c, qIds, ix.ments)).filter((s) => s.named > 0)
       .sort((a, b) => b.named - a.named || a.name.localeCompare(b.name)).slice(0, 3).map((s) => ({ name: s.name, named: s.named }));
     return { id: pid, text: p?.text ?? '', topic: p?.topicName ?? null, responses: rs.length, named: rs.filter((r) => ix.ownNamed.has(r.id)).length, cells, others };
-  }).sort((a, b) => (a.topic ?? '').localeCompare(b.topic ?? '', lang) || b.named / b.responses - a.named / a.responses || a.text.localeCompare(b.text, lang));
+  }).sort((a, b) => (input.tier === 'strategy' ? (a.topic ?? '').localeCompare(b.topic ?? '', lang) : 0) || b.named / b.responses - a.named / a.responses || a.text.localeCompare(b.text, lang));
 
   // Quellen
   const top = domainRows(ix, d.brands);

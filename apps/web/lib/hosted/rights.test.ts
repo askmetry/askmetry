@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isHiddenWorkspace, scopeLimits, startProblem, strategyPreparing, workspaceRights } from './rights';
+import { isHiddenWorkspace, scopeLimits, startProblem, strategyPreparing, topicsEnabled, workspaceRights } from './rights';
 
 describe('workspaceRights', () => {
   it('selbst gehostet: alles wie bisher', () => {
@@ -57,5 +57,16 @@ describe('strategyPreparing', () => {
   it('folgt dem Kern-Flag', () => {
     expect(strategyPreparing({ promptsPreparing: true })).toBe(true);
     expect(strategyPreparing({ promptsPreparing: false })).toBe(false);
+  });
+});
+
+describe('topicsEnabled', () => {
+  it('Standortbestimmung: keine Themen; Strategiebericht und Selbsthosting: Themen', () => {
+    expect(topicsEnabled({ hosted: false, hostedKind: 'customer' })).toBe(true);
+    expect(topicsEnabled({ hosted: true, hostedKind: null })).toBe(true);
+    expect(topicsEnabled({ hosted: true, hostedKind: 'customer', reports: [{ tier: 'compact', status: 'ready' }] })).toBe(false);
+    expect(topicsEnabled({ hosted: true, hostedKind: 'customer', reports: [] })).toBe(false);
+    expect(topicsEnabled({ hosted: true, hostedKind: 'customer', reports: [{ tier: 'strategy', status: 'pending_payment' }] })).toBe(false);
+    expect(topicsEnabled({ hosted: true, hostedKind: 'customer', reports: [{ tier: 'compact', status: 'ready' }, { tier: 'strategy', status: 'paid' }] })).toBe(true);
   });
 });

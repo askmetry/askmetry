@@ -2,7 +2,7 @@
 // Konto löschen, Löschfristen. Mock-Engines, Fake-Discovery, Mail-Outbox im Temp-Ordner, Fake-PDF.
 import {
   brand, checkRequest, closeDb, collection, db, funnelEvent, prompt, recommendation, recommendationGeneration, report,
-  session, topic, user, workspace, workspaceMember,
+  run, session, topic, user, workspace, workspaceMember,
 } from '@askmetry/db';
 import { and, eq, inArray, like, sql } from 'drizzle-orm';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ import { checksWaiting, getCheckView, processChecks, QUEUED_STALE_MS, startCheck
 import { CHECK_SCOPE } from '../../src/hosted/config.ts';
 import { canStartMeasurement, checkReservedUsd, checkSpendToday, DISCOVERY_ESTIMATE_USD, globalSpendToday } from '../../src/hosted/limits.ts';
 import { decodeOptOutParam, isOptedOut, optOut, verifyOptOut } from '../../src/hosted/optout.ts';
-import { attachCheckoutSession, getReport, getReportPdf, markReportCanceled, markReportPaid, markReportRefunded, prepareReport, processReports, reportsForWorkspace, startReport } from '../../src/hosted/reports.ts';
+import { attachCheckoutSession, autoStartReport, getReport, getReportPdf, markReportCanceled, markReportPaid, markReportRefunded, prepareReport, processReports, reportsForWorkspace, startReport } from '../../src/hosted/reports.ts';
 import { purgeExpiredData } from '../../src/hosted/retention.ts';
 import { funnelStats } from '../../src/hosted/stats.ts';
 import { createCollection, parseCollectionPlan, processCollection } from '../../src/runner.ts';
@@ -463,14 +463,22 @@ describe('Berichte', () => {
     expect(await db.$count(workspaceMember, and(eq(workspaceMember.workspaceId, copy.workspaceId), eq(workspaceMember.userId, other)))).toBe(1);
   });
 
-  it('markReportPaid idempotent, Funnel-Ereignis einmal, unbekannte Session → null', async () => {
+  it('markReportPaid idempotent, startet die Messung automatisch, doppelter Webhook → kein Doppelstart', async () => {
     await attachCheckoutSession(reportId, `${P}-sess-1`);
     expect(await markReportPaid({ sessionId: `${P}-sess-1`, paymentIntentId: `${P}-pi-1`, amountCents: 0 })).toEqual({ reportId, already: false });
     expect(await markReportPaid({ sessionId: `${P}-sess-1` })).toEqual({ reportId, already: true });
     expect(await markReportPaid({ sessionId: `${P}-unbekannt` })).toBeNull();
     const [r] = await db.select().from(report).where(eq(report.id, reportId));
-    expect(r).toMatchObject({ status: 'paid', amountCents: 0, paymentIntentId: `${P}-pi-1` });
+    expect(r).toMatchObject({ status: 'measuring', amountCents: 0, paymentIntentId: `${P}-pi-1`, error: null });
+    expect(r.startedAt).not.toBeNull();
+    expect(await db.$count(collection, eq(collection.workspaceId, wsId))).toBe(1);
     expect(await db.$count(funnelEvent, and(eq(funnelEvent.name, 'report_paid'), eq(funnelEvent.reportId, reportId)))).toBe(1);
+    expect(await db.$count(funnelEvent, and(eq(funnelEvent.name, 'report_autostarted'), eq(funnelEvent.reportId, reportId)))).toBe(1);
+    // gleichzeitige Starts (Webhook + Worker): nur einer beansprucht den Bericht
+    expect(await autoStartReport(reportId)).toEqual({ error: 'wrong_state' });
+    await processReports({});
+    expect(await db.$count(collection, eq(collection.workspaceId, wsId))).toBe(1);
+    expect(await db.$count(funnelEvent, and(eq(funnelEvent.name, 'report_autostart_failed'), eq(funnelEvent.reportId, reportId)))).toBe(0);
   });
 
   it('Abbruch nur bei pending_payment; bezahlt nach Abbruch → trotzdem paid', async () => {
@@ -485,15 +493,18 @@ describe('Berichte', () => {
     await db.update(report).set({ status: 'refunded' }).where(eq(report.id, r.reportId));
   });
 
-  it('startReport: Mandantenprüfung, Plan mit 20 Fragen × 2 × 5 KIs, kein Doppelstart', async () => {
+  it('Auto-Start: Plan mit 20 Fragen × 2 × 5 KIs, Fortschritt je KI; Startknopf danach weder fremd noch doppelt', async () => {
     expect(await startReport(reportId, stranger)).toEqual({ error: 'forbidden' });
     await db.insert(workspaceMember).values({ workspaceId: wsId, userId: other, role: 'viewer' });
     expect(await startReport(reportId, other)).toEqual({ error: 'forbidden' });
-    expect(await startReport(reportId, buyer)).toEqual({ ok: true });
     expect(await startReport(reportId, buyer)).toEqual({ error: 'wrong_state' });
     const v = (await getReport(reportId))!;
     expect(v.status).toBe('measuring');
+    expect(v.buyerEmailMasked).toBe(`b***@${P}-kunde.de`);
     expect(v.progress!.total).toBe(20 * 2 * 5);
+    expect(v.progress).toMatchObject({ done: 0, phase: 'queued', etaMinutes: null, onlyBatchLeft: false });
+    expect(v.progress!.engines.map((e) => e.engine)).toEqual(['chatgpt', 'claude', 'gemini', 'google_aio', 'google_ai_mode']);
+    expect(v.progress!.engines.every((e) => e.total === 40 && e.answered === 0 && !e.batch)).toBe(true); // Mock: Claude ohne Batch
     const [col] = await db.select().from(collection).where(eq(collection.id, v.collectionId!));
     expect(parseCollectionPlan(col.plan)).toMatchObject({ repetitions: 2, batch: true });
     expect(parseCollectionPlan(col.plan).promptIds).toHaveLength(20);
@@ -514,6 +525,8 @@ describe('Berichte', () => {
     expect(m.attachments).toHaveLength(1);
     expect(m.attachments[0].filename).toMatch(/\.pdf$/);
     expect(linkWith(m, `/bericht/${reportId}`)).toBeTruthy();
+    const [ev] = await db.select().from(funnelEvent).where(and(eq(funnelEvent.name, 'report_ready'), eq(funnelEvent.reportId, reportId)));
+    expect(ev.props).toMatchObject({ tier: 'compact', paidToReadyMin: expect.any(Number), startedToReadyMin: expect.any(Number) });
   });
 
   it('Nachmessung: exakt die Prompt-IDs des Vorberichts, neue Fragen bleiben außen vor', async () => {
@@ -524,7 +537,8 @@ describe('Berichte', () => {
     await attachCheckoutSession(r.reportId, `${P}-sess-re`);
     await markReportPaid({ sessionId: `${P}-sess-re` });
     expect(await db.$count(funnelEvent, and(eq(funnelEvent.name, 'remeasure_paid'), eq(funnelEvent.reportId, r.reportId)))).toBe(1);
-    expect(await startReport(r.reportId, buyer)).toEqual({ ok: true });
+    // Nachmessung startet ebenfalls automatisch
+    expect((await getReport(r.reportId))!.status).toBe('measuring');
     const prev = (await getReport(reportId))!;
     const now = (await getReport(r.reportId))!;
     const [a] = await db.select().from(collection).where(eq(collection.id, prev.collectionId!));
@@ -542,12 +556,15 @@ describe('Berichte', () => {
     await attachCheckoutSession(r.id, `${P}-sess-strat`);
     await markReportPaid({ sessionId: `${P}-sess-strat` });
     expect(await startReport(r.id, other)).toEqual({ error: 'preparing' });
+    // erst die Zusatzfragen, dann startet der Worker die Messung automatisch
+    expect((await getReport(r.id))!).toMatchObject({ status: 'paid', promptsPreparing: true, autoStarting: false, error: null });
     await processReports({ renderPdf: fakePdf });
     expect(await db.$count(prompt, and(eq(prompt.workspaceId, copyWs.id), eq(prompt.active, true)))).toBe(60);
     const topics = await db.select().from(topic).where(eq(topic.workspaceId, copyWs.id));
     expect(topics.length).toBeGreaterThanOrEqual(4);
     expect(await db.$count(prompt, and(eq(prompt.workspaceId, copyWs.id), sql`${prompt.topicId} is null`))).toBe(0);
-    expect(await startReport(r.id, other)).toEqual({ ok: true });
+    expect((await getReport(r.id))!.status).toBe('measuring');
+    expect(await db.$count(funnelEvent, and(eq(funnelEvent.name, 'report_autostarted'), eq(funnelEvent.reportId, r.id)))).toBe(1);
     const [col] = await db.select().from(collection).where(eq(collection.id, (await getReport(r.id))!.collectionId!));
     expect(parseCollectionPlan(col.plan).promptIds).toHaveLength(60);
     // Messung nicht ausführen – aufräumen
@@ -614,6 +631,121 @@ describe('Berichte', () => {
     expect(await db.$count(session, eq(session.userId, buyer))).toBe(0);
     expect(await db.$count(user, eq(user.id, buyer))).toBe(0);
     expect(await db.$count(checkRequest, eq(checkRequest.email, `buyer@${P}-kunde.de`))).toBe(0);
+  });
+});
+
+describe('Auto-Start nach der Zahlung: Randfälle', () => {
+  const base = { amountCents: 7900, b2bConfirmedAt: new Date(), termsAcceptedAt: new Date(), termsVersion: '2026-11-05', provider: 'fake' as const };
+  let owner: string;
+  const autoEvents = async (name: string, reportId: string) => db.$count(funnelEvent, and(eq(funnelEvent.name, name), eq(funnelEvent.reportId, reportId)));
+
+  /** Kunden-Arbeitsbereich mit n aktiven Fragen (ohne Check) */
+  async function customerWs(tag: string, n: number) {
+    const [ws] = await db.insert(workspace).values({ name: `${P}-auto-${tag}`, slug: `${P}-auto-${tag}`, hostedKind: 'customer', scheduleEnabled: false }).returning();
+    await db.insert(brand).values({ workspaceId: ws.id, name: `${P} Auto ${tag}`, domains: [`${P}-auto-${tag}.de`], isOwn: true });
+    await db.insert(workspaceMember).values({ workspaceId: ws.id, userId: owner, role: 'owner' });
+    if (n) await db.insert(prompt).values(Array.from({ length: n }, (_, i) => ({ workspaceId: ws.id, text: `Welcher Anbieter ist gut für ${tag} ${i}?`, createdAt: new Date(Date.now() - (n - i) * 1000) })));
+    return ws;
+  }
+  async function buy(wsId: string, session: string) {
+    const r = await prepareReport({ ...base, userId: owner, tier: 'compact', kind: 'initial', workspaceId: wsId });
+    await attachCheckoutSession(r.reportId, session);
+    await markReportPaid({ sessionId: session });
+    return r.reportId;
+  }
+
+  beforeAll(async () => { owner = await addUser('auto-owner'); });
+
+  it('zu wenige Fragen: kein Auto-Start, Grund sichtbar, einmal gemeldet; der Knopf startet trotzdem', async () => {
+    const ws = await customerWs('wenig', 3);
+    const id = await buy(ws.id, `${P}-sess-auto-few`);
+    expect((await getReport(id))!).toMatchObject({ status: 'paid', error: 'autostart_too_few', autoStarting: false, promptsPreparing: false });
+    expect(await autoEvents('report_autostart_failed', id)).toBe(1);
+    await processReports({});
+    expect((await getReport(id))!.status).toBe('paid'); // kein erneuter Versuch
+    expect(await autoEvents('report_autostart_failed', id)).toBe(1);
+    expect(await startReport(id, owner)).toEqual({ ok: true });
+    expect((await getReport(id))!).toMatchObject({ status: 'measuring', error: null });
+  });
+
+  it('Tagesbudget: Fehler sichtbar, Worker versucht still erneut und startet, sobald Budget frei ist; danach wartet ein zweiter Kauf auf die laufende Messung', async () => {
+    const ws = await customerWs('budget', 6);
+    const [g] = await db.insert(recommendationGeneration).values({ workspaceId: ws.id, model: 'test', costUsd: '5.0000' }).returning();
+    process.env.ASKMETRY_GLOBAL_DAILY_BUDGET_USD = '4';
+    let id: string;
+    try {
+      id = await buy(ws.id, `${P}-sess-auto-budget`);
+      expect((await getReport(id))!).toMatchObject({ status: 'paid', error: 'autostart_budget' });
+      await processReports({});
+      expect((await getReport(id))!.status).toBe('paid');
+      expect(await autoEvents('report_autostart_failed', id)).toBe(1); // nur einmal je Grund
+    } finally {
+      delete process.env.ASKMETRY_GLOBAL_DAILY_BUDGET_USD;
+      await db.delete(recommendationGeneration).where(eq(recommendationGeneration.id, g.id));
+    }
+    await processReports({});
+    expect((await getReport(id))!).toMatchObject({ status: 'measuring', error: null });
+    expect(await autoEvents('report_autostarted', id)).toBe(1);
+
+    // weiterer Bericht im selben Arbeitsbereich, während gemessen wird → wartet und startet danach von selbst
+    const second = await buy(ws.id, `${P}-sess-auto-second`);
+    expect((await getReport(second))!).toMatchObject({ status: 'paid', error: 'autostart_queued' });
+    await processReports({});
+    expect((await getReport(second))!.status).toBe('paid');
+    const first = (await getReport(id))!;
+    await db.update(collection).set({ status: 'failed', finishedAt: new Date() }).where(eq(collection.id, first.collectionId!));
+    await processReports({});
+    expect((await getReport(second))!.status).toBe('measuring');
+  });
+
+  it('verpasster Auto-Start (Absturz nach der Zahlung) holt der Worker nach – aber nicht bei Altbeständen', async () => {
+    const ws = await customerWs('verpasst', 6);
+    const mk = async (paidAgoMs: number) => (await db.insert(report).values({
+      workspaceId: ws.id, userId: owner, tier: 'compact', kind: 'initial', status: 'paid', amountCents: 1, paidAt: new Date(Date.now() - paidAgoMs),
+    }).returning())[0].id;
+    const fresh = await mk(10_000);
+    expect((await getReport(fresh))!).toMatchObject({ autoStarting: true, error: null });
+    await processReports({});
+    expect((await getReport(fresh))!.status).toBe('paid'); // Webhook ist noch dran (Schonfrist)
+    await db.delete(report).where(eq(report.id, fresh));
+    const legacy = await mk(10 * DAY);
+    const missed = await mk(5 * 60_000);
+    expect((await getReport(missed))!.autoStarting).toBe(true);
+    await processReports({});
+    expect((await getReport(missed))!.status).toBe('measuring');
+    expect((await getReport(legacy))!).toMatchObject({ status: 'paid', autoStarting: false });
+  });
+
+  it('Fortschritt: Zeile je KI, Claude im Sammelauftrag, ohne Antwort ruhig gezählt, ehrliche Restzeit', async () => {
+    const ws = await customerWs('fortschritt', 6);
+    const id = await buy(ws.id, `${P}-sess-auto-progress`);
+    const v = (await getReport(id))!;
+    const colId = v.collectionId!;
+    await db.update(collection).set({ status: 'running', startedAt: new Date(Date.now() - 10 * 60_000) }).where(eq(collection.id, colId));
+    const runs = await db.select().from(run).where(eq(run.collectionId, colId));
+    const ids = (engine: string) => runs.filter((r) => r.engine === engine).map((r) => r.id);
+    const now = new Date();
+    // ChatGPT fertig (1 ohne Antwort), Gemini halb, Claude wartet im Batch, Google-KIs fertig
+    await db.update(run).set({ status: 'done', finishedAt: now }).where(inArray(run.id, [...ids('chatgpt').slice(1), ...ids('google_aio'), ...ids('google_ai_mode'), ...ids('gemini').slice(0, 6)]));
+    await db.update(run).set({ status: 'failed', finishedAt: now, error: 'DataForSEO 500' }).where(inArray(run.id, ids('chatgpt').slice(0, 1)));
+    await db.update(run).set({ status: 'running', batchId: 'msgbatch_test', batchSubmittedAt: now, startedAt: now }).where(inArray(run.id, ids('claude')));
+    let p = (await getReport(id))!.progress!;
+    expect(p.phase).toBe('collecting');
+    expect(p.engines.find((e) => e.engine === 'chatgpt')).toMatchObject({ total: 12, answered: 11, failed: 1, batch: false });
+    expect(p.engines.find((e) => e.engine === 'claude')).toMatchObject({ total: 12, inBatch: 12, batch: true });
+    expect(p).toMatchObject({ onlyBatchLeft: false, batchOpen: true });
+    // Gemini: 6 von 12 in 10 Minuten → noch ca. 10 Minuten + Auswertung
+    expect(p.etaMinutes).toBeGreaterThanOrEqual(10);
+    expect(p.etaMinutes).toBeLessThanOrEqual(16);
+    await db.update(run).set({ status: 'done', finishedAt: now }).where(inArray(run.id, ids('gemini')));
+    p = (await getReport(id))!.progress!;
+    expect(p).toMatchObject({ onlyBatchLeft: true, etaMinutes: null });
+    await db.update(run).set({ status: 'done', finishedAt: now }).where(inArray(run.id, ids('claude')));
+    expect((await getReport(id))!.progress!.phase).toBe('analyzing'); // alle Abfragen beendet, Worker schließt gleich ab
+    await db.update(collection).set({ status: 'done', finishedAt: new Date() }).where(eq(collection.id, colId));
+    expect((await getReport(id))!.progress!.phase).toBe('recommending'); // noch keine Maßnahme, innerhalb der Schonfrist
+    await db.update(collection).set({ finishedAt: new Date(Date.now() - 5 * 60_000) }).where(eq(collection.id, colId));
+    expect((await getReport(id))!.progress!.phase).toBe('done'); // jetzt: PDF erstellen
   });
 });
 

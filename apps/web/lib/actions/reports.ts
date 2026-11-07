@@ -42,7 +42,7 @@ export async function startReportAction(_p: FormState, f: FormData): Promise<For
   const res = await startReport(id, ctx.user.id);
   if ('error' in res) return { error: startErrorText(r.errors, res.error) };
   revalidatePath(`/w/${slug}`, 'layout');
-  return { ok: r.measuring.waiting };
+  return { ok: r.measuring.titleStarting };
 }
 
 type Errs = Awaited<ReturnType<typeof getI18n>>['t']['reports']['errors'];

@@ -12,6 +12,7 @@ import { domainMatches, groupBy, loadBase, normName, sortEngines, type Term } fr
 import { recTouchesPrompt, sortRecs } from '@/lib/recommendations';
 import { loadRecs, promptContext, recPrompt } from '@/lib/recs-data';
 import { engineName, isLikelyCompetitor } from '@askmetry/core/present';
+import { topicsFor } from '@/lib/hosted/server';
 import { getI18n } from '@/lib/i18n/server';
 import { RecCard } from '@/components/rec-card';
 import { loadPrompt } from '@/lib/prompts';
@@ -33,6 +34,7 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
   const { locale, t: msg, f } = await getI18n();
   const t = msg.questions.detail;
   const SENTIMENT = t.sentiment;
+  const showTopics = await topicsFor(ws);
 
   const header = (
     <>
@@ -40,7 +42,8 @@ export default async function FrageDetail({ params, searchParams }: { params: Pr
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere]">{msg.recs.quote(p.p.text)}</h1>
-          <p className="mt-1 text-sm text-muted">{p.topicName ? t.topic(p.topicName) : t.noTopic}{!p.p.active && t.inactive}</p>
+          {showTopics ? <p className="mt-1 text-sm text-muted">{p.topicName ? t.topic(p.topicName) : t.noTopic}{!p.p.active && t.inactive}</p>
+            : !p.p.active && <p className="mt-1 text-sm text-muted">{t.inactive.replace(/^ · /, '')}</p>}
         </div>
         {selected && ctx.collectionOptions.length > 1 && <ParamSelect param="c" label={t.measurement} value={selected.id} options={ctx.collectionOptions} />}
       </div>

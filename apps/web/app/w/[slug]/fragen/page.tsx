@@ -5,6 +5,7 @@ import { one, workspaceContext, type SP } from '@/lib/context';
 import { engineName } from '@askmetry/core/present';
 import { isHosted } from '@askmetry/core/hosted/config';
 import { findGaps, loadBase, promptEngineMatrix, sortEngines } from '@/lib/metrics';
+import { topicsFor } from '@/lib/hosted/server';
 import { getI18n } from '@/lib/i18n/server';
 import { loadPromptsAndTopics } from '@/lib/prompts';
 import { fillLevel } from '@/lib/view';
@@ -20,6 +21,8 @@ export default async function FragenPage({ params, searchParams }: { params: Pro
   const { ws, own, brands, selected, canEdit } = ctx;
   const { prompts, topics } = await loadPromptsAndTopics(ws.id);
   const onlyGaps = one(sp.ohne) === '1';
+  // Standortbestimmung: ein Pseudo-Thema für alle Fragen – nicht gruppieren
+  const showTopics = await topicsFor(ws);
   const { locale, t: msg, f: fmt } = await getI18n();
   const t = msg.questions;
   // Spaltenköpfe über den Punkten (Desktop) bzw. gekürzt (mobil)
@@ -51,7 +54,7 @@ export default async function FragenPage({ params, searchParams }: { params: Pro
   const topicName = new Map(topics.map((t) => [t.id, t.name]));
   const groups = new Map<string, typeof rows>();
   for (const p of rows) {
-    const k = p.topicId ? topicName.get(p.topicId) ?? '' : '';
+    const k = showTopics && p.topicId ? topicName.get(p.topicId) ?? '' : '';
     groups.set(k, [...(groups.get(k) ?? []), p]);
   }
   const qs = ctx.finished[0]?.id === selected.id ? '' : `?c=${selected.id}`;

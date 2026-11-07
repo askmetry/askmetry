@@ -1,10 +1,10 @@
 // Gekaufte Berichte (HOSTED.md „Ablauf“ 6–9): vorbereiten, bezahlt, starten, fertigstellen (PDF + Mail), Erinnerung.
 import { brand, checkRequest, collection, db, prompt, recommendationGeneration, report, reportFile, topic, user, workspace, workspaceMember } from '@askmetry/db';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { mailTemplates, sendMail } from '../mail/index.ts';
 import { CollectionActiveError, createCollection, hasActiveCollection, parseCollectionPlan } from '../runner.ts';
-import { hostedConfig, publicUrl, REMEASURE_REMINDER_DAYS, REPORT_CONCURRENCY, REPORT_SCOPE, type PaymentProvider, type ReportKind, type ReportTier } from './config.ts';
+import { hostedConfig, publicUrl, REMEASURE_REMINDER_DAYS, REPORT_CONCURRENCY, REPORT_MIN_PROMPTS, REPORT_SCOPE, type PaymentProvider, type ReportKind, type ReportTier } from './config.ts';
 import { generateMorePrompts, type DiscoveryAsker } from './discovery.ts';
 import { trackEvent } from './funnel.ts';
 import { canStartMeasurement, estimateMeasurementUsd } from './limits.ts';
@@ -143,7 +143,7 @@ export async function attachCheckoutSession(reportId: string, sessionId: string)
   await db.update(report).set({ checkoutSessionId: sessionId }).where(and(eq(report.id, reportId), inArray(report.status, ['pending_payment', 'canceled']), isNull(report.checkoutSessionId)));
 }
 
-/** Zahlung bestätigt (nur aus dem Webhook bzw. Fake-Checkout). Idempotent: gleiche Session erneut → already: true. */
+/** Zahlung bestätigt (nur aus dem Webhook bzw. Fake-Checkout), danach Auto-Start. Idempotent: gleiche Session erneut → already: true. */
 export async function markReportPaid(input: { sessionId: string; paymentIntentId?: string | null; invoiceId?: string | null; amountCents?: number | null }): Promise<{ reportId: string; already: boolean } | null> {
   const res = await db.transaction(async (tx) => {
     const [r] = await tx.select().from(report).where(eq(report.checkoutSessionId, input.sessionId)).for('update');
@@ -162,6 +162,9 @@ export async function markReportPaid(input: { sessionId: string; paymentIntentId
     await trackEvent(r.kind === 'remeasure' ? 'remeasure_paid' : 'report_paid', { reportId: r.id, workspaceId: r.workspaceId, userId: r.userId, checkId: r.checkId ?? undefined, props: { tier: r.tier, amountCents: amount } });
     const [own] = await db.select({ domains: brand.domains }).from(brand).where(and(eq(brand.workspaceId, r.workspaceId), eq(brand.isOwn, true))).limit(1);
     void notifyOps(`Kauf: ${TIER_LABEL.de[r.tier as ReportTier] ?? r.tier}${r.kind === 'remeasure' ? ' (Nachmessung)' : ''}, ${euro(amount)}${own?.domains[0] ? `, ${own.domains[0]}` : ''}`);
+    // Messung sofort starten (Strategiebericht: erst nach den Zusatzfragen im Worker). Wirft nie; ein doppelter Webhook
+    // landet oben bei already: true, und der Start beansprucht den Bericht ohnehin nur einmal.
+    await autoStartReport(r.id);
   }
   return { reportId: r.id, already };
 }
@@ -183,8 +186,10 @@ async function promptsMissing(r: Report): Promise<number> {
   return Math.max(0, REPORT_SCOPE.strategy.prompts - n);
 }
 
-/** Messung eines bezahlten Berichts starten – nur owner/admin, keine aktive Messung, Tagesbudget ok. */
-export async function startReport(reportId: string, userId: string): Promise<{ ok: true } | { error: string }> {
+export type StartResult = { ok: true } | { error: string };
+
+/** Messung eines bezahlten Berichts starten – nur owner/admin, keine aktive Messung, Tagesbudget ok (Fallback-Knopf). */
+export async function startReport(reportId: string, userId: string): Promise<StartResult> {
   const [r] = await db.select().from(report).where(eq(report.id, reportId));
   if (!r) return { error: 'not_found' };
   const [m] = await db.select({ role: workspaceMember.role }).from(workspaceMember)
@@ -192,6 +197,11 @@ export async function startReport(reportId: string, userId: string): Promise<{ o
   if (!m || (m.role !== 'owner' && m.role !== 'admin')) return { error: 'forbidden' };
   if (r.status !== 'paid') return { error: 'wrong_state' };
   if ((await promptsMissing(r)) > 0 && !r.error) return { error: 'preparing' };
+  return launchReport(r, userId, false);
+}
+
+/** Gemeinsamer Start (Knopf und Auto-Start): Plan aus den Fragen, Budget-Gate, Bericht beanspruchen, Messung anlegen. */
+async function launchReport(r: Report, actorId: string, auto: boolean): Promise<StartResult> {
   if (await hasActiveCollection(r.workspaceId)) return { error: 'measurement_active' };
   const scope = REPORT_SCOPE[r.tier as ReportTier];
   if (!scope) return { error: 'wrong_state' };
@@ -206,12 +216,14 @@ export async function startReport(reportId: string, userId: string): Promise<{ o
     promptIds = (await db.select({ id: prompt.id }).from(prompt).where(and(eq(prompt.workspaceId, r.workspaceId), eq(prompt.active, true)))
       .orderBy(asc(prompt.createdAt)).limit(scope.prompts)).map((p) => p.id);
     if (!promptIds.length) return { error: 'no_prompts' };
+    // Auto-Start nur mit genug Fragen; weniger darf der Kunde selbst per Knopf bestätigen
+    if (auto && promptIds.length < Math.min(REPORT_MIN_PROMPTS, scope.prompts)) return { error: 'too_few_prompts' };
   }
   const plan = { promptIds, engines: scope.engines, repetitions: scope.repetitions, batch: true, concurrency: REPORT_CONCURRENCY };
-  const budget = await canStartMeasurement('report', estimateMeasurementUsd({ ...plan, prompts: promptIds.length }));
+  const budget = await canStartMeasurement('report', estimateMeasurementUsd({ ...plan, prompts: promptIds.length }), { quiet: auto });
   if (!budget.ok) return { error: 'budget' };
 
-  // Bericht zuerst beanspruchen (Doppelklick), dann Messung anlegen
+  // Bericht zuerst beanspruchen (Doppelklick, doppelter Webhook, Worker parallel), dann Messung anlegen
   const claimed = await db.update(report).set({ status: 'measuring', startedAt: new Date(), error: null })
     .where(and(eq(report.id, r.id), eq(report.status, 'paid'))).returning({ id: report.id });
   if (!claimed.length) return { error: 'wrong_state' };
@@ -223,8 +235,59 @@ export async function startReport(reportId: string, userId: string): Promise<{ o
     if (e instanceof CollectionActiveError) return { error: 'measurement_active' };
     throw e;
   }
-  await trackEvent('report_started', { reportId: r.id, workspaceId: r.workspaceId, userId, props: { tier: r.tier, kind: r.kind, prompts: promptIds.length } });
+  await trackEvent('report_started', { reportId: r.id, workspaceId: r.workspaceId, userId: actorId, props: { tier: r.tier, kind: r.kind, prompts: promptIds.length, auto } });
   return { ok: true };
+}
+
+/** Präfix in report.error für einen gescheiterten Auto-Start (Bericht bleibt paid, der Startknopf ist der Rückfall). */
+export const AUTOSTART_ERROR = 'autostart|';
+/** Diese Gründe erledigen sich von selbst – der Worker versucht den Auto-Start dann erneut. */
+export const AUTOSTART_RETRY = ['budget', 'measurement_active'] as const;
+/** Auto-Start, den der Webhook verpasst hat (Absturz dazwischen): so lange nach der Zahlung holt der Worker ihn nach. */
+export const AUTOSTART_GRACE_MS = 2 * 60 * 1000;
+/** Ältere bezahlte Berichte (vor dem Auto-Start bezahlt) startet der Worker nicht ungefragt. */
+export const AUTOSTART_MAX_AGE_MS = 7 * DAY_MS;
+
+/**
+ * Messung nach der Zahlung automatisch starten (Fake-Checkout, Stripe-Webhook, Worker nach den Zusatzfragen).
+ * Ohne Rechteprüfung – der Käufer hat bezahlt. Wirft nie. Scheitert der Start, bleibt der Bericht `paid` mit
+ * `autostart|<grund>` in report.error (Seite zeigt den Grund und den Startknopf); Ops und Funnel erfahren es einmal je Grund.
+ */
+export async function autoStartReport(reportId: string, log: (m: string) => void = () => {}): Promise<StartResult> {
+  let r: Report | undefined;
+  try {
+    [r] = await db.select().from(report).where(eq(report.id, reportId));
+    if (!r || r.status !== 'paid') return { error: 'wrong_state' };
+    // Strategiebericht: erst die Zusatzfragen (auch nicht, wenn sie gescheitert sind – dann entscheidet der Kunde)
+    if ((await promptsMissing(r)) > 0) return { error: 'preparing' };
+    const res = await launchReport(r, r.userId, true);
+    if ('ok' in res) {
+      await trackEvent('report_autostarted', { reportId: r.id, workspaceId: r.workspaceId, userId: r.userId, props: { tier: r.tier, kind: r.kind, retry: !!r.error } });
+      log(`Bericht ${r.id}: Messung automatisch gestartet`);
+      return res;
+    }
+    if (res.error !== 'wrong_state') await autoStartFailed(r, res.error, log);
+    return res;
+  } catch (e) {
+    log(`Bericht ${reportId}: Auto-Start – Fehler ${(e as Error)?.stack ?? e}`);
+    if (r) await autoStartFailed(r, 'error', log).catch(() => {});
+    return { error: 'error' };
+  }
+}
+
+async function autoStartFailed(r: Report, reason: string, log: (m: string) => void) {
+  const error = `${AUTOSTART_ERROR}${reason}`;
+  // nur beim ersten Mal je Grund melden (der Worker versucht budget/measurement_active wiederholt)
+  const changed = await db.update(report).set({ error })
+    .where(and(eq(report.id, r.id), eq(report.status, 'paid'), sql`${report.error} is distinct from ${error}`)).returning({ id: report.id });
+  if (!changed.length) return;
+  log(`Bericht ${r.id}: Auto-Start nicht möglich (${reason})`);
+  await trackEvent('report_autostart_failed', { reportId: r.id, workspaceId: r.workspaceId, userId: r.userId, props: { tier: r.tier, kind: r.kind, reason } });
+  // eine laufende Messung im selben Arbeitsbereich ist kein Fehler: der Bericht startet danach von selbst
+  if (reason === 'measurement_active') return;
+  const info = await wsInfo(r.workspaceId);
+  const what = reason === 'budget' ? 'Tagesbudget erreicht, startet automatisch neu' : reason === 'too_few_prompts' ? 'zu wenige Fragen, Kunde muss selbst starten' : `${reason}, Kunde sieht den Startknopf`;
+  void notifyOps(`Auto-Start fehlgeschlagen: ${TIER_LABEL.de[r.tier as ReportTier] ?? r.tier}${r.kind === 'remeasure' ? ' (Nachmessung)' : ''}${info.domain ? `, ${info.domain}` : ''} – ${what} (Bericht ${r.id})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -277,13 +340,19 @@ async function finishReport(r: Report, opts: ProcessReportsOptions, log: (m: str
   const [g] = await db.select({ t: sql<string>`coalesce(sum(${recommendationGeneration.costUsd}), 0)` }).from(recommendationGeneration).where(eq(recommendationGeneration.collectionId, col.id));
   const cost = Number(col.costUsd) + Number(g?.t ?? 0);
   const now = new Date();
-  await db.transaction(async (tx) => {
+  const became = await db.transaction(async (tx) => {
     const data = pdf.toString('base64');
     await tx.insert(reportFile).values({ reportId: r.id, data, bytes: pdf.length, contentType: 'application/pdf' })
       .onConflictDoUpdate({ target: reportFile.reportId, set: { data, bytes: pdf.length, createdAt: now } });
-    await tx.update(report).set({ status: 'ready', readyAt: now, pdfGeneratedAt: now, costUsd: cost.toFixed(4), error: null }).where(and(eq(report.id, r.id), eq(report.status, 'measuring')));
+    return tx.update(report).set({ status: 'ready', readyAt: now, pdfGeneratedAt: now, costUsd: cost.toFixed(4), error: null })
+      .where(and(eq(report.id, r.id), eq(report.status, 'measuring'))).returning({ id: report.id });
   });
-  await trackEvent('report_ready', { reportId: r.id, workspaceId: r.workspaceId, userId: r.userId, props: { tier: r.tier, kind: r.kind, costUsd: Number(cost.toFixed(4)) } });
+  if (!became.length) return;
+  // Dauer bezahlt → fertig (und Messbeginn → fertig) in Minuten, für die Funnel-Kennzahlen
+  const mins = (from: Date | null) => (from ? Math.round((now.getTime() - from.getTime()) / 60_000) : undefined);
+  await trackEvent('report_ready', { reportId: r.id, workspaceId: r.workspaceId, userId: r.userId, props: {
+    tier: r.tier, kind: r.kind, costUsd: Number(cost.toFixed(4)), paidToReadyMin: mins(r.paidAt), startedToReadyMin: mins(r.startedAt),
+  } });
   log(`Bericht ${r.id}: fertig (${pdf.length} Byte PDF, ${cost.toFixed(4)} $)`);
 }
 
@@ -330,7 +399,7 @@ async function remind(r: Report, log: (m: string) => void) {
   await trackEvent('remeasure_reminded', { reportId: r.id, workspaceId: r.workspaceId, userId: r.userId });
 }
 
-/** Worker: Zusatzfragen (Strategie) → fertige Messungen → PDF → ready → Mail; Erinnerungen nach 8 Wochen. */
+/** Worker: Zusatzfragen (Strategie) → Auto-Start → fertige Messungen → PDF → ready → Mail; Erinnerungen nach 8 Wochen. */
 export async function processReports(opts: ProcessReportsOptions = {}): Promise<void> {
   const log = opts.log ?? (() => {});
   const stop = opts.shouldStop ?? (() => false);
@@ -352,7 +421,25 @@ export async function processReports(opts: ProcessReportsOptions = {}): Promise<
         void notifyOps(`Zusatzfragen für Strategiebericht fehlgeschlagen: ${errText(e).slice(0, 200)}`);
         throw e;
       }
+      // direkt weiter: Messung automatisch starten
+      await autoStartReport(r.id, log);
     });
+  }
+  // 1b. Auto-Start nachholen: verpasst (Absturz zwischen Zahlung und Start) oder Grund erledigt sich (Budget, laufende Messung)
+  const now = opts.now ?? new Date();
+  const retryErrors = AUTOSTART_RETRY.map((x) => `${AUTOSTART_ERROR}${x}`);
+  let budgetStarted = false;
+  for (const r of await db.select().from(report).where(and(
+    eq(report.status, 'paid'), gte(report.paidAt, new Date(now.getTime() - AUTOSTART_MAX_AGE_MS)),
+    or(and(isNull(report.error), lte(report.paidAt, new Date(now.getTime() - AUTOSTART_GRACE_MS))), inArray(report.error, retryErrors)),
+  )).orderBy(asc(report.paidAt))) {
+    if (stop()) return;
+    // nach Budget-Sperre höchstens einen Bericht je Durchlauf starten: Kosten zählen erst nach den Runs, sonst liefen
+    // nach Mitternacht alle wartenden gleichzeitig los und rissen das neue Tagesbudget
+    if (r.error === `${AUTOSTART_ERROR}budget` && budgetStarted) continue;
+    let res: StartResult | undefined;
+    await step(r, 'Auto-Start', async () => { res = await autoStartReport(r.id, log); });
+    if (r.error === `${AUTOSTART_ERROR}budget` && res && 'ok' in res) budgetStarted = true;
   }
   // 2. laufende Messungen fertigstellen
   for (const r of await db.select().from(report).where(eq(report.status, 'measuring')).orderBy(asc(report.startedAt))) {
@@ -366,7 +453,7 @@ export async function processReports(opts: ProcessReportsOptions = {}): Promise<
     await step(r, 'Mail', () => emailReport(r, log));
   }
   // 4. Erinnerung an die Nachmessung
-  const due = new Date((opts.now ?? new Date()).getTime() - REMEASURE_REMINDER_DAYS * DAY_MS);
+  const due = new Date(now.getTime() - REMEASURE_REMINDER_DAYS * DAY_MS);
   for (const r of await db.select().from(report).where(and(eq(report.status, 'ready'), isNull(report.remindedAt), lte(report.readyAt, due)))) {
     if (stop()) return;
     await step(r, 'Erinnerung', () => remind(r, log));
@@ -377,17 +464,40 @@ export async function processReports(opts: ProcessReportsOptions = {}): Promise<
 // Ansichten
 // ---------------------------------------------------------------------------
 
+/** Fehlertext nur als Schlüssel nach außen (Details stehen im Log), siehe ReportView.error. */
+export function reportErrorKey(r: { status: string; error: string | null }): string | null {
+  if (!r.error) return null;
+  if (r.error.startsWith('prompts|')) return 'prompts_failed';
+  if (r.status === 'failed') return 'failed';
+  if (r.status === 'paid' && r.error.startsWith(AUTOSTART_ERROR)) {
+    const reason = r.error.slice(AUTOSTART_ERROR.length);
+    return reason === 'budget' ? 'autostart_budget' : reason === 'measurement_active' ? 'autostart_queued'
+      : reason === 'too_few_prompts' ? 'autostart_too_few' : 'autostart_failed';
+  }
+  return null;
+}
+
 async function toView(r: Report): Promise<ReportView> {
   const hasPdf = (await db.$count(reportFile, eq(reportFile.reportId, r.id))) > 0;
+  const preparing = r.status === 'paid' && !r.error && (await promptsMissing(r)) > 0;
+  const live = r.status === 'measuring' || r.status === 'paid';
+  const [u] = live ? await db.select({ email: user.email }).from(user).where(eq(user.id, r.userId)) : [];
   return {
     id: r.id, workspaceId: r.workspaceId, tier: r.tier as ReportTier, kind: r.kind as ReportKind, status: r.status as ReportView['status'],
     amountCents: r.amountCents, currency: r.currency, previousReportId: r.previousReportId, collectionId: r.collectionId,
     createdAt: r.createdAt.toISOString(), paidAt: r.paidAt?.toISOString() ?? null, startedAt: r.startedAt?.toISOString() ?? null,
     readyAt: r.readyAt?.toISOString() ?? null, hasPdf, emailedAt: r.emailedAt?.toISOString() ?? null,
-    // Fehlertext nur als Schlüssel nach außen (Details stehen im Log)
-    error: r.error ? (r.error.startsWith('prompts|') ? 'prompts_failed' : r.status === 'failed' ? 'failed' : null) : null,
+    // Wartegründe gelten nur, solange der Worker noch nachfasst (AUTOSTART_MAX_AGE_MS) – danach Startknopf statt „du musst nichts tun“
+    error: (() => {
+      const k = reportErrorKey(r);
+      const stale = !r.paidAt || Date.now() - r.paidAt.getTime() > AUTOSTART_MAX_AGE_MS;
+      return (k === 'autostart_budget' || k === 'autostart_queued') && stale ? 'autostart_failed' : k;
+    })(),
     progress: r.status === 'measuring' && r.collectionId ? await collectionProgress(r.collectionId) : null,
-    promptsPreparing: r.status === 'paid' && !r.error && (await promptsMissing(r)) > 0,
+    promptsPreparing: preparing,
+    // bezahlt, ohne Fehler, keine Zusatzfragen offen: der Auto-Start läuft gerade (oder der Worker holt ihn gleich nach)
+    autoStarting: r.status === 'paid' && !r.error && !preparing && !!r.paidAt && Date.now() - r.paidAt.getTime() < AUTOSTART_GRACE_MS * 3,
+    buyerEmailMasked: maskEmail(u?.email),
   };
 }
 

@@ -6,8 +6,11 @@ import { loadPromptsAndTopics } from '@/lib/prompts';
 import { getT } from '@/lib/i18n/server';
 import type { Messages } from '@/lib/i18n/messages';
 
-/** Fragen und Themen bearbeiten (Einstellungen → Fragen und „Bericht vorbereiten“). `ro` = nur lesen. */
-export async function PromptEditor({ slug, workspaceId, ro, topicsGroup = true }: { slug: string; workspaceId: string; ro: boolean; topicsGroup?: boolean }) {
+/**
+ * Fragen und Themen bearbeiten (Einstellungen → Fragen und „Bericht vorbereiten“). `ro` = nur lesen.
+ * `showTopics = false` (Standortbestimmung): keine Themen-Auswahl und -Verwaltung; die Zuordnung bleibt beim Speichern erhalten.
+ */
+export async function PromptEditor({ slug, workspaceId, ro, showTopics = true }: { slug: string; workspaceId: string; ro: boolean; showTopics?: boolean }) {
   const t = (await getT()).settings;
   const q = t.prompts;
   const { prompts, topics } = await loadPromptsAndTopics(workspaceId);
@@ -16,7 +19,7 @@ export async function PromptEditor({ slug, workspaceId, ro, topicsGroup = true }
       {!ro && (
         <ActionForm action={savePrompt} slug={slug} submit={q.add} resetOnSuccess className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl bg-card p-3 shadow-card" inline>
           <input className="input min-w-0 flex-1 basis-64" name="text" placeholder={q.placeholder} aria-label={q.newLabel} />
-          <TopicSelect topics={topics} value={null} t={q} />
+          {showTopics && <TopicSelect topics={topics} value={null} t={q} />}
           <input type="hidden" name="active" value="on" />
         </ActionForm>
       )}
@@ -28,7 +31,7 @@ export async function PromptEditor({ slug, workspaceId, ro, topicsGroup = true }
               <ActionForm action={savePrompt} slug={slug} submit={t.save} submitClass="btn btn-sm" disabled={ro} className="flex min-w-0 flex-1 flex-wrap items-center gap-2" inline>
                 <input type="hidden" name="id" value={p.id} />
                 <input className="input min-w-0 flex-1 basis-64" name="text" defaultValue={p.text} aria-label={q.label} />
-                <TopicSelect topics={topics} value={p.topicId} t={q} />
+                {showTopics ? <TopicSelect topics={topics} value={p.topicId} t={q} /> : <input type="hidden" name="topicId" value={p.topicId ?? ''} />}
                 <label className="flex items-center gap-1.5 text-sm text-muted" title={q.inactiveHint}><input type="checkbox" name="active" defaultChecked={p.active} /> {q.active}</label>
               </ActionForm>
               {!ro && (
@@ -43,7 +46,7 @@ export async function PromptEditor({ slug, workspaceId, ro, topicsGroup = true }
         </ul>
       )}
 
-      {topicsGroup && <Group title={q.topics(topics.length)}>
+      {showTopics && <Group title={q.topics(topics.length)}>
         <div className={`${box} space-y-2`}>
           {topics.length === 0 && <p className="text-sm text-muted">{q.noTopics}</p>}
           {topics.map((tp) => (

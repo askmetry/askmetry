@@ -46,6 +46,16 @@ export function scopeLimits(reports: readonly { tier: string; status: string }[]
   return { prompts: s.prompts, competitors: s.competitors };
 }
 
+/**
+ * Themen zeigen? In der Standortbestimmung (compact) haben alle Fragen nur ein Pseudo-Thema (die Branche) und Themen lassen
+ * sich nicht sinnvoll pflegen – dort blenden wir sie überall aus. Sichtbar beim Strategiebericht (bezahlt, gemessen oder
+ * fertig) und außerhalb gehosteter Kunden-Workspaces (Selbsthosting).
+ */
+export function topicsEnabled(i: { hosted: boolean; hostedKind: string | null | undefined; reports?: readonly { tier: string; status: string }[] }): boolean {
+  if (!i.hosted || i.hostedKind !== 'customer') return true;
+  return (i.reports ?? []).some((r) => r.tier === 'strategy' && ['paid', 'measuring', 'ready'].includes(r.status));
+}
+
 export type StartProblem = 'tooManyPrompts' | 'tooFewPrompts' | 'tooManyCompetitors' | 'preparing' | 'wrongState';
 
 /**

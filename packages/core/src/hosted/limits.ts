@@ -56,15 +56,16 @@ export type BudgetBlock = 'global_budget' | 'check_budget';
 
 /**
  * Darf eine neue Messung (Check oder Bericht) starten? Prüft das globale Tagesbudget, bei Checks zusätzlich das
- * Check-Tagesbudget. `estimateUsd` = geschätzte Kosten der neuen Messung (Reserve). Meldet Überschreitungen an den Betrieb.
+ * Check-Tagesbudget. `estimateUsd` = geschätzte Kosten der neuen Messung (Reserve). Meldet Überschreitungen an den Betrieb
+ * (außer `quiet`: der Auto-Start meldet selbst einmal je Bericht, statt bei jedem Worker-Durchlauf).
  */
-export async function canStartMeasurement(kind: 'check' | 'report', estimateUsd = 0): Promise<{ ok: true } | { ok: false; reason: BudgetBlock }> {
+export async function canStartMeasurement(kind: 'check' | 'report', estimateUsd = 0, opts: { quiet?: boolean } = {}): Promise<{ ok: true } | { ok: false; reason: BudgetBlock }> {
   const cfg = hostedConfig();
   // zugesagte, noch nicht gebuchte Check-Kosten zählen gegen beide Budgets
   const reserved = await checkReservedUsd();
   const global = (await globalSpendToday()) + reserved;
   if (global + estimateUsd > cfg.globalDailyBudgetUsd + 1e-9) {
-    void notifyOps(`Globales Tagesbudget erreicht (${global.toFixed(2)} $ von ${cfg.globalDailyBudgetUsd} $) – neue ${kind === 'check' ? 'Checks' : 'Berichte'} warten`);
+    if (!opts.quiet) void notifyOps(`Globales Tagesbudget erreicht (${global.toFixed(2)} $ von ${cfg.globalDailyBudgetUsd} $) – neue ${kind === 'check' ? 'Checks' : 'Berichte'} warten`);
     return { ok: false, reason: 'global_budget' };
   }
   if (kind === 'check') {

@@ -26,6 +26,12 @@ export const REPORT_SCOPE: Record<ReportTier, { prompts: number; competitors: nu
 };
 
 /**
+ * So viele aktive Fragen braucht ein Erstbericht mindestens für den automatischen Start nach der Zahlung. Darunter wartet
+ * der Bericht auf den Startknopf (der Kunde darf bewusst kürzen, soll das aber selbst bestätigen).
+ */
+export const REPORT_MIN_PROMPTS = 5;
+
+/**
  * Parallele Abfragen einer Berichtsmessung. Mit dem Runner-Standard (4 / 2 je Anbieter) brauchte ein
  * Strategiebericht (damals 840 Abfragen) gut zwei Stunden. `perProvider` gilt je Anbieter, nicht je KI: google_aio und
  * google_ai_mode teilen sich DataForSEO (dort liegt der Engpass); Claude läuft als Batch und belegt keine Plätze.

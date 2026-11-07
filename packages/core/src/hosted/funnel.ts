@@ -3,7 +3,7 @@ import { db, funnelEvent } from '@askmetry/db';
 
 export type FunnelEventName =
   | 'check_started' | 'check_email_submitted' | 'check_verified' | 'check_ready' | 'checkout_started' | 'report_paid'
-  | 'report_started' | 'report_ready' | 'report_emailed' | 'remeasure_reminded' | 'remeasure_paid' | 'recommendation_done';
+  | 'report_started' | 'report_autostarted' | 'report_autostart_failed' | 'report_ready' | 'report_emailed' | 'remeasure_reminded' | 'remeasure_paid' | 'recommendation_done';
 
 const PII_KEYS = /mail|name|phone|ip|address|token|code/i;
 

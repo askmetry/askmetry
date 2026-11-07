@@ -1,5 +1,6 @@
 // Gemeinsame Typen der gehosteten Version (Web ↔ Kern). Siehe HOSTED.md.
 import type { ReportKind, ReportTier } from './config.ts';
+import type { CollectionProgress } from './progress.ts';
 
 /** awaiting_email: nur noch Altbestand (früheres E-Mail-Gate); neue Checks gehen nach der Discovery direkt in queued. */
 export type CheckStatus = 'discovering' | 'awaiting_email' | 'queued' | 'measuring' | 'ready' | 'failed' | 'blocked';
@@ -83,9 +84,18 @@ export interface ReportView {
   status: 'pending_payment' | 'paid' | 'measuring' | 'ready' | 'failed' | 'canceled' | 'refunded';
   amountCents: number; currency: string; previousReportId: string | null;
   collectionId: string | null; createdAt: string; paidAt: string | null; startedAt: string | null; readyAt: string | null;
-  hasPdf: boolean; emailedAt: string | null; error: string | null;
-  /** Strategiebericht: Zusatzfragen werden noch erzeugt (Start erst danach möglich) */
+  hasPdf: boolean; emailedAt: string | null;
+  /**
+   * Fehlerschlüssel: prompts_failed | failed | autostart_budget (Tagesbudget, startet von selbst neu) |
+   * autostart_queued (wartet auf eine laufende Messung) | autostart_too_few (zu wenige Fragen) | autostart_failed
+   */
+  error: string | null;
+  /** Strategiebericht: Zusatzfragen werden noch erzeugt (danach startet die Messung automatisch) */
   promptsPreparing: boolean;
-  /** Fortschritt der Messung (nur bei measuring) */
-  progress: { done: number; total: number } | null;
+  /** bezahlt, die Messung wird gerade automatisch gestartet (kurz nach der Zahlung) */
+  autoStarting: boolean;
+  /** maskierte Adresse des Käufers für „kommt per E-Mail an …“ (nur bei paid und measuring) */
+  buyerEmailMasked: string | null;
+  /** Fortschritt der Messung je KI-Suche samt Phase und Restzeit (nur bei measuring) */
+  progress: CollectionProgress | null;
 }

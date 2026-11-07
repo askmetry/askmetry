@@ -1,7 +1,7 @@
 import { SettingsHeader } from '@/components/settings-ui';
 import { PromptEditor } from '@/components/prompt-editor';
 import { requireWorkspace } from '@/lib/session';
-import { rightsFor } from '@/lib/hosted/server';
+import { rightsFor, topicsFor } from '@/lib/hosted/server';
 import { loadPromptsAndTopics } from '@/lib/prompts';
 import { getT } from '@/lib/i18n/server';
 
@@ -18,12 +18,12 @@ export default async function FragenSettingsPage({ params }: { params: Promise<{
   const all = await getT();
   const t = all.settings;
   const q = t.prompts;
-  const { prompts, topics } = await loadPromptsAndTopics(ws.id);
+  const { prompts } = await loadPromptsAndTopics(ws.id);
   const active = prompts.filter((p) => p.active).length;
   return (
     <>
       <SettingsHeader title={t.pages.fragen} ro={!canEdit} intro={locked ? all.reports.lock[(await rightsFor(ws)).lockReason === 'remeasure' ? 'remeasure' : 'measuring'] : q.intro(active, prompts.length)} />
-      <PromptEditor slug={slug} workspaceId={ws.id} ro={ro} />
+      <PromptEditor slug={slug} workspaceId={ws.id} ro={ro} showTopics={await topicsFor(ws)} />
     </>
   );
 }

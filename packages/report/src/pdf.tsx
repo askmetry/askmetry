@@ -433,7 +433,8 @@ export function Questions({ m }: { m: ReportModel }) {
   const f = fmt(m.lang);
   const L = labels(m.lang);
   const engines = m.engines.filter((e) => e.responses > 0).map((e) => e.engine);
-  const topics = new Set(m.questions.map((q) => q.topic ?? ''));
+  // Themen nur im Strategiebericht; die Standortbestimmung hat nur ein Pseudo-Thema (die Branche) → eine Tabelle ohne Überschrift
+  const topics = new Set(m.tier === 'strategy' ? m.questions.map((q) => q.topic ?? '') : ['']);
   const showTopic = topics.size > 1;
   const multi = m.scope.repetitions > 1;
   return (
@@ -444,7 +445,7 @@ export function Questions({ m }: { m: ReportModel }) {
         {multi && <><Dot named={1} total={2} /><T style={[S.small, { marginLeft: 4 }]}>{L.legendPart}</T></>}
       </View>
       {[...topics].map((t) => {
-        const qs = m.questions.filter((q) => (q.topic ?? '') === t);
+        const qs = m.tier === 'strategy' ? m.questions.filter((q) => (q.topic ?? '') === t) : m.questions;
         return (
           <View key={t} style={{ marginBottom: 12 }}>
             {showTopic && <T style={S.h3}>{clean(t || (m.lang === 'en' ? 'Other questions' : 'Weitere Fragen'))}</T>}

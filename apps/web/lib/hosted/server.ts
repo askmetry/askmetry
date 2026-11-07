@@ -6,7 +6,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { checkRequest, db, report } from '@askmetry/db';
 import { hostedConfig, isHosted } from '@askmetry/core/hosted/config';
 import { clientIp as clientIpFrom } from '@/components/marketing/format';
-import { scopeLimits, workspaceRights, type WorkspaceRights } from './rights';
+import { scopeLimits, topicsEnabled, workspaceRights, type WorkspaceRights } from './rights';
 
 export { isHosted };
 
@@ -29,6 +29,13 @@ export async function rightsFor(ws: Ws): Promise<WorkspaceRights & { customer: b
 export async function limitsFor(ws: Ws): Promise<{ prompts: number; competitors: number } | null> {
   if (!isHosted() || ws.hostedKind !== 'customer') return null;
   return scopeLimits(await reportStatuses(ws.id));
+}
+
+/** Themen in Fragen-Seiten und Editor zeigen? (Standortbestimmung: nein, siehe topicsEnabled) */
+export async function topicsFor(ws: Ws): Promise<boolean> {
+  const hosted = isHosted();
+  if (!hosted || ws.hostedKind !== 'customer') return true;
+  return topicsEnabled({ hosted, hostedKind: ws.hostedKind, reports: await reportStatuses(ws.id) });
 }
 
 /** Letzter fertiger Erstbericht/Nachmessung → Link „Nachmessung kaufen“ (gleicher Umfang). */
