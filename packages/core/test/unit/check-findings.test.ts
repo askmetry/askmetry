@@ -22,6 +22,12 @@ describe('answerExcerpt / plainAnswerText', () => {
     expect(answerExcerpt('Ohne Treffer', 'SumUp')).toBeNull();
     expect(answerExcerpt('', 'SumUp')).toBeNull();
   });
+  it('überspringt eine Nennung in der wiederholten Frage, wenn die Antwort die Marke später nennt', () => {
+    const q = 'Ist SumUp gut für kleine Läden?';
+    const text = `Zu deiner Frage „${q}“: Viele Händler nutzen Zettle. Andere empfehlen SumUp wegen der Gebühren.`;
+    expect(answerExcerpt(text, 'SumUp', { question: q })).toContain('Andere empfehlen SumUp wegen der Gebühren.');
+    expect(answerExcerpt(`Zu „${q}“ gibt es nichts weiter.`, 'SumUp', { question: q })).toContain('Ist SumUp gut');
+  });
 });
 
 describe('pickFindings', () => {
@@ -88,7 +94,7 @@ describe('applyListOp (Fragen/Themen vor dem Kauf)', () => {
     expect(applyListOp(list, { action: 'edit', index: 1, expected: 'alt', text: 'Ist Paylindo seriös und gut?' }, rules)).toEqual({ error: 'wrong_state' });
     expect(applyListOp(list, { action: 'delete', index: 5, expected: 'x' }, rules)).toEqual({ error: 'wrong_state' });
     expect(applyListOp(list, { action: 'delete', index: 0, expected: list[0] }, rules)).toEqual({ list: [list[1]] });
-    expect(applyListOp([list[0]], { action: 'delete', index: 0, expected: list[0] }, rules)).toEqual({ error: 'too_short' });
+    expect(applyListOp([list[0]], { action: 'delete', index: 0, expected: list[0] }, rules)).toEqual({ error: 'too_few' });
   });
   it('cleanEntry entfernt HTML, URLs, Aufzählungszeichen', () => {
     expect(cleanEntry('1. <b>Beste</b> Kasse? https://x.de')).toBe('Beste Kasse?');

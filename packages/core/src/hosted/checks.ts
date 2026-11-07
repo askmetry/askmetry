@@ -10,7 +10,7 @@ import { localizeRec } from '../recommend/present.ts';
 import { loadRecData } from '../recommend/index.ts';
 import { CollectionActiveError, createCollection, parseCollectionPlan } from '../runner.ts';
 import type { SiteCheckResult } from '../recommend/data.ts';
-import { engineLabels, type EngineKey } from '../types.ts';
+import { engineName } from '../recommend/present.ts';
 import { checkPurchased, checkQuestionList } from './check-edit.ts';
 import { CHECK_CONSENT_VERSION, CHECK_LIVE_ANSWERS, CHECK_QUESTION_RULES, CHECK_REMINDER_HOURS, CHECK_SCOPE, hostedConfig, publicUrl } from './config.ts';
 import { loadAnswers, measuredQuestions, pickFindings, toLiveAnswers } from './findings.ts';
@@ -394,6 +394,7 @@ export async function getCheckView(token: string): Promise<CheckView | null> {
     error: c.status === 'failed' || c.status === 'blocked' ? errorKey(c.error) ?? 'failed' : null,
     progress: await checkProgress(c), summary, freeRecommendations,
     turnstileSiteKey: hostedConfig().turnstile.siteKey ?? null,
+    progressSeen: !!c.progressSeenAt,
     marketingConsent: !!c.marketingConsentAt,
     live: await checkLive(c),
     findings: await checkFindings(c, summary),
@@ -614,7 +615,7 @@ async function sendCheckReminder(c: Check, log: (m: string) => void) {
   try {
     await sendMail({ to: c.email, ...mailTemplates.checkReminder({
       lang, domain: c.domain, brandName: summary?.brand.name || c.domain,
-      finding: gap ? { question: gap.question, engine: engineLabels[gap.engine as EngineKey] ?? gap.engine, competitors: gap.competitors } : null,
+      finding: gap ? { question: gap.question, engine: engineName(gap.engine, lang), competitors: gap.competitors } : null,
       mentioned: summary ? { n: summary.responsesMentioned ?? Math.round(summary.visibility * summary.responses), of: summary.responses } : null,
       simulated: !!summary?.simulated,
       checkUrl: `${publicUrl()}/check/${encodeURIComponent(c.token)}`, optOutUrl: optOutUrl(c.email),

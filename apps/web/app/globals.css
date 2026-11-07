@@ -239,3 +239,8 @@ mark.hl-untracked { background: var(--untracked-soft); color: var(--fg); border-
 @keyframes agent-spin { to { transform: rotate(360deg); } }
 .agent-spin { animation: agent-spin 1.1s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .agent-spin { animation: none; } }
+
+/* Check-Seite: neue Zwischenstände blenden ein (bestehende Elemente bleiben beim Aktualisieren stehen) */
+@keyframes reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.reveal { animation: reveal .45s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .reveal { animation: none; } }

@@ -4,8 +4,7 @@
 // prepareReport die Fragen in die Kopie des Arbeitsbereichs, processReports die Themen in generateMorePrompts.
 import { brand, checkRequest, db, funnelEvent, prompt, report } from '@askmetry/db';
 import { and, asc, eq, gte, inArray, sql } from 'drizzle-orm';
-import { CHECK_QUESTION_RULES, REPORT_SCOPE } from './config.ts';
-import { TOPICS } from './discovery.ts';
+import { CHECK_QUESTION_RULES, REPORT_SCOPE, TOPICS } from './config.ts';
 import { trackEvent } from './funnel.ts';
 import type { CheckError } from './types.ts';
 
@@ -49,7 +48,7 @@ export function applyListOp(list: readonly string[], op: ListOp, rules: { max: n
     if (!Number.isInteger(op.index) || op.index < 0 || op.index >= out.length || out[op.index] !== op.expected) return { error: 'wrong_state' };
   }
   if (op.action === 'delete') {
-    if (out.length <= rules.min) return { error: 'too_short' };
+    if (out.length <= rules.min) return { error: 'too_few' };
     out.splice(op.index, 1);
     return { list: out };
   }

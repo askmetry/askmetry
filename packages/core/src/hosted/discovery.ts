@@ -10,7 +10,9 @@ import { costFromUsage } from '../pricing.ts';
 import { inferBrandProfile, summarizeHtml, type ProfileAsker, type ProfileKind, type SiteSummary } from '../recommend/profile.ts';
 import { safeFetch, type Resolver, type Transport } from '../recommend/safe-fetch.ts';
 import { SITE_CHECK_UA, type FetchLike } from '../recommend/site-check.ts';
-import { CHECK_SCOPE, REPORT_SCOPE } from './config.ts';
+import { CHECK_SCOPE, REPORT_SCOPE, TOPICS } from './config.ts';
+
+export { TOPICS };
 
 export const DISCOVERY_MODEL = 'claude-sonnet-5-5';
 type Lang = 'de' | 'en';
@@ -168,8 +170,6 @@ export function orderForCheck(prompts: readonly string[], brandName: string): st
   return [...prompts.filter((t) => !has(t)), ...prompts.filter(has)];
 }
 
-/** Grenzen der Themen für den Strategiebericht (Discovery-Vorschlag und Bearbeitung auf der Check-Seite). */
-export const TOPICS = { min: 4, max: 6, minLength: 2, maxLength: 40 };
 
 /** Themennamen säubern: Länge, keine Duplikate (ohne Groß-/Kleinschreibung), höchstens TOPICS.max. */
 export function sanitizeTopics(list: unknown, max = TOPICS.max): string[] {

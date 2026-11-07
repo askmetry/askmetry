@@ -66,6 +66,9 @@ export const CHECK_REMINDER_HOURS = 24;
 export const CHECK_LIVE_ANSWERS = 6;
 
 /** Grenzen beim Bearbeiten der Fragen auf der Check-Seite (gleiche Regeln wie sanitizePrompts). */
+/** Grenzen der Themen für den Strategiebericht (Discovery-Vorschlag und Bearbeitung auf der Check-Seite). */
+export const TOPICS = { min: 4, max: 6, minLength: 2, maxLength: 40 };
+
 export const CHECK_QUESTION_RULES = { max: 20, minLength: 10, maxLength: 300, maxWithBrand: 2, editsPerHour: 120 };
 
 /** Version der AGB, der beim Kauf zugestimmt wird (bei Änderung der AGB hochzählen). */

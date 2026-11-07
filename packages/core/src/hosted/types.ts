@@ -17,6 +17,7 @@ export type CheckError =
   | 'code_expired'
   | 'locked'            // Fragen/Themen nach dem Kauf nicht mehr am Check änderbar
   | 'too_many'          // mehr Fragen/Themen als erlaubt
+  | 'too_few'           // letzte Frage lässt sich nicht löschen
   | 'too_short'
   | 'too_long'
   | 'duplicate'
@@ -66,6 +67,8 @@ export interface CheckView {
   summary: CheckSummary | null;
   freeRecommendations: TeaserRecommendation[];   // nur die freien (CHECK_SCOPE.freeRecommendations)
   turnstileSiteKey: string | null;
+  /** erster Zwischenstand wurde schon angezeigt (Funnel check_progress_seen) */
+  progressSeen: boolean;
   /** Einwilligung in Erinnerung + Tipps per Mail liegt vor */
   marketingConsent: boolean;
   /** Zwischenstände für die Warteansicht (Marke, Wettbewerber, gemessene Fragen, erste Antworten); null vor der Discovery-Planung */

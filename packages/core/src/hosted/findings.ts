@@ -80,11 +80,16 @@ export function plainAnswerText(s: string): string {
  * Kurzer Ausschnitt um die erste Nennung von `name`: reiner Text, an Wortgrenzen gekürzt, mit „…“ an Schnittkanten.
  * Kein HTML – die Seite rendert ihn als Text (React escapt), Markdown ist entfernt.
  */
-export function answerExcerpt(text: string, name: string, opts: { before?: number; after?: number } = {}): string | null {
+export function answerExcerpt(text: string, name: string, opts: { before?: number; after?: number; question?: string } = {}): string | null {
   const plain = plainAnswerText(text);
   if (!plain) return null;
   const before = opts.before ?? 70, after = opts.after ?? 130;
-  const idx = name.trim() ? plain.toLowerCase().indexOf(name.trim().toLowerCase()) : -1;
+  const lower = plain.toLowerCase(), needle = name.trim().toLowerCase();
+  // Nennung innerhalb einer wiederholten Frage („Zu deiner Frage …“) überspringen, wenn es eine spätere gibt
+  const q = opts.question?.trim().toLowerCase();
+  const qAt = q ? lower.indexOf(q) : -1;
+  const later = needle && qAt >= 0 ? lower.indexOf(needle, qAt + q!.length) : -1;
+  const idx = !needle ? -1 : later >= 0 ? later : lower.indexOf(needle);
   if (idx < 0) return null;
   let start = Math.max(0, idx - before);
   let end = Math.min(plain.length, idx + name.length + after);
@@ -104,7 +109,7 @@ export function answerExcerpt(text: string, name: string, opts: { before?: numbe
 
 /** Ausschnitt eines Falls: Satz der Nennung (mention.snippet), sonst Fenster im Antworttext. */
 function excerptFor(r: AnswerRow, name: string): string | null {
-  const fromText = answerExcerpt(r.answer, name);
+  const fromText = answerExcerpt(r.answer, name, { question: r.question });
   if (fromText) return fromText;
   const m = r.mentions.find((x) => x.name.toLowerCase() === name.toLowerCase());
   const snip = m?.snippet ? plainAnswerText(m.snippet).slice(0, 220) : '';
