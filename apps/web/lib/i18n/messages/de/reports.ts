@@ -56,7 +56,7 @@ const reports = {
     },
     start: 'Messung starten',
     starting: 'Wird gestartet …',
-    startHint: 'Die Messung dauert ein paar Stunden. Wir schicken dir eine Mail, sobald der Bericht fertig ist.',
+    startHint: 'Die Messung dauert meist unter einer Stunde. Wir schicken dir eine Mail, sobald der Bericht fertig ist.',
     confirm: 'Messung jetzt starten? Fragen und Wettbewerber lassen sich danach für diesen Bericht nicht mehr ändern.',
   },
   measuring: {

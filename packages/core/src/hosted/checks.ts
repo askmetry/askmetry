@@ -1,7 +1,7 @@
 // Gratis-Schnell-Check (HOSTED.md „Ablauf“ 1–5): starten (Turnstile, ohne E-Mail), Worker-Verarbeitung, optionale
 // Benachrichtigung per Mail, Teaser-Ansicht.
 import { brand, checkRequest, collection, db, funnelEvent, prompt, recommendation, recommendationGeneration, response, run, siteCheck, topic, workspace } from '@askmetry/db';
-import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { isIPv4, isIPv6 } from 'node:net';
 import { validateBrandDomain } from '../domains.ts';
@@ -10,7 +10,11 @@ import { localizeRec } from '../recommend/present.ts';
 import { loadRecData } from '../recommend/index.ts';
 import { CollectionActiveError, createCollection, parseCollectionPlan } from '../runner.ts';
 import type { SiteCheckResult } from '../recommend/data.ts';
-import { CHECK_SCOPE, hostedConfig, publicUrl } from './config.ts';
+import { engineName } from '../recommend/present.ts';
+import { checkPurchased, checkQuestionList } from './check-edit.ts';
+import { CHECK_CONSENT_VERSION, CHECK_LIVE_ANSWERS, CHECK_QUESTION_RULES, CHECK_REMINDER_HOURS, CHECK_SCOPE, hostedConfig, publicUrl } from './config.ts';
+import { loadAnswers, measuredQuestions, pickFindings, toLiveAnswers } from './findings.ts';
+import { isOptedOut, optOutUrl } from './optout.ts';
 import { discoverBrand, DiscoveryError, DISCOVERY_MODEL, type DiscoveryOptions, type DiscoveryProgress } from './discovery.ts';
 import { trackEvent } from './funnel.ts';
 import { canStartMeasurement, checkDiscoveriesPerHour, checkReservedUsd, checkSpendToday, estimateMeasurementUsd, globalSpendToday } from './limits.ts';
@@ -20,7 +24,7 @@ import { isMockMode } from '../engines/index.ts';
 import { notifyOps } from './notify.ts';
 import { measurementState } from './progress.ts';
 import { areaOf, buildCheckSummary } from './summary.ts';
-import type { CheckError, CheckProgress, CheckStatus, CheckSummary, CheckView, TeaserRecommendation } from './types.ts';
+import type { CheckError, CheckFindings, CheckLive, CheckProgress, CheckStatus, CheckSummary, CheckView, TeaserRecommendation } from './types.ts';
 import { DAY_MS, errText, maskEmail, normalizeEmail, randomToken, safeEqual, serverSecret, sha256hex } from './util.ts';
 
 type Check = typeof checkRequest.$inferSelect;
@@ -159,7 +163,7 @@ export async function startCheck(input: { url: string; locale: 'de' | 'en'; ipHa
       token, url: target.url, domain: target.domain, locale, ipHash: ipKey,
       ...(orig
         // Cache: sofort fertig; Fertig-Mail gibt es hier nie (der Nutzer sieht das Ergebnis direkt)
-        ? { status: 'ready', reusedFromId: orig.id, workspaceId: orig.workspaceId, collectionId: orig.collectionId, summary: orig.summary, readyAt: now, readyMailSentAt: now }
+        ? { status: 'ready', reusedFromId: orig.id, workspaceId: orig.workspaceId, collectionId: orig.collectionId, summary: orig.summary, topics: (orig.summary as CheckSummary | null)?.discoveryTopics ?? null, readyAt: now, readyMailSentAt: now }
         : { status: 'discovering', progress: { stage: 'read' } }),
     }).returning({ id: checkRequest.id });
     return { row };
@@ -201,7 +205,7 @@ export async function verifyTurnstile(tokenFromClient: string | null | undefined
  * Optional: „Benachrichtige mich per Mail, wenn es fertig ist“. Schickt die Bestätigungsmail; erst nach dem Klick auf den
  * Link geht die Fertig-Mail raus. Sperrt nichts – der Check läuft unabhängig davon.
  */
-export async function submitCheckEmail(token: string, email: string, opts: { turnstileToken?: string | null; ip?: string | null } = {}): Promise<{ ok: true } | { error: CheckError }> {
+export async function submitCheckEmail(token: string, email: string, opts: { turnstileToken?: string | null; ip?: string | null; consent?: boolean } = {}): Promise<{ ok: true } | { error: CheckError }> {
   const cfg = hostedConfig();
   const c = await byToken(token);
   if (!c) return { error: 'not_found' };
@@ -219,20 +223,38 @@ export async function submitCheckEmail(token: string, email: string, opts: { tur
 
   const code = randomToken(32);
   // nur setzen, wenn seit dem Lesen niemand anders gesendet hat (Doppelklick)
-  const claimed = await db.update(checkRequest).set({ email: e, verifyCodeHash: sha256hex(code), verifySentAt: new Date() })
+  // Einwilligung gilt nur für genau diese Adresse: bei jeder neuen Eingabe neu setzen bzw. löschen (nie vorangekreuzt)
+  const consent = opts.consent === true ? { marketingConsentAt: new Date(), marketingConsentVersion: CHECK_CONSENT_VERSION } : { marketingConsentAt: null, marketingConsentVersion: null };
+  const claimed = await db.update(checkRequest).set({ email: e, verifyCodeHash: sha256hex(code), verifySentAt: new Date(), ...consent })
     .where(and(eq(checkRequest.id, c.id), c.verifySentAt ? eq(checkRequest.verifySentAt, c.verifySentAt) : isNull(checkRequest.verifySentAt), isNull(checkRequest.emailVerifiedAt)))
     .returning({ id: checkRequest.id });
   if (!claimed.length) return { error: 'rate_limited' };
   const verifyUrl = `${publicUrl()}/check/${encodeURIComponent(c.token)}/bestaetigen?code=${encodeURIComponent(code)}`;
   try {
-    await sendMail({ to: e, ...mailTemplates.checkVerify({ lang: c.locale === 'en' ? 'en' : 'de', domain: c.domain, verifyUrl }) });
+    await sendMail({ to: e, ...mailTemplates.checkVerify({ lang: c.locale === 'en' ? 'en' : 'de', domain: c.domain, verifyUrl, consent: opts.consent === true }) });
   } catch (err) {
     // erneutes Senden sofort erlauben
     await db.update(checkRequest).set({ verifySentAt: null }).where(eq(checkRequest.id, c.id));
     void notifyOps(`Bestätigungsmail für Check ${c.domain} nicht versendet: ${errText(err)}`);
     throw err;
   }
-  await trackEvent('check_email_submitted', { checkId: c.id });
+  await trackEvent('check_email_submitted', { checkId: c.id, props: { consent: opts.consent === true, status: c.status } });
+  if (opts.consent === true) await trackEvent('check_consent_given', { checkId: c.id, props: { version: CHECK_CONSENT_VERSION, with: 'email' } });
+  return { ok: true };
+}
+
+/**
+ * Einwilligung in Erinnerung + Tipps nachträglich erteilen (Adresse schon angegeben, Kästchen damals leer gelassen).
+ * Gilt für die gespeicherte Adresse; verschickt wird trotzdem nur an eine bestätigte Adresse.
+ */
+export async function giveCheckConsent(token: string): Promise<{ ok: true } | { error: CheckError }> {
+  const c = await byToken(token);
+  if (!c) return { error: 'not_found' };
+  if (!c.email || ['failed', 'blocked'].includes(c.status)) return { error: 'wrong_state' };
+  if (c.marketingConsentAt) return { ok: true };
+  const r = await db.update(checkRequest).set({ marketingConsentAt: new Date(), marketingConsentVersion: CHECK_CONSENT_VERSION })
+    .where(and(eq(checkRequest.id, c.id), isNull(checkRequest.marketingConsentAt), eq(checkRequest.email, c.email))).returning({ id: checkRequest.id });
+  if (r.length) await trackEvent('check_consent_given', { checkId: c.id, props: { version: CHECK_CONSENT_VERSION, with: 'later' } });
   return { ok: true };
 }
 
@@ -313,11 +335,47 @@ async function checkProgress(c: Check): Promise<CheckProgress> {
   return p;
 }
 
+/** Zwischenstände der Warteansicht: Beschreibung, Wettbewerber, gemessene Fragen, neueste Antworten (nur echte DB-Zustände). */
+async function checkLive(c: Check): Promise<CheckLive | null> {
+  if (['ready', 'failed', 'blocked'].includes(c.status)) return null;
+  const stored = (c.progress ?? null) as Partial<DiscoveryProgress> | null;
+  if (!c.workspaceId) {
+    if (c.status !== 'discovering' || stored?.stage !== 'plan') return null;
+    const description = typeof stored.description === 'string' ? stored.description.slice(0, 300) : null;
+    return { description, competitors: [], questions: [], answers: [], answersTotal: 0 };
+  }
+  const brands = await db.select({ name: brand.name, isOwn: brand.isOwn, description: brand.description }).from(brand)
+    .where(eq(brand.workspaceId, c.workspaceId)).orderBy(asc(brand.createdAt));
+  let questions: string[] = [];
+  let answers: Awaited<ReturnType<typeof loadAnswers>> = [];
+  if (c.collectionId) {
+    const [col] = await db.select({ plan: collection.plan }).from(collection).where(eq(collection.id, c.collectionId));
+    questions = await measuredQuestions(c.workspaceId, parseCollectionPlan(col?.plan).promptIds ?? []);
+    answers = await loadAnswers(c.collectionId);
+  }
+  if (!questions.length) {
+    questions = (await db.select({ text: prompt.text }).from(prompt).where(and(eq(prompt.workspaceId, c.workspaceId), eq(prompt.active, true)))
+      .orderBy(asc(prompt.createdAt)).limit(CHECK_SCOPE.measured)).map((p) => p.text);
+  }
+  return {
+    description: brands.find((b) => b.isOwn)?.description?.slice(0, 300) ?? null,
+    competitors: brands.filter((b) => !b.isOwn).slice(0, CHECK_SCOPE.competitors).map((b) => b.name),
+    questions, answers: toLiveAnswers(answers, CHECK_LIVE_ANSWERS), answersTotal: answers.length,
+  };
+}
+
+/** Konkrete Befunde eines fertigen Checks (aus den Antworten der Check-Messung; bei Cache-Treffern die des Originals). */
+async function checkFindings(c: Check, summary: CheckSummary | null): Promise<CheckFindings | null> {
+  if (c.status !== 'ready' || !c.collectionId || !summary) return null;
+  return pickFindings(await loadAnswers(c.collectionId), { simulated: !!summary.simulated });
+}
+
 export async function getCheckView(token: string): Promise<CheckView | null> {
   const c = await byToken(token);
   if (!c) return null;
   const locale: Lang = c.locale === 'en' ? 'en' : 'de';
   const summary = c.status === 'ready' ? (c.summary as CheckSummary | null) : null;
+  const ready = c.status === 'ready' && !!summary;
   let freeRecommendations: TeaserRecommendation[] = [];
   const ids = summary?.freeRecommendationIds?.slice(0, CHECK_SCOPE.freeRecommendations) ?? [];
   if (ids.length && c.workspaceId) {
@@ -336,7 +394,38 @@ export async function getCheckView(token: string): Promise<CheckView | null> {
     error: c.status === 'failed' || c.status === 'blocked' ? errorKey(c.error) ?? 'failed' : null,
     progress: await checkProgress(c), summary, freeRecommendations,
     turnstileSiteKey: hostedConfig().turnstile.siteKey ?? null,
+    progressSeen: !!c.progressSeenAt,
+    marketingConsent: !!c.marketingConsentAt,
+    live: await checkLive(c),
+    findings: await checkFindings(c, summary),
+    questions: ready ? { ...(await checkQuestionList(c)), max: CHECK_QUESTION_RULES.max } : null,
+    topics: ready ? c.topics ?? [] : [],
+    editable: ready && !(await checkPurchased(c.id)),
   };
+}
+
+/** Hat die Warteansicht schon etwas Konkretes zu zeigen? (Marke erkannt oder weiter) */
+export function hasVisibleProgress(v: Pick<CheckView, 'status' | 'progress' | 'live'>): boolean {
+  if (v.status === 'ready') return true;
+  return !!v.live || (v.status === 'discovering' && v.progress.stage === 'plan' && !!v.progress.brandName);
+}
+
+/**
+ * Funnel: erster sichtbarer Zwischenstand auf der Check-Seite (einmal je Check). props.ms = Zeit seit dem Start,
+ * stage = was zuerst zu sehen war. Die Seite ruft das beim Rendern auf, sobald hasVisibleProgress gilt.
+ */
+export async function markCheckProgressSeen(token: string, stage: string): Promise<void> {
+  const c = await byToken(token);
+  if (!c || c.progressSeenAt) return;
+  const now = new Date();
+  const r = await db.update(checkRequest).set({ progressSeenAt: now }).where(and(eq(checkRequest.id, c.id), isNull(checkRequest.progressSeenAt))).returning({ id: checkRequest.id });
+  if (r.length) await trackEvent('check_progress_seen', { checkId: c.id, props: { ms: now.getTime() - c.createdAt.getTime(), stage: stage.slice(0, 30), reused: !!c.reusedFromId } });
+}
+
+/** Funnel: Kaufformular aus einem Check geöffnet („Kasse geöffnet“). */
+export async function trackCheckoutOpened(token: string, tier: string): Promise<void> {
+  const c = await byToken(token);
+  if (c) await trackEvent('checkout_opened', { checkId: c.id, props: { tier: tier.slice(0, 20) } });
 }
 
 /** Laufen Checks, die der Worker zügig weiterbringen soll? (kürzeres Schleifen-Intervall) */
@@ -400,7 +489,7 @@ async function runDiscovery(c: Check, opts: ProcessChecksOptions, log: (m: strin
   let d;
   // Zwischenstände für die Checkliste der Warteansicht (nur solange der Check noch in der Discovery ist)
   const onProgress = async (p: DiscoveryProgress) => {
-    await db.update(checkRequest).set({ progress: { stage: p.stage, ...(p.brandName && { brandName: p.brandName.slice(0, 80) }) } })
+    await db.update(checkRequest).set({ progress: { stage: p.stage, ...(p.brandName && { brandName: p.brandName.slice(0, 80) }), ...(p.description && { description: p.description.slice(0, 300) }) } })
       .where(and(eq(checkRequest.id, c.id), eq(checkRequest.status, 'discovering')));
     await opts.discovery?.onProgress?.(p);
   };
@@ -413,7 +502,7 @@ async function runDiscovery(c: Check, opts: ProcessChecksOptions, log: (m: strin
   }
   const wsId = await createCheckWorkspace(c, d);
   // kein E-Mail-Gate mehr: direkt einreihen und die Messung sofort anlegen (der Worker arbeitet sie im selben Durchgang ab)
-  const moved = await db.update(checkRequest).set({ workspaceId: wsId, costUsd: d.costUsd.toFixed(4), status: 'queued', progress: { queuedAt: new Date().toISOString() } })
+  const moved = await db.update(checkRequest).set({ workspaceId: wsId, costUsd: d.costUsd.toFixed(4), topics: d.topics, status: 'queued', progress: { queuedAt: new Date().toISOString() } })
     .where(and(eq(checkRequest.id, c.id), eq(checkRequest.status, 'discovering'))).returning();
   log(`Check ${c.id} (${c.domain}): Discovery fertig (${d.source}, ${d.prompts.length} Fragen, ${d.competitors.length} Wettbewerber, ${d.costUsd.toFixed(4)} $)`);
   if (moved[0]) await startMeasurement(moved[0], log);
@@ -482,7 +571,8 @@ async function finishMeasurement(c: Check, log: (m: string) => void) {
   if (!summary.responses) return fail(c, 'failed', 'Messung ohne ausgewertete Antworten', log);
   const [g] = await db.select({ t: sql<string>`coalesce(sum(${recommendationGeneration.costUsd}), 0)` }).from(recommendationGeneration).where(eq(recommendationGeneration.workspaceId, c.workspaceId!));
   const cost = Number(col.costUsd) + Number(g?.t ?? 0);
-  const ok = await db.update(checkRequest).set({ status: 'ready', summary, readyAt: new Date(), costUsd: cost.toFixed(4), error: null })
+  // Themen sind erst im Zustand ready bearbeitbar → c.topics ist hier noch der Discovery-Stand (für spätere Cache-Treffer merken)
+  const ok = await db.update(checkRequest).set({ status: 'ready', summary: { ...summary, ...(c.topics && { discoveryTopics: c.topics }) }, readyAt: new Date(), costUsd: cost.toFixed(4), error: null })
     .where(and(eq(checkRequest.id, c.id), eq(checkRequest.status, 'measuring'))).returning({ id: checkRequest.id });
   if (!ok.length) return;
   await trackEvent('check_ready', { checkId: c.id, workspaceId: c.workspaceId!, props: { costUsd: Number(cost.toFixed(4)), recommendations: summary.recommendationsTotal } });
@@ -502,6 +592,57 @@ async function sendReadyMail(c: Check, log: (m: string) => void) {
     // Anspruch zurückgeben → nächster Worker-Durchgang versucht es erneut
     await db.update(checkRequest).set({ readyMailSentAt: null }).where(eq(checkRequest.id, c.id));
     log(`Check ${c.id}: Fertig-Mail an ${maskEmail(c.email)} fehlgeschlagen – ${errText(e)}`);
+  }
+}
+
+/** Erinnerungsmails nur für Checks, die in diesem Zeitraum fertig wurden (ältere Einwilligungen nicht nachträglich „abarbeiten“). */
+export const CHECK_REMINDER_WINDOW_MS = 3 * DAY_MS;
+
+/**
+ * Einmalige Erinnerung 24 h nach dem fertigen Check: nur mit Einwilligung (UWG § 7 Abs. 2), nur an eine bestätigte
+ * Adresse, nur ohne Kauf aus diesem Check, nie nach Abmeldung. Inhalt: der stärkste konkrete Befund und der Link zum Check.
+ */
+async function sendCheckReminder(c: Check, log: (m: string) => void) {
+  if (!c.email || !c.emailVerifiedAt || !c.marketingConsentAt) return;
+  // erst beanspruchen (einmalig – auch wenn sie danach entfällt), dann prüfen und senden
+  const claimed = await db.update(checkRequest).set({ reminderSentAt: new Date() })
+    .where(and(eq(checkRequest.id, c.id), isNull(checkRequest.reminderSentAt))).returning({ id: checkRequest.id });
+  if (!claimed.length) return;
+  if (await checkPurchased(c.id) || (await isOptedOut(c.email))) return;
+  const lang: Lang = c.locale === 'en' ? 'en' : 'de';
+  const summary = c.summary as CheckSummary | null;
+  const f = c.collectionId ? pickFindings(await loadAnswers(c.collectionId), { simulated: !!summary?.simulated }) : null;
+  const gap = f?.gaps[0];
+  try {
+    await sendMail({ to: c.email, ...mailTemplates.checkReminder({
+      lang, domain: c.domain, brandName: summary?.brand.name || c.domain,
+      finding: gap ? { question: gap.question, engine: engineName(gap.engine, lang), competitors: gap.competitors } : null,
+      mentioned: summary ? { n: summary.responsesMentioned ?? Math.round(summary.visibility * summary.responses), of: summary.responses } : null,
+      simulated: !!summary?.simulated,
+      checkUrl: `${publicUrl()}/check/${encodeURIComponent(c.token)}`, optOutUrl: optOutUrl(c.email),
+    }) });
+  } catch (e) {
+    // Anspruch zurückgeben → nächster Durchgang versucht es erneut (solange das Zeitfenster offen ist)
+    await db.update(checkRequest).set({ reminderSentAt: null }).where(eq(checkRequest.id, c.id));
+    log(`Check ${c.id}: Erinnerung an ${maskEmail(c.email)} fehlgeschlagen – ${errText(e)}`);
+    return;
+  }
+  await trackEvent('check_reminded', { checkId: c.id, props: { finding: gap ? 'gap' : 'none' } });
+  log(`Check ${c.id} (${c.domain}): Erinnerung verschickt`);
+}
+
+/** Fällige Erinnerungen verschicken (Worker; Tests mit `now`). */
+export async function processCheckReminders(opts: { log?: (m: string) => void; shouldStop?: () => boolean; now?: Date } = {}): Promise<void> {
+  const log = opts.log ?? (() => {});
+  const now = (opts.now ?? new Date()).getTime();
+  const due = await db.select().from(checkRequest).where(and(
+    eq(checkRequest.status, 'ready'), isNull(checkRequest.reminderSentAt), sql`${checkRequest.marketingConsentAt} is not null`,
+    sql`${checkRequest.emailVerifiedAt} is not null`, sql`${checkRequest.email} is not null`,
+    lte(checkRequest.readyAt, new Date(now - CHECK_REMINDER_HOURS * 3600_000)), gte(checkRequest.readyAt, new Date(now - CHECK_REMINDER_HOURS * 3600_000 - CHECK_REMINDER_WINDOW_MS)),
+  )).limit(50);
+  for (const c of due) {
+    if (opts.shouldStop?.()) return;
+    try { await sendCheckReminder(c, log); } catch (e) { log(`Check ${c.id}: Erinnerung – Fehler ${(e as Error)?.stack ?? e}`); }
   }
 }
 
@@ -535,4 +676,6 @@ export async function processChecks(opts: ProcessChecksOptions = {}): Promise<vo
     eq(checkRequest.status, 'ready'), isNull(checkRequest.readyMailSentAt), sql`${checkRequest.emailVerifiedAt} is not null`, gte(checkRequest.readyAt, since(DAY_MS)),
   )).limit(50);
   for (const c of mails) { if (stop()) return; await sendReadyMail(c, log); }
+  // Erinnerung 24 h nach dem Ergebnis (nur mit Einwilligung, ohne Kauf)
+  await processCheckReminders({ log, shouldStop: stop });
 }

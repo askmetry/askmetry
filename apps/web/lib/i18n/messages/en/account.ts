@@ -61,7 +61,7 @@ const account: typeof de = {
   optout: {
     metaTitle: 'Unsubscribe',
     title: 'No more reminders?',
-    text: 'We’ll stop sending you reminders about follow-up measurements. You’ll still get emails about orders in progress.',
+    text: 'We’ll stop sending you reminders and tips – about your quick check or follow-up measurements. You’ll still get emails about orders in progress.',
     submit: 'Unsubscribe',
     done: 'Done – you won’t get any more reminders.',
     invalid: 'This unsubscribe link isn’t valid. Just get in touch and we’ll remove you.',

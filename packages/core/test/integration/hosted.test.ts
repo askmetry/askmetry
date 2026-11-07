@@ -10,8 +10,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deleteUserData } from '../../src/hosted/account.ts';
-import { checksWaiting, getCheckView, processChecks, QUEUED_STALE_MS, startCheck, submitCheckEmail, verifyCheckEmail } from '../../src/hosted/checks.ts';
-import { CHECK_SCOPE } from '../../src/hosted/config.ts';
+import { checksWaiting, getCheckView, giveCheckConsent, hasVisibleProgress, markCheckProgressSeen, processCheckReminders, processChecks, QUEUED_STALE_MS, startCheck, submitCheckEmail, trackCheckoutOpened, verifyCheckEmail } from '../../src/hosted/checks.ts';
+import { editCheckQuestions, editCheckTopics } from '../../src/hosted/check-edit.ts';
+import { CHECK_CONSENT_VERSION, CHECK_SCOPE } from '../../src/hosted/config.ts';
 import { canStartMeasurement, checkReservedUsd, checkSpendToday, DISCOVERY_ESTIMATE_USD, globalSpendToday } from '../../src/hosted/limits.ts';
 import { decodeOptOutParam, isOptedOut, optOut, verifyOptOut } from '../../src/hosted/optout.ts';
 import { attachCheckoutSession, autoStartReport, getReport, getReportPdf, markReportCanceled, markReportPaid, markReportRefunded, prepareReport, processReports, reportsForWorkspace, startReport } from '../../src/hosted/reports.ts';
@@ -170,10 +171,13 @@ describe('Schnell-Check', () => {
       { engine: 'google_ai_mode', done: 0, total: 8 }, { engine: 'chatgpt', done: 0, total: 4 },
     ]);
     expect(v.summary).toBeNull();
-    // keine Wettbewerber-Namen oder Fragen in der Warteansicht
-    const json = JSON.stringify(v);
-    expect(json).not.toContain('Alpha Solutions');
-    expect(json).not.toContain('kleine Unternehmen');
+    // Zwischenstände für die Warteansicht: Wettbewerber und die gemessenen Fragen (sonst nichts aus dem Ergebnis)
+    expect(v.live).toMatchObject({ competitors: ['Alpha Solutions', 'Beta Solutions', 'Gamma Solutions', 'Delta Solutions', 'Epsilon Solutions'], answers: [], answersTotal: 0 });
+    expect(v.live!.questions).toHaveLength(CHECK_SCOPE.measured);
+    expect(v.live!.questions[0]).toContain('kleine Unternehmen');
+    expect(v).toMatchObject({ findings: null, questions: null, topics: [], editable: false });
+    // Themenvorschläge der Discovery am Check gespeichert
+    expect(c.topics).toEqual(['Auswahl', 'Kosten', 'Vergleich', 'Einrichtung', 'Service']);
   });
 
   it('Benachrichtigung per Mail (optional): Prüfung, Code nur gehasht, erneutes Senden frühestens nach 60 s', async () => {
@@ -217,6 +221,15 @@ describe('Schnell-Check', () => {
     await processCollection(col.id, { retryDelayMs: 1 });
     const mid = (await getCheckView(token))!;
     expect(mid.progress.engines.every((e) => e.done === e.total)).toBe(true);
+    // live: neueste Antworten mit KI, Frage und genannten Marken (eigene markiert), kein Antworttext
+    expect(mid.live!.answersTotal).toBe(28);
+    expect(mid.live!.answers).toHaveLength(6);
+    for (const a of mid.live!.answers) {
+      expect(mid.live!.questions).toContain(a.question);
+      expect(CHECK_SCOPE.engines).toContain(a.engine);
+      expect(a.ownNamed).toBe(a.brands.some((b) => b.own));
+      expect(a).not.toHaveProperty('answer');
+    }
     expect(mid.progress.analyzing || mid.progress.recommending).toBe(true);
     await db.update(collection).set({ finishedAt: new Date(Date.now() - 5 * 60_000) }).where(eq(collection.id, col.id));
     await processChecks();
@@ -746,6 +759,200 @@ describe('Auto-Start nach der Zahlung: Randfälle', () => {
     expect((await getReport(id))!.progress!.phase).toBe('recommending'); // noch keine Maßnahme, innerhalb der Schonfrist
     await db.update(collection).set({ finishedAt: new Date(Date.now() - 5 * 60_000) }).where(eq(collection.id, colId));
     expect((await getReport(id))!.progress!.phase).toBe('done'); // jetzt: PDF erstellen
+  });
+});
+
+describe('Check-Seite vor dem Kauf', () => {
+  const base = { amountCents: 7900, b2bConfirmedAt: new Date(), termsAcceptedAt: new Date(), termsVersion: '2026-11-05', provider: 'fake' as const };
+  let token: string;
+
+  it('Befunde: Lücken mit Wettbewerbern und Ausschnitt, verschiedene KIs/Fragen; Fragen und Themen sichtbar', async () => {
+    token = await runCheck(`${P}-vorkauf.de`);
+    const v = (await getCheckView(token))!;
+    const f = v.findings!;
+    expect(f.simulated).toBe(true);
+    expect(f.answers).toBeGreaterThan(20);
+    expect(f.gaps.length).toBeGreaterThan(0);
+    expect(f.gaps.length).toBeLessThanOrEqual(3);
+    for (const g of f.gaps) {
+      expect(g.competitors.length).toBeGreaterThan(0);
+      expect(g.competitors.join()).not.toContain(v.summary!.brand.name);
+      expect(g.excerpt).toBeTruthy();
+      expect(g.excerpt).not.toMatch(/\*\*|<|>/);
+      expect(g.excerpt!.toLowerCase()).toContain(g.competitors[0].toLowerCase());
+    }
+    expect(new Set(f.gaps.map((g) => g.question)).size).toBe(f.gaps.length);
+    expect(v.questions).toEqual({ list: expect.any(Array), edited: false, max: 20 });
+    expect(v.questions!.list).toHaveLength(20);
+    expect(v.topics).toEqual(['Auswahl', 'Kosten', 'Vergleich', 'Einrichtung', 'Service']);
+    expect(v.editable).toBe(true);
+    expect(v.live).toBeNull();
+  });
+
+  it('Fragen bearbeiten: Grenzen wie sanitizePrompts, nur am Check (Schnappschuss und Cache-Treffer unverändert)', async () => {
+    const list = (await getCheckView(token))!.questions!.list;
+    expect(await editCheckQuestions('x'.repeat(43), { action: 'add', text: 'Eine ganz neue Frage zum Test?' })).toEqual({ error: 'not_found' });
+    expect(await editCheckQuestions(token, { action: 'add', text: 'Neue Frage?' })).toEqual({ error: 'too_many' }); // schon 20
+    expect(await editCheckQuestions(token, { action: 'edit', index: 0, expected: list[0], text: 'kurz' })).toEqual({ error: 'too_short' });
+    expect(await editCheckQuestions(token, { action: 'edit', index: 0, expected: list[0], text: 'x'.repeat(301) })).toEqual({ error: 'too_long' });
+    expect(await editCheckQuestions(token, { action: 'edit', index: 0, expected: list[0], text: list[1].toUpperCase() })).toEqual({ error: 'duplicate' });
+    expect(await editCheckQuestions(token, { action: 'edit', index: 0, expected: 'veraltet', text: 'Was ist die beste Lösung für Arztpraxen?' })).toEqual({ error: 'wrong_state' });
+    const r1 = await editCheckQuestions(token, { action: 'edit', index: 0, expected: list[0], text: '  <b>Was ist die beste Lösung für Arztpraxen?</b> ' });
+    expect(r1).toMatchObject({ ok: true });
+    const r2 = await editCheckQuestions(token, { action: 'delete', index: 19, expected: list[19] });
+    expect(r2).toMatchObject({ ok: true });
+    const r3 = await editCheckQuestions(token, { action: 'add', text: 'Welche Software nutzen Zahnarztpraxen für die Planung?' });
+    expect(r3).toMatchObject({ ok: true });
+    const v = (await getCheckView(token))!;
+    expect(v.questions!.edited).toBe(true);
+    expect(v.questions!.list[0]).toBe('Was ist die beste Lösung für Arztpraxen?');
+    expect(v.questions!.list.at(-1)).toBe('Welche Software nutzen Zahnarztpraxen für die Planung?');
+    expect(v.questions!.list).toHaveLength(20);
+    // eigene Marke in höchstens 2 Fragen
+    const brandName = v.summary!.brand.name;
+    const withBrand = v.questions!.list.filter((q) => q.toLowerCase().includes(brandName.toLowerCase())).length;
+    let res;
+    for (let i = withBrand; i < 3; i++) {
+      const idx = v.questions!.list.findIndex((q) => !q.toLowerCase().includes(brandName.toLowerCase()));
+      const cur = (await getCheckView(token))!.questions!.list;
+      res = await editCheckQuestions(token, { action: 'edit', index: idx, expected: cur[idx], text: `Ist ${brandName} gut für Variante ${i}?` });
+    }
+    expect(res).toEqual({ error: 'brand_limit' });
+    // Check-Arbeitsbereich (geteilter Schnappschuss) bleibt unverändert, ein Cache-Treffer sieht die Vorschläge
+    const c = await row(token);
+    expect(await db.$count(prompt, and(eq(prompt.workspaceId, c.workspaceId!), eq(prompt.text, 'Was ist die beste Lösung für Arztpraxen?')))).toBe(0);
+    const cached = (await getCheckView(tokenOf(await startCheck({ url: c.domain, locale: 'de', ipHash: `${P}-ip-vk2` }))))!;
+    expect(cached.questions).toMatchObject({ edited: false });
+    expect(cached.questions!.list[0]).toBe(list[0]);
+    expect(cached.topics).toEqual(['Auswahl', 'Kosten', 'Vergleich', 'Einrichtung', 'Service']);
+  });
+
+  it('Themen bearbeiten: umbenennen, entfernen, hinzufügen, höchstens 6, keine Duplikate', async () => {
+    const t = (await getCheckView(token))!.topics;
+    expect(await editCheckTopics(token, { action: 'edit', index: 0, expected: t[0], text: 'Dienstplanung' })).toMatchObject({ ok: true, list: ['Dienstplanung', ...t.slice(1)] });
+    expect(await editCheckTopics(token, { action: 'add', text: 'dienstplanung' })).toEqual({ error: 'duplicate' });
+    expect(await editCheckTopics(token, { action: 'add', text: 'Z' })).toEqual({ error: 'too_short' });
+    expect(await editCheckTopics(token, { action: 'add', text: 'Zeiterfassung' })).toMatchObject({ ok: true });
+    expect(await editCheckTopics(token, { action: 'add', text: 'Urlaubsplanung' })).toEqual({ error: 'too_many' });
+    expect(await editCheckTopics(token, { action: 'delete', index: 4, expected: 'Service' })).toMatchObject({ ok: true });
+    expect(await editCheckTopics(token, { action: 'add', text: 'Urlaubsplanung' })).toMatchObject({ ok: true });
+    expect((await getCheckView(token))!.topics).toEqual(['Dienstplanung', 'Kosten', 'Vergleich', 'Einrichtung', 'Zeiterfassung', 'Urlaubsplanung']);
+    const n = await db.$count(funnelEvent, and(eq(funnelEvent.checkId, (await row(token)).id), eq(funnelEvent.name, 'check_topics_edited')));
+    expect(n).toBe(4);
+    // ein späterer Check derselben Domain aus dem Cache startet mit den Discovery-Themen, nicht mit diesen Änderungen
+    const cached = (await getCheckView(tokenOf(await startCheck({ url: (await row(token)).domain, locale: 'de', ipHash: `${P}-ip-vk3` }))))!;
+    expect(cached.topics).toEqual(['Auswahl', 'Kosten', 'Vergleich', 'Einrichtung', 'Service']);
+  });
+
+  it('Kauf: Kopie übernimmt die bearbeiteten Fragen, Strategiebericht die Themen; danach gesperrt', async () => {
+    const u = await addUser('vorkauf');
+    const c = await row(token);
+    const list = (await getCheckView(token))!.questions!.list;
+    const r = await prepareReport({ ...base, userId: u, tier: 'strategy', kind: 'initial', checkId: c.id, amountCents: 24900 });
+    const ps = await db.select().from(prompt).where(and(eq(prompt.workspaceId, r.workspaceId), eq(prompt.active, true))).orderBy(prompt.createdAt);
+    expect(ps.map((p) => p.text)).toEqual(list);
+    expect(ps.every((p) => p.topicId)).toBe(true);
+    // unbezahlt: weiter änderbar, erneuter Kauf (gleiche Kopie, noch nichts gemessen) übernimmt die neue Fassung
+    const r1 = await editCheckQuestions(token, { action: 'edit', index: 1, expected: list[1], text: 'Welche Lösung hilft bei Schichtplänen im Krankenhaus?' });
+    expect(r1).toMatchObject({ ok: true });
+    const again = await prepareReport({ ...base, userId: u, tier: 'strategy', kind: 'initial', checkId: c.id, amountCents: 24900 });
+    expect(again.workspaceId).toBe(r.workspaceId);
+    expect(await db.$count(prompt, and(eq(prompt.workspaceId, r.workspaceId), eq(prompt.text, 'Welche Lösung hilft bei Schichtplänen im Krankenhaus?')))).toBe(1);
+    expect(await db.$count(prompt, eq(prompt.workspaceId, r.workspaceId))).toBe(20);
+    await attachCheckoutSession(again.reportId, `${P}-sess-vorkauf`);
+    // Checkout offen, Nutzer ändert noch eine Frage und zahlt dann die alte Sitzung → Änderung kommt trotzdem an
+    const r2 = await editCheckQuestions(token, { action: 'edit', index: 2, expected: list[2], text: 'Wie plane ich Bereitschaftsdienste fair im Team?' });
+    expect(r2).toMatchObject({ ok: true });
+    await markReportPaid({ sessionId: `${P}-sess-vorkauf` });
+    expect(await db.$count(prompt, and(eq(prompt.workspaceId, r.workspaceId), eq(prompt.text, 'Wie plane ich Bereitschaftsdienste fair im Team?')))).toBe(1);
+    expect(await db.$count(prompt, eq(prompt.workspaceId, r.workspaceId))).toBe(20);
+    expect(await editCheckQuestions(token, { action: 'add', text: 'Noch eine Frage nach dem Kauf?' })).toEqual({ error: 'locked' });
+    expect(await editCheckTopics(token, { action: 'add', text: 'Neu' })).toEqual({ error: 'locked' });
+    expect((await getCheckView(token))!.editable).toBe(false);
+    await processReports({ renderPdf: fakePdf });
+    const names = (await db.select({ name: topic.name }).from(topic).where(eq(topic.workspaceId, r.workspaceId))).map((x) => x.name);
+    for (const n of ['Dienstplanung', 'Kosten', 'Vergleich', 'Einrichtung', 'Zeiterfassung', 'Urlaubsplanung']) expect(names).toContain(n);
+    expect(await db.$count(prompt, and(eq(prompt.workspaceId, r.workspaceId), eq(prompt.active, true)))).toBe(60);
+  });
+
+  it('Einwilligung: optional, mit Zeitpunkt und Textversion; gilt nur für die eingegebene Adresse', async () => {
+    const t = tokenOf(await startCheck({ url: `${P}-einwilligung.de`, locale: 'de', ipHash: `${P}-ip-ew` }));
+    expect(await submitCheckEmail(t, `ohne@${P}-firma.de`)).toEqual({ ok: true });
+    expect(await row(t)).toMatchObject({ marketingConsentAt: null, marketingConsentVersion: null });
+    expect(await giveCheckConsent(t)).toEqual({ ok: true });
+    expect(await row(t)).toMatchObject({ marketingConsentVersion: CHECK_CONSENT_VERSION });
+    expect((await row(t)).marketingConsentAt).toBeInstanceOf(Date);
+    expect((await getCheckView(t))!.marketingConsent).toBe(true);
+    // neue Adresse ohne Häkchen → Einwilligung weg
+    await db.update(checkRequest).set({ verifySentAt: new Date(Date.now() - 2 * 60_000) }).where(eq(checkRequest.token, t));
+    expect(await submitCheckEmail(t, `andere@${P}-firma.de`)).toEqual({ ok: true });
+    expect(await row(t)).toMatchObject({ marketingConsentAt: null, marketingConsentVersion: null });
+    await db.update(checkRequest).set({ verifySentAt: new Date(Date.now() - 2 * 60_000) }).where(eq(checkRequest.token, t));
+    expect(await submitCheckEmail(t, `mit@${P}-firma.de`, { consent: true })).toEqual({ ok: true });
+    expect(await row(t)).toMatchObject({ email: `mit@${P}-firma.de`, marketingConsentVersion: CHECK_CONSENT_VERSION });
+    const ev = await db.select().from(funnelEvent).where(and(eq(funnelEvent.checkId, (await row(t)).id), eq(funnelEvent.name, 'check_consent_given')));
+    expect(ev).toHaveLength(2);
+  });
+
+  it('Erinnerung 24 h nach dem Ergebnis: nur mit Einwilligung und bestätigter Adresse, einmalig, nicht nach Kauf oder Abmeldung', async () => {
+    const mk = async (name: string, consent: boolean) => {
+      const t = tokenOf(await startCheck({ url: `${P}-rem-${name}.de`, locale: 'de', ipHash: `${P}-ip-rem-${name}` }));
+      const to = `${name}@${P}-erinnerung.de`;
+      expect(await submitCheckEmail(t, to, { consent })).toEqual({ ok: true });
+      const code = new URL(linkWith(mails(to).at(-1)!, '/bestaetigen')!).searchParams.get('code')!;
+      expect(await verifyCheckEmail(t, code)).toEqual({ ok: true });
+      await processChecks();
+      const c = await row(t);
+      await processCollection(c.collectionId!, { retryDelayMs: 1 });
+      await db.update(collection).set({ finishedAt: new Date(Date.now() - 5 * 60_000) }).where(eq(collection.id, c.collectionId!));
+      await processChecks();
+      expect((await row(t)).status).toBe('ready');
+      return { t, to, id: c.id };
+    };
+    const yes = await mk('ja', true), no = await mk('nein', false), bought = await mk('kauf', true), out = await mk('ab', true);
+    const reminders = (to: string) => mails(to).filter((m) => !!linkWith(m, '/abmelden'));
+    // vor Ablauf von 24 h nichts
+    await processCheckReminders();
+    for (const x of [yes, no, bought, out]) expect(reminders(x.to)).toHaveLength(0);
+    const u = await addUser('remkauf');
+    const r = await prepareReport({ ...base, userId: u, tier: 'compact', kind: 'initial', checkId: bought.id });
+    await attachCheckoutSession(r.reportId, `${P}-sess-remkauf`);
+    await markReportPaid({ sessionId: `${P}-sess-remkauf` });
+    await optOut(out.to);
+    const later = new Date(Date.now() + 25 * 3600_000);
+    await processCheckReminders({ now: later });
+    await processCheckReminders({ now: later });
+    expect(reminders(yes.to)).toHaveLength(1);
+    expect(reminders(no.to)).toHaveLength(0);
+    expect(reminders(bought.to)).toHaveLength(0);
+    expect(reminders(out.to)).toHaveLength(0);
+    const m = reminders(yes.to)[0] as Mail & { headers?: Record<string, string> };
+    expect(linkWith(m, `/check/${yes.t}`)).toBeTruthy();
+    const unsub = new URL(linkWith(m, '/abmelden')!);
+    expect(decodeOptOutParam(unsub.searchParams.get('e'))).toBe(yes.to);
+    expect(m.headers?.['List-Unsubscribe']).toContain('/abmelden?');
+    expect(m.text).toMatch(/simulierten Antworten/);
+    const f = (await getCheckView(yes.t))!.findings!;
+    if (f.gaps[0]) expect(m.text).toContain(f.gaps[0].question);
+    expect((await row(yes.t)).reminderSentAt).not.toBeNull();
+    expect(await db.$count(funnelEvent, and(eq(funnelEvent.checkId, yes.id), eq(funnelEvent.name, 'check_reminded')))).toBe(1);
+  });
+
+  it('Funnel: erster sichtbarer Zwischenstand einmal mit Dauer, Kaufformular geöffnet', async () => {
+    const t = tokenOf(await startCheck({ url: `${P}-funnel.de`, locale: 'de', ipHash: `${P}-ip-funnel` }));
+    const v0 = (await getCheckView(t))!;
+    expect(hasVisibleProgress(v0)).toBe(false);
+    await processChecks();
+    const v1 = (await getCheckView(t))!;
+    expect(hasVisibleProgress(v1)).toBe(true);
+    await markCheckProgressSeen(t, 'queued');
+    await markCheckProgressSeen(t, 'measuring');
+    const id = (await row(t)).id;
+    const ev = await db.select().from(funnelEvent).where(and(eq(funnelEvent.checkId, id), eq(funnelEvent.name, 'check_progress_seen')));
+    expect(ev).toHaveLength(1);
+    expect(ev[0].props).toMatchObject({ ms: expect.any(Number), stage: 'queued' });
+    await trackCheckoutOpened(t, 'strategy');
+    expect(await db.$count(funnelEvent, and(eq(funnelEvent.checkId, id), eq(funnelEvent.name, 'checkout_opened')))).toBe(1);
   });
 });
 

@@ -57,7 +57,7 @@ const reports: typeof de = {
     },
     start: 'Start measuring',
     starting: 'Starting …',
-    startHint: 'Measuring takes a few hours. We’ll email you as soon as the report is ready.',
+    startHint: 'Measuring usually takes less than an hour. We’ll email you as soon as the report is ready.',
     confirm: 'Start measuring now? Questions and competitors can’t be changed for this report afterwards.',
   },
   measuring: {

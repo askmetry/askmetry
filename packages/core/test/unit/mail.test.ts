@@ -18,6 +18,8 @@ function all(lang: 'de' | 'en', brandName = 'Paylindo', domain = 'paylindo.de'):
     reportRemeasure: mailTemplates.reportReady({ lang, brandName, tierLabel: 'Nachmessung', reportUrl: 'https://askmetry.ai/w/x/bericht/2', remeasure: true }),
     reminder: mailTemplates.remeasureReminder({ lang, brandName, buyUrl: 'https://askmetry.ai/w/x/nachmessung', optOutUrl: 'https://askmetry.ai/abmelden?t=abc', readyAt: new Date('2026-09-10T10:00:00Z') }),
     reminderBadDate: mailTemplates.remeasureReminder({ lang, brandName, buyUrl: 'https://askmetry.ai/w/x/nachmessung', optOutUrl: 'https://askmetry.ai/abmelden?t=abc', readyAt: new Date('nope') }),
+    checkReminder: mailTemplates.checkReminder({ lang, domain, brandName, checkUrl: 'https://askmetry.ai/check/tok', optOutUrl: 'https://askmetry.ai/abmelden?t=abc', finding: { question: 'Welches EC-Terminal für Cafés?', engine: 'ChatGPT', competitors: ['SumUp', 'Zettle', `${brandName} Rival`] }, mentioned: { n: 3, of: 28 } }),
+    checkReminderNoFinding: mailTemplates.checkReminder({ lang, domain, brandName, checkUrl: 'https://askmetry.ai/check/tok', optOutUrl: 'https://askmetry.ai/abmelden?t=abc', finding: null, mentioned: { n: Number.NaN, of: 0 }, simulated: true }),
     authVerify: mailTemplates.authVerify({ lang, url: 'https://askmetry.ai/api/auth/verify?token=t' }),
     authReset: mailTemplates.authReset({ lang, url: 'https://askmetry.ai/reset?token=t' }),
   };
@@ -57,6 +59,16 @@ describe('mailTemplates', () => {
       expect(m.headers?.['List-Unsubscribe']).toBe('<https://askmetry.ai/abmelden?t=abc>');
       expect(m.text).toMatch(lang === 'de' ? /10\. September 2026/ : /September 10, 2026/);
     });
+    it(`Check-Erinnerung (${lang}): konkreter Befund, Abmeldelink, List-Unsubscribe, Testmodus gekennzeichnet`, () => {
+      const m = all(lang).checkReminder;
+      expect(m.text).toContain(lang === 'de' ? 'Auf „Welches EC-Terminal für Cafés?“ nennt ChatGPT SumUp, Zettle und Paylindo Rival – Paylindo nicht.' : 'Asked “Welches EC-Terminal für Cafés?”, ChatGPT names SumUp, Zettle and Paylindo Rival – but not Paylindo.');
+      expect(m.text).toContain('https://askmetry.ai/check/tok');
+      expect(m.text).toContain('https://askmetry.ai/abmelden?t=abc');
+      expect(m.headers?.['List-Unsubscribe']).toBe('<https://askmetry.ai/abmelden?t=abc>');
+      const n = all(lang).checkReminderNoFinding;
+      expect(n.text).toMatch(lang === 'de' ? /simulierten Antworten/ : /simulated answers/);
+      expect(n.text).not.toMatch(/nennt|names/);
+    });
     it(`Bericht fertig (${lang}) erwähnt den PDF-Anhang`, () => {
       expect(all(lang).reportReady.text).toMatch(/PDF/);
     });
@@ -72,6 +84,11 @@ describe('mailTemplates', () => {
     // & in URLs wird im Attribut escaped
     expect(all('de').checkVerify.html).toContain('code=abc&amp;x=1');
     expect(all('de').checkVerify.text).toContain('code=abc&x=1');
+    // Double-Opt-in: die Bestätigungsmail nennt die Einwilligung nur, wenn sie gegeben wurde
+    expect(all('de').checkVerify.text).not.toContain('Tipps');
+    const withConsent = mailTemplates.checkVerify({ lang: 'de', domain: 'paylindo.de', verifyUrl: 'https://askmetry.ai/x', consent: true });
+    expect(withConsent.text).toContain('erinnern und dir Tipps schicken');
+    expect(mailTemplates.checkVerify({ lang: 'en', domain: 'paylindo.de', verifyUrl: 'https://askmetry.ai/x', consent: true }).text).toContain('send you tips');
   });
 
   it('lehnt Links ohne http(s) ab', () => {

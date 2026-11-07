@@ -9,12 +9,15 @@ import { AutoRefresh } from '@/components/auto-refresh';
 import { BrandMark } from '@/components/brand-mark';
 import { BuyOptions } from '@/components/check/buy-options';
 import { CheckNotifyForm } from '@/components/check/email-form';
+import { Findings } from '@/components/check/findings';
+import { CheckListEditor } from '@/components/check/list-editor';
+import { LiveFeed } from '@/components/check/live-feed';
 import { TeaserRecCard } from '@/components/check/teaser-rec';
 import { PublicShell } from '@/components/public-shell';
 import { Hint } from '@/components/ui';
 import { ScoreRing } from '@/components/viz';
 import { toneColor } from '@/components/viz-style';
-import { getCheckView } from '@/lib/hosted/data';
+import { getCheckView, hasVisibleProgress, markCheckProgressSeen } from '@/lib/hosted/data';
 import { contactEmail, isHosted } from '@/lib/hosted/server';
 import { agentSteps, cleanDomain, elapsedText, lockedCount, refreshSeconds, visibilityEstimate, type AgentStep } from '@/lib/hosted/teaser';
 import { getI18n, getT } from '@/lib/i18n/server';
@@ -41,6 +44,8 @@ export default async function CheckPage({ params, searchParams }: Props) {
   const refresh = refreshSeconds(view.status);
   const verified = one(sp.bestaetigt) === '1';
   const verifyError = one(sp.fehler) || null;
+  // Funnel: erster sichtbarer Zwischenstand (einmal je Check; Zeit seit Start)
+  if (!view.progressSeen && hasVisibleProgress(view)) await markCheckProgressSeen(token, view.status === 'discovering' ? 'brand' : view.status).catch(() => {});
   return (
     <PublicShell width={view.status === 'ready' ? 'max-w-[880px]' : 'max-w-[640px]'}>
       {refresh && <AutoRefresh seconds={refresh} />}
@@ -128,12 +133,14 @@ async function Waiting({ view, verified, verifyError }: { view: CheckView; verif
         <p className="mt-4 text-[13px] text-muted">{c.agent.refresh}</p>
       </section>
 
+      <LiveFeed view={view} />
+
       {canNotify && (
         <section aria-labelledby="notify-title" className="rounded-2xl bg-card p-5 shadow-card">
           <h2 id="notify-title" className="text-[15px] font-semibold">{c.notify.title}</h2>
           {!view.emailVerified && <p className="mb-3 mt-0.5 text-[13px] text-muted">{c.notify.text}</p>}
           <div className={view.emailVerified ? 'mt-2' : ''}>
-            <CheckNotifyForm token={view.token} siteKey={view.turnstileSiteKey} sentTo={verifyMsg ? null : view.emailMasked} confirmed={view.emailVerified} />
+            <CheckNotifyForm token={view.token} siteKey={view.turnstileSiteKey} sentTo={verifyMsg ? null : view.emailMasked} confirmed={view.emailVerified} consent={view.marketingConsent} />
           </div>
         </section>
       )}
@@ -189,7 +196,9 @@ async function Teaser({ view, canceled, verified }: { view: CheckView; canceled:
         {est.simulated && (
           <p role="note" className="mt-4 rounded-xl bg-subtle px-4 py-3 text-sm" data-testid="teaser-simulated">{c.simulatedNote}</p>
         )}
-        <div className="mt-6 flex flex-col items-center gap-6 text-center sm:flex-row sm:gap-10 sm:text-left">
+        {/* answer first: konkrete Fälle, dann die Zahl mit Spanne */}
+        {view.findings && <Findings findings={view.findings} />}
+        <div className="mt-6 flex flex-col items-center gap-6 border-t border-border/70 pt-6 text-center sm:flex-row sm:gap-10 sm:text-left">
           {est.score !== null && verdict && (
             <div className="flex shrink-0 flex-col items-center gap-2">
               <ScoreRing score={est.score} tone={verdict.tone} />
@@ -251,7 +260,19 @@ async function Teaser({ view, canceled, verified }: { view: CheckView; canceled:
         )}
       </section>
 
-      <BuyOptions checkToken={view.token} />
+      {view.questions && (
+        <section aria-labelledby="t-questions" className="rounded-2xl bg-card p-5 shadow-card sm:p-6" data-testid="check-questions">
+          <h2 id="t-questions" className="text-[1.375rem] font-semibold tracking-tight">{t.check.questions.title(view.questions.list.length)}</h2>
+          <p className="mt-1 text-[15px] text-muted">{view.editable ? t.check.questions.text : t.check.questions.locked}</p>
+          {view.questions.edited && <p className="mt-1 text-[13px] text-muted">{t.check.questions.edited}</p>}
+          <div className="mt-4">
+            <CheckListEditor token={view.token} kind="questions" items={view.questions.list} max={view.questions.max} editable={view.editable} collapsed={5} testId="question-editor" />
+          </div>
+          <p className="mt-3 text-[13px] text-muted">{t.check.questions.strategyNote(Math.max(0, REPORT_SCOPE.strategy.prompts - view.questions.list.length))}</p>
+        </section>
+      )}
+
+      <BuyOptions checkToken={view.token} topics={view.topics} editable={view.editable} />
 
       <section aria-labelledby="t-method" className="rounded-2xl bg-subtle/60 p-5 text-sm">
         <h2 id="t-method" className="font-medium">{c.method}</h2>

@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { mailTemplates, sendMail } from '../mail/index.ts';
 import { CollectionActiveError, createCollection, hasActiveCollection, parseCollectionPlan } from '../runner.ts';
 import { hostedConfig, publicUrl, REMEASURE_REMINDER_DAYS, REPORT_CONCURRENCY, REPORT_MIN_PROMPTS, REPORT_SCOPE, type PaymentProvider, type ReportKind, type ReportTier } from './config.ts';
+import { applyCheckQuestions } from './check-edit.ts';
 import { generateMorePrompts, type DiscoveryAsker } from './discovery.ts';
 import { trackEvent } from './funnel.ts';
 import { canStartMeasurement, estimateMeasurementUsd } from './limits.ts';
@@ -99,6 +100,8 @@ export async function prepareReport(input: PrepareReportInput): Promise<{ report
         await tx.insert(workspaceMember).values({ workspaceId: ws.id, userId: input.userId, role: 'owner' });
         fromCheck = true;
       }
+      // vor dem Kauf auf der Check-Seite bearbeitete Fragen übernehmen (nur solange in der Kopie nichts gemessen wurde)
+      if (c.prompts && (fromCheck || !(await tx.$count(collection, eq(collection.workspaceId, ws.id))))) await applyCheckQuestions(tx, ws.id, c.prompts);
     } else if (input.workspaceId) {
       const [w] = await tx.select().from(workspace).where(eq(workspace.id, input.workspaceId));
       if (!w) throw new Error('Arbeitsbereich nicht gefunden');
@@ -149,6 +152,12 @@ export async function markReportPaid(input: { sessionId: string; paymentIntentId
     const [r] = await tx.select().from(report).where(eq(report.checkoutSessionId, input.sessionId)).for('update');
     if (!r) return null;
     if (!['pending_payment', 'canceled'].includes(r.status)) return { r, already: true };
+    // Fragen, die nach dem Öffnen des Checkouts auf der Check-Seite noch geändert wurden, jetzt übernehmen (Check-Zeile
+    // sperren, damit keine Änderung dazwischenrutscht; ab „paid“ ist die Check-Seite gesperrt)
+    if (r.checkId && r.kind === 'initial') {
+      const [c] = await tx.select({ prompts: checkRequest.prompts }).from(checkRequest).where(eq(checkRequest.id, r.checkId)).for('update');
+      if (c?.prompts && !(await tx.$count(collection, eq(collection.workspaceId, r.workspaceId)))) await applyCheckQuestions(tx, r.workspaceId, c.prompts);
+    }
     await tx.update(report).set({
       status: 'paid', paidAt: new Date(), paymentIntentId: input.paymentIntentId ?? r.paymentIntentId,
       invoiceId: input.invoiceId ?? r.invoiceId, ...(input.amountCents != null && { amountCents: input.amountCents }), error: null,
@@ -413,7 +422,9 @@ export async function processReports(opts: ProcessReportsOptions = {}): Promise<
     if (!missing) continue;
     await step(r, 'Zusatzfragen', async () => {
       try {
-        const g = await generateMorePrompts(r.workspaceId, missing, undefined, { ask: opts.ask });
+        // Themen, die der Kunde vor dem Kauf auf der Check-Seite festgelegt hat
+        const [c] = r.checkId ? await db.select({ topics: checkRequest.topics }).from(checkRequest).where(eq(checkRequest.id, r.checkId)) : [];
+        const g = await generateMorePrompts(r.workspaceId, missing, c?.topics?.length ? c.topics : undefined, { ask: opts.ask });
         await db.update(report).set({ promptsGeneratedAt: new Date() }).where(eq(report.id, r.id));
         log(`Bericht ${r.id}: ${g.created} Zusatzfragen in ${g.topics.length} Themen (${g.costUsd.toFixed(4)} $)`);
       } catch (e) {

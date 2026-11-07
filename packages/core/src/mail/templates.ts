@@ -26,7 +26,7 @@ function dateText(d: Date, lang: Lang): string | null {
 
 export const mailTemplates = {
   /** Schnell-Check: E-Mail bestätigen (Link 24 h gültig). */
-  checkVerify: (i: { lang: Lang; domain: string; verifyUrl: string }): RenderedMail => {
+  checkVerify: (i: { lang: Lang; domain: string; verifyUrl: string; consent?: boolean }): RenderedMail => {
     const lang = L(i.lang);
     const domain = oneLine(i.domain, 100);
     if (lang === 'en') {
@@ -35,6 +35,7 @@ export const mailTemplates = {
         heading: 'Confirm your email address',
         intro: [
           { text: `You started a free quick check for ${domain} on Askmetry. You asked us to email you when it’s ready. Please confirm your email address – then we’ll send you the result as soon as it’s done.` },
+          ...(i.consent ? [{ text: 'You also agreed that we may remind you of your results and send you tips. Confirming covers that too – you can unsubscribe from any of these emails.' }] : []),
         ],
         button: { label: 'Confirm email', url: i.verifyUrl },
         outro: [{ text: 'The link is valid for 24 hours. If you didn’t start this check, just ignore this email.', muted: true }],
@@ -45,6 +46,7 @@ export const mailTemplates = {
       heading: 'Bestätige deine E-Mail-Adresse',
       intro: [
         { text: `Du hast für ${domain} einen kostenlosen Schnell-Check bei Askmetry gestartet. Du möchtest per Mail Bescheid bekommen, wenn er fertig ist. Bestätige bitte kurz deine E-Mail-Adresse – dann schicken wir dir das Ergebnis, sobald es da ist.` },
+        ...(i.consent ? [{ text: 'Außerdem hast du zugestimmt, dass wir dich an deine Ergebnisse erinnern und dir Tipps schicken. Mit der Bestätigung gilt auch das – abbestellen kannst du in jeder dieser Mails.' }] : []),
       ],
       button: { label: 'E-Mail bestätigen', url: i.verifyUrl },
       outro: [{ text: 'Der Link ist 24 Stunden gültig. Wenn du den Check nicht gestartet hast, ignoriere diese Mail einfach.', muted: true }],
@@ -149,6 +151,63 @@ export const mailTemplates = {
         link: { label: 'Abmelden', url: i.optOutUrl },
       },
     }, `Zeit für die Nachmessung von ${brand}?`, headers);
+  },
+
+  /**
+   * Einmalige Erinnerung 24 h nach dem Schnell-Check – nur mit ausdrücklicher Einwilligung (§ 7 Abs. 2 UWG), mit
+   * Abmeldelink und List-Unsubscribe. Inhalt: der stärkste konkrete Befund („Auf … nennt ChatGPT A und B – dich nicht.“).
+   */
+  checkReminder: (i: {
+    lang: Lang; domain: string; brandName: string; checkUrl: string; optOutUrl: string; simulated?: boolean;
+    finding: { question: string; engine: string; competitors: string[] } | null;
+    mentioned: { n: number; of: number } | null;
+  }): RenderedMail => {
+    const lang = L(i.lang);
+    const domain = oneLine(i.domain, 100);
+    const brand = oneLine(i.brandName, 80) || domain;
+    const headers = { 'List-Unsubscribe': `<${safeLink(i.optOutUrl)}>` };
+    const f = i.finding;
+    const q = f ? oneLine(f.question, 160) : '';
+    const engine = f ? oneLine(f.engine, 40) : '';
+    const comps = f ? f.competitors.map((c) => oneLine(c, 60)).filter(Boolean).slice(0, 3) : [];
+    const n = i.mentioned && Number.isFinite(i.mentioned.n) && Number.isFinite(i.mentioned.of) && i.mentioned.of > 0 ? { n: Math.max(0, Math.round(i.mentioned.n)), of: Math.round(i.mentioned.of) } : null;
+    const list = (xs: string[], and: string) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} ${and} ${xs[xs.length - 1]}`);
+    if (lang === 'en') {
+      const finding = f && comps.length
+        ? `Asked “${q}”, ${engine} names ${list(comps, 'and')} – but not ${brand}.`
+        : n ? `${brand} was named in ${n.n} of ${n.of} AI answers in your quick check.` : `Your quick check for ${domain} shows how AI search engines answer your customers’ questions.`;
+      return build({
+        lang, preheader: f && comps.length ? `${engine} names ${list(comps, 'and')} – not you.` : `Your quick check result for ${domain}.`,
+        heading: `Your quick check for ${domain}`,
+        intro: [
+          { text: finding },
+          ...(i.simulated ? [{ text: 'Note: this check ran in test mode with simulated answers.', muted: true }] : []),
+          { text: 'In the result you’ll see the questions we asked, which providers the AI engines name instead, and the first action you can take.' },
+        ],
+        button: { label: 'Open result', url: i.checkUrl },
+        footerNote: {
+          text: 'You get this email once because you asked us to remind you of your results. You can unsubscribe at any time:',
+          link: { label: 'Unsubscribe', url: i.optOutUrl },
+        },
+      }, f && comps.length ? `${engine} names ${comps[0]} – not ${brand}` : `Your quick check for ${domain}`, headers);
+    }
+    const finding = f && comps.length
+      ? `Auf „${q}“ nennt ${engine} ${list(comps, 'und')} – ${brand} nicht.`
+      : n ? `${brand} wurde in deinem Schnell-Check in ${n.n} von ${n.of} KI-Antworten genannt.` : `Dein Schnell-Check für ${domain} zeigt, wie KI-Suchen auf Fragen deiner Kunden antworten.`;
+    return build({
+      lang, preheader: f && comps.length ? `${engine} nennt ${list(comps, 'und')} – dich nicht.` : `Dein Ergebnis für ${domain}.`,
+      heading: `Dein Schnell-Check für ${domain}`,
+      intro: [
+        { text: finding },
+        ...(i.simulated ? [{ text: 'Hinweis: Dieser Check lief im Testmodus mit simulierten Antworten.', muted: true }] : []),
+        { text: 'Im Ergebnis siehst du die gestellten Fragen, welche Anbieter die KIs stattdessen nennen, und die erste Maßnahme, mit der du anfangen kannst.' },
+      ],
+      button: { label: 'Ergebnis öffnen', url: i.checkUrl },
+      footerNote: {
+        text: 'Diese Mail bekommst du einmalig, weil du dir eine Erinnerung an deine Ergebnisse gewünscht hast. Du kannst dich jederzeit abmelden:',
+        link: { label: 'Abmelden', url: i.optOutUrl },
+      },
+    }, f && comps.length ? `${engine} nennt ${comps[0]} – ${brand} nicht` : `Dein Schnell-Check für ${domain}`, headers);
   },
 
   /** Konto: E-Mail-Adresse bestätigen. */

@@ -17,7 +17,7 @@ export async function purgeExpiredData(now = new Date()): Promise<PurgeSummary> 
   const before = (days: number) => new Date(now.getTime() - days * DAY_MS);
   const ip = await db.update(checkRequest).set({ ipHash: null })
     .where(and(isNotNull(checkRequest.ipHash), lt(checkRequest.createdAt, before(RETENTION.ipHashDays)))).returning({ id: checkRequest.id });
-  const mail = await db.update(checkRequest).set({ email: null, verifyCodeHash: null })
+  const mail = await db.update(checkRequest).set({ email: null, verifyCodeHash: null, marketingConsentAt: null, marketingConsentVersion: null })
     .where(and(isNotNull(checkRequest.email), isNull(checkRequest.emailVerifiedAt), lt(checkRequest.createdAt, before(RETENTION.unverifiedEmailDays)))).returning({ id: checkRequest.id });
 
   // Checks ohne Kauf (kein Bericht verweist auf den Check)

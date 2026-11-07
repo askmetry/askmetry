@@ -3,12 +3,14 @@ import type { ReportTier } from '@askmetry/core/hosted/config';
 import { priceInfo } from '@/lib/billing/price';
 import { formatEuro } from '@/components/marketing/format';
 import { getI18n } from '@/lib/i18n/server';
+import { TOPICS } from '@askmetry/core/hosted/config';
+import { CheckListEditor } from './list-editor';
 
 /**
  * Beide Berichte mit Inhalt und Preis (netto, durchgestrichener Listenpreis). Der Strategiebericht ist die empfohlene
  * Wahl (zuerst, hervorgehoben, Hauptbutton); die Standortbestimmung die kleinere Alternative. Button → Kaufformular.
  */
-export async function BuyOptions({ checkToken }: { checkToken: string }) {
+export async function BuyOptions({ checkToken, topics, editable }: { checkToken: string; topics: string[]; editable: boolean }) {
   const { t, locale } = await getI18n();
   const b = t.check.buy;
   const tiers: { tier: ReportTier; name: string; tagline: string; points: string[]; main: boolean }[] = [
@@ -44,6 +46,14 @@ export async function BuyOptions({ checkToken }: { checkToken: string }) {
                   </li>
                 ))}
               </ul>
+              {/* nur der Strategiebericht arbeitet mit Themen (die Standortbestimmung misst die 20 Fragen ohne Gruppierung) */}
+              {tier === 'strategy' && (
+                <div className="mt-5 rounded-xl bg-subtle/60 p-4" data-testid="check-topics">
+                  <h4 className="text-[15px] font-semibold">{t.check.topics.title}</h4>
+                  <p className="mb-3 mt-0.5 text-[13px] text-muted">{t.check.topics.text}</p>
+                  <CheckListEditor token={checkToken} kind="topics" items={topics} max={TOPICS.max} editable={editable} testId="topic-editor" />
+                </div>
+              )}
               <Link href={`/kaufen?tier=${tier}&check=${encodeURIComponent(checkToken)}`} className={`btn mt-6 justify-center ${main ? 'btn-primary' : ''}`} data-testid={`buy-${tier}`}>
                 {b.cta(name)}
               </Link>

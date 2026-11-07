@@ -7,7 +7,7 @@ import { formatEuro } from '@/components/marketing/format';
 import { PublicShell } from '@/components/public-shell';
 import { priceInfo } from '@/lib/billing/price';
 import { signupUrl } from '@/lib/billing/form';
-import { getCheckView } from '@/lib/hosted/data';
+import { getCheckView, trackCheckoutOpened } from '@/lib/hosted/data';
 import { isHosted, reportStatuses } from '@/lib/hosted/server';
 import { getI18n, getT } from '@/lib/i18n/server';
 import { getSession, requireWorkspace } from '@/lib/session';
@@ -42,6 +42,8 @@ export default async function BuyPage({ searchParams }: { searchParams: SP }) {
     const view = await getCheckView(checkToken);
     if (!view || view.status !== 'ready' || !view.summary) return <Invalid text={b.invalid.text} />;
     brandName = view.summary.brand.name;
+    // Funnel „Kasse geöffnet“ (Kaufformular aus dem Check; checkout_started folgt beim Weiter zur Zahlung)
+    await trackCheckoutOpened(checkToken, tier).catch(() => {});
     back = { href: `/check/${checkToken}`, label: b.back };
   } else {
     const { ws } = await requireWorkspace(slug);
