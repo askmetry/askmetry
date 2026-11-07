@@ -26,7 +26,7 @@ function dateText(d: Date, lang: Lang): string | null {
 
 export const mailTemplates = {
   /** Schnell-Check: E-Mail bestätigen (Link 24 h gültig). */
-  checkVerify: (i: { lang: Lang; domain: string; verifyUrl: string }): RenderedMail => {
+  checkVerify: (i: { lang: Lang; domain: string; verifyUrl: string; consent?: boolean }): RenderedMail => {
     const lang = L(i.lang);
     const domain = oneLine(i.domain, 100);
     if (lang === 'en') {
@@ -35,6 +35,7 @@ export const mailTemplates = {
         heading: 'Confirm your email address',
         intro: [
           { text: `You started a free quick check for ${domain} on Askmetry. You asked us to email you when it’s ready. Please confirm your email address – then we’ll send you the result as soon as it’s done.` },
+          ...(i.consent ? [{ text: 'You also agreed that we may remind you of your results and send you tips. Confirming covers that too – you can unsubscribe from any of these emails.' }] : []),
         ],
         button: { label: 'Confirm email', url: i.verifyUrl },
         outro: [{ text: 'The link is valid for 24 hours. If you didn’t start this check, just ignore this email.', muted: true }],
@@ -45,6 +46,7 @@ export const mailTemplates = {
       heading: 'Bestätige deine E-Mail-Adresse',
       intro: [
         { text: `Du hast für ${domain} einen kostenlosen Schnell-Check bei Askmetry gestartet. Du möchtest per Mail Bescheid bekommen, wenn er fertig ist. Bestätige bitte kurz deine E-Mail-Adresse – dann schicken wir dir das Ergebnis, sobald es da ist.` },
+        ...(i.consent ? [{ text: 'Außerdem hast du zugestimmt, dass wir dich an deine Ergebnisse erinnern und dir Tipps schicken. Mit der Bestätigung gilt auch das – abbestellen kannst du in jeder dieser Mails.' }] : []),
       ],
       button: { label: 'E-Mail bestätigen', url: i.verifyUrl },
       outro: [{ text: 'Der Link ist 24 Stunden gültig. Wenn du den Check nicht gestartet hast, ignoriere diese Mail einfach.', muted: true }],

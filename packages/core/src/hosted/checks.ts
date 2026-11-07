@@ -163,7 +163,7 @@ export async function startCheck(input: { url: string; locale: 'de' | 'en'; ipHa
       token, url: target.url, domain: target.domain, locale, ipHash: ipKey,
       ...(orig
         // Cache: sofort fertig; Fertig-Mail gibt es hier nie (der Nutzer sieht das Ergebnis direkt)
-        ? { status: 'ready', reusedFromId: orig.id, workspaceId: orig.workspaceId, collectionId: orig.collectionId, summary: orig.summary, topics: orig.topics, readyAt: now, readyMailSentAt: now }
+        ? { status: 'ready', reusedFromId: orig.id, workspaceId: orig.workspaceId, collectionId: orig.collectionId, summary: orig.summary, topics: (orig.summary as CheckSummary | null)?.discoveryTopics ?? null, readyAt: now, readyMailSentAt: now }
         : { status: 'discovering', progress: { stage: 'read' } }),
     }).returning({ id: checkRequest.id });
     return { row };
@@ -231,7 +231,7 @@ export async function submitCheckEmail(token: string, email: string, opts: { tur
   if (!claimed.length) return { error: 'rate_limited' };
   const verifyUrl = `${publicUrl()}/check/${encodeURIComponent(c.token)}/bestaetigen?code=${encodeURIComponent(code)}`;
   try {
-    await sendMail({ to: e, ...mailTemplates.checkVerify({ lang: c.locale === 'en' ? 'en' : 'de', domain: c.domain, verifyUrl }) });
+    await sendMail({ to: e, ...mailTemplates.checkVerify({ lang: c.locale === 'en' ? 'en' : 'de', domain: c.domain, verifyUrl, consent: opts.consent === true }) });
   } catch (err) {
     // erneutes Senden sofort erlauben
     await db.update(checkRequest).set({ verifySentAt: null }).where(eq(checkRequest.id, c.id));
@@ -571,7 +571,8 @@ async function finishMeasurement(c: Check, log: (m: string) => void) {
   if (!summary.responses) return fail(c, 'failed', 'Messung ohne ausgewertete Antworten', log);
   const [g] = await db.select({ t: sql<string>`coalesce(sum(${recommendationGeneration.costUsd}), 0)` }).from(recommendationGeneration).where(eq(recommendationGeneration.workspaceId, c.workspaceId!));
   const cost = Number(col.costUsd) + Number(g?.t ?? 0);
-  const ok = await db.update(checkRequest).set({ status: 'ready', summary, readyAt: new Date(), costUsd: cost.toFixed(4), error: null })
+  // Themen sind erst im Zustand ready bearbeitbar → c.topics ist hier noch der Discovery-Stand (für spätere Cache-Treffer merken)
+  const ok = await db.update(checkRequest).set({ status: 'ready', summary: { ...summary, ...(c.topics && { discoveryTopics: c.topics }) }, readyAt: new Date(), costUsd: cost.toFixed(4), error: null })
     .where(and(eq(checkRequest.id, c.id), eq(checkRequest.status, 'measuring'))).returning({ id: checkRequest.id });
   if (!ok.length) return;
   await trackEvent('check_ready', { checkId: c.id, workspaceId: c.workspaceId!, props: { costUsd: Number(cost.toFixed(4)), recommendations: summary.recommendationsTotal } });

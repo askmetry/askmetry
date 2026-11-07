@@ -152,6 +152,12 @@ export async function markReportPaid(input: { sessionId: string; paymentIntentId
     const [r] = await tx.select().from(report).where(eq(report.checkoutSessionId, input.sessionId)).for('update');
     if (!r) return null;
     if (!['pending_payment', 'canceled'].includes(r.status)) return { r, already: true };
+    // Fragen, die nach dem Öffnen des Checkouts auf der Check-Seite noch geändert wurden, jetzt übernehmen (Check-Zeile
+    // sperren, damit keine Änderung dazwischenrutscht; ab „paid“ ist die Check-Seite gesperrt)
+    if (r.checkId && r.kind === 'initial') {
+      const [c] = await tx.select({ prompts: checkRequest.prompts }).from(checkRequest).where(eq(checkRequest.id, r.checkId)).for('update');
+      if (c?.prompts && !(await tx.$count(collection, eq(collection.workspaceId, r.workspaceId)))) await applyCheckQuestions(tx, r.workspaceId, c.prompts);
+    }
     await tx.update(report).set({
       status: 'paid', paidAt: new Date(), paymentIntentId: input.paymentIntentId ?? r.paymentIntentId,
       invoiceId: input.invoiceId ?? r.invoiceId, ...(input.amountCents != null && { amountCents: input.amountCents }), error: null,

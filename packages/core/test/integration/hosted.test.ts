@@ -707,6 +707,9 @@ describe('Check-Seite vor dem Kauf', () => {
     expect((await getCheckView(token))!.topics).toEqual(['Dienstplanung', 'Kosten', 'Vergleich', 'Einrichtung', 'Zeiterfassung', 'Urlaubsplanung']);
     const n = await db.$count(funnelEvent, and(eq(funnelEvent.checkId, (await row(token)).id), eq(funnelEvent.name, 'check_topics_edited')));
     expect(n).toBe(4);
+    // ein späterer Check derselben Domain aus dem Cache startet mit den Discovery-Themen, nicht mit diesen Änderungen
+    const cached = (await getCheckView(tokenOf(await startCheck({ url: (await row(token)).domain, locale: 'de', ipHash: `${P}-ip-vk3` }))))!;
+    expect(cached.topics).toEqual(['Auswahl', 'Kosten', 'Vergleich', 'Einrichtung', 'Service']);
   });
 
   it('Kauf: Kopie übernimmt die bearbeiteten Fragen, Strategiebericht die Themen; danach gesperrt', async () => {
@@ -725,7 +728,12 @@ describe('Check-Seite vor dem Kauf', () => {
     expect(await db.$count(prompt, and(eq(prompt.workspaceId, r.workspaceId), eq(prompt.text, 'Welche Lösung hilft bei Schichtplänen im Krankenhaus?')))).toBe(1);
     expect(await db.$count(prompt, eq(prompt.workspaceId, r.workspaceId))).toBe(20);
     await attachCheckoutSession(again.reportId, `${P}-sess-vorkauf`);
+    // Checkout offen, Nutzer ändert noch eine Frage und zahlt dann die alte Sitzung → Änderung kommt trotzdem an
+    const r2 = await editCheckQuestions(token, { action: 'edit', index: 2, expected: list[2], text: 'Wie plane ich Bereitschaftsdienste fair im Team?' });
+    expect(r2).toMatchObject({ ok: true });
     await markReportPaid({ sessionId: `${P}-sess-vorkauf` });
+    expect(await db.$count(prompt, and(eq(prompt.workspaceId, r.workspaceId), eq(prompt.text, 'Wie plane ich Bereitschaftsdienste fair im Team?')))).toBe(1);
+    expect(await db.$count(prompt, eq(prompt.workspaceId, r.workspaceId))).toBe(20);
     expect(await editCheckQuestions(token, { action: 'add', text: 'Noch eine Frage nach dem Kauf?' })).toEqual({ error: 'locked' });
     expect(await editCheckTopics(token, { action: 'add', text: 'Neu' })).toEqual({ error: 'locked' });
     expect((await getCheckView(token))!.editable).toBe(false);

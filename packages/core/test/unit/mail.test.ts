@@ -84,6 +84,11 @@ describe('mailTemplates', () => {
     // & in URLs wird im Attribut escaped
     expect(all('de').checkVerify.html).toContain('code=abc&amp;x=1');
     expect(all('de').checkVerify.text).toContain('code=abc&x=1');
+    // Double-Opt-in: die Bestätigungsmail nennt die Einwilligung nur, wenn sie gegeben wurde
+    expect(all('de').checkVerify.text).not.toContain('Tipps');
+    const withConsent = mailTemplates.checkVerify({ lang: 'de', domain: 'paylindo.de', verifyUrl: 'https://askmetry.ai/x', consent: true });
+    expect(withConsent.text).toContain('erinnern und dir Tipps schicken');
+    expect(mailTemplates.checkVerify({ lang: 'en', domain: 'paylindo.de', verifyUrl: 'https://askmetry.ai/x', consent: true }).text).toContain('send you tips');
   });
 
   it('lehnt Links ohne http(s) ab', () => {

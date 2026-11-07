@@ -49,6 +49,8 @@ export interface CheckSummary {
   recommendationsTotal: number;
   freeRecommendationIds: string[];
   technical: { robotsBlocksAi: boolean | null; jsOnly: boolean | null } | null;
+  /** Themenvorschläge der Discovery, unverändert (Checks aus dem Cache starten damit, nie mit den Änderungen des ersten Nutzers) */
+  discoveryTopics?: string[];
 }
 
 export interface CheckView {
