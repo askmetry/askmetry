@@ -443,7 +443,7 @@ describe('Berichte', () => {
     expect(await db.$count(collection, eq(collection.workspaceId, wsId))).toBe(0);
     expect(await db.$count(recommendation, eq(recommendation.workspaceId, wsId))).toBe(0);
     const [ws] = await db.select().from(workspace).where(eq(workspace.id, wsId));
-    expect(ws).toMatchObject({ hostedKind: 'customer', repetitions: 3, scheduleEnabled: false, monthlyBudgetUsd: '40.00' });
+    expect(ws).toMatchObject({ hostedKind: 'customer', repetitions: 2, scheduleEnabled: false, monthlyBudgetUsd: '40.00' });
     expect(ws.engines).toHaveLength(5);
     expect(await db.select({ role: workspaceMember.role }).from(workspaceMember).where(and(eq(workspaceMember.workspaceId, wsId), eq(workspaceMember.userId, buyer)))).toEqual([{ role: 'owner' }]);
     expect(await db.$count(brand, and(eq(brand.workspaceId, wsId), eq(brand.isOwn, false)))).toBe(3);
@@ -485,7 +485,7 @@ describe('Berichte', () => {
     await db.update(report).set({ status: 'refunded' }).where(eq(report.id, r.reportId));
   });
 
-  it('startReport: Mandantenprüfung, Plan mit 20 Fragen × 3 × 5 KIs, kein Doppelstart', async () => {
+  it('startReport: Mandantenprüfung, Plan mit 20 Fragen × 2 × 5 KIs, kein Doppelstart', async () => {
     expect(await startReport(reportId, stranger)).toEqual({ error: 'forbidden' });
     await db.insert(workspaceMember).values({ workspaceId: wsId, userId: other, role: 'viewer' });
     expect(await startReport(reportId, other)).toEqual({ error: 'forbidden' });
@@ -493,9 +493,9 @@ describe('Berichte', () => {
     expect(await startReport(reportId, buyer)).toEqual({ error: 'wrong_state' });
     const v = (await getReport(reportId))!;
     expect(v.status).toBe('measuring');
-    expect(v.progress!.total).toBe(20 * 3 * 5);
+    expect(v.progress!.total).toBe(20 * 2 * 5);
     const [col] = await db.select().from(collection).where(eq(collection.id, v.collectionId!));
-    expect(parseCollectionPlan(col.plan)).toMatchObject({ repetitions: 3, batch: true });
+    expect(parseCollectionPlan(col.plan)).toMatchObject({ repetitions: 2, batch: true });
     expect(parseCollectionPlan(col.plan).promptIds).toHaveLength(20);
   });
 

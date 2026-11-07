@@ -193,7 +193,7 @@ const de: Draft = {
       id: 'messung',
       question: 'Wie misst Askmetry?',
       answer: [
-        p('Askmetry stellt jede Frage fünf KI-Suchen: ChatGPT, Gemini, Claude, Google AI Overviews und dem Google KI-Modus – jeweils mit Websuche, über die offiziellen Schnittstellen bzw. für Google über einen Datendienst. Im Bericht läuft jede Frage dreimal je KI-Suche. Der kostenlose Schnell-Check misst nur 8 Fragen ohne deinen Markennamen, jede einmal in Gemini und den beiden Google-Suchen (AI Overviews, KI-Modus), die Hälfte davon (4) auch in ChatGPT; er ist ein erster Eindruck, kein belastbares Ergebnis.'),
+        p('Askmetry stellt jede Frage fünf KI-Suchen: ChatGPT, Gemini, Claude, Google AI Overviews und dem Google KI-Modus – jeweils mit Websuche, über die offiziellen Schnittstellen bzw. für Google über einen Datendienst. Im Bericht läuft jede Frage zweimal je KI-Suche. Der kostenlose Schnell-Check misst nur 8 Fragen ohne deinen Markennamen, jede einmal in Gemini und den beiden Google-Suchen (AI Overviews, KI-Modus), die Hälfte davon (4) auch in ChatGPT; er ist ein erster Eindruck, kein belastbares Ergebnis.'),
         p('In jeder Antwort erkennt Askmetry, welche Marken genannt und empfohlen werden und welche Seiten die KI als Quelle nutzt. Die KI-Sichtbarkeit (0–100) ist der Anteil der Antworten, in denen deine Marke vorkommt.'),
         p('Die Schnittstellen verhalten sich ähnlich, aber nicht genauso wie die Apps: Dort spielen Anmeldung, Verlauf und Standort der Nutzer mit hinein.'),
       ],
@@ -211,7 +211,7 @@ const de: Draft = {
       question: 'Warum schwanken die Ergebnisse?',
       answer: [
         p('KI-Modelle formulieren jede Antwort neu, die Websuche liefert je nach Zeitpunkt andere Seiten, und die Anbieter ändern Modelle und Quellen laufend. In einer SparkToro-Studie mit knapp 3.000 Durchläufen lieferten ChatGPT und Google AI seltener als in einem von 100 Fällen dieselbe Markenliste, dieselbe Reihenfolge nur etwa einmal in 1.000.'),
-        p('Stabiler ist, wie oft eine Marke überhaupt vorkommt. Deshalb stellt Askmetry im Bericht jede Frage dreimal je KI-Suche (im Schnell-Check nur einmal) und zählt Anteile über viele Antworten, statt nur auf einen Listenplatz zu schauen.'),
+        p('Stabiler ist, wie oft eine Marke überhaupt vorkommt. Deshalb stellt Askmetry im Bericht jede Frage zweimal je KI-Suche (im Schnell-Check nur einmal) und zählt Anteile über viele Antworten, statt nur auf einen Listenplatz zu schauen.'),
         p('Kleine Unterschiede zwischen zwei Messungen können Zufall sein. Achte auf die Richtung über mehrere Messungen und auf ganze Gruppen von Fragen statt auf einzelne Antworten.'),
       ],
       sources: ['sparktoro-consistency', 'semrush-domains'],
@@ -355,7 +355,7 @@ const en: Draft = {
       id: 'messung',
       question: 'How does Askmetry measure?',
       answer: [
-        p('Askmetry asks every question to five AI engines: ChatGPT, Gemini, Claude, Google AI Overviews and Google AI Mode – each with web search, via the official APIs or, for Google, a data provider. In a report, every question runs three times per engine. The free quick check measures only 8 questions without your brand name, each once in Gemini and both Google engines (AI Overviews, AI Mode), and half of them (4) in ChatGPT too; it gives a first impression, not a reliable result.'),
+        p('Askmetry asks every question to five AI engines: ChatGPT, Gemini, Claude, Google AI Overviews and Google AI Mode – each with web search, via the official APIs or, for Google, a data provider. In a report, every question runs twice per engine. The free quick check measures only 8 questions without your brand name, each once in Gemini and both Google engines (AI Overviews, AI Mode), and half of them (4) in ChatGPT too; it gives a first impression, not a reliable result.'),
         p('In every answer, Askmetry detects which brands are mentioned and recommended and which pages the AI uses as sources. AI visibility (0–100) is the share of answers that mention your brand.'),
         p('The APIs behave similarly to the apps, but not identically: in the apps, the user’s login, history and location also play a part.'),
       ],
@@ -373,7 +373,7 @@ const en: Draft = {
       question: 'Why do the results fluctuate?',
       answer: [
         p('AI models write every answer from scratch, web search returns different pages at different times, and providers keep changing models and sources. In a SparkToro study with almost 3,000 runs, ChatGPT and Google AI returned the same list of brands less than once in 100 runs, and the same order only about once in 1,000.'),
-        p('How often a brand appears at all is more stable. That is why, in a report, Askmetry asks every question three times per engine (only once in the quick check) and counts shares across many answers instead of relying on list positions alone.'),
+        p('How often a brand appears at all is more stable. That is why, in a report, Askmetry asks every question twice per engine (only once in the quick check) and counts shares across many answers instead of relying on list positions alone.'),
         p('Small differences between two measurements can be chance. Look at the direction across several measurements and at whole groups of questions rather than single answers.'),
       ],
       sources: ['sparktoro-consistency', 'semrush-domains'],

@@ -35,7 +35,7 @@ export function tierLabel(tier: ReportTier, kind: ReportKind, lang: Lang): strin
 /** Name der Berichtsart ohne Nachmessung (für „Nachmessung · Standortbestimmung“). */
 export const baseTierLabel = (tier: ReportTier, lang: Lang) => tierLabel(tier, 'initial', lang);
 
-/** „20 Fragen × 3 Durchläufe × 5 KIs = 300 Antworten“ */
+/** „20 Fragen × 2 Durchläufe × 5 KIs = 200 Antworten“ */
 export function scopeLine(m: ReportModel): string {
   const { prompts, repetitions, engines, planned } = m.scope;
   const en = m.lang === 'en';
@@ -138,7 +138,7 @@ export function labels(lang: Lang) {
     brandCol: 'Brand', recommended: 'Recommended', sov: 'Share of voice', you: 'you',
     noAi: (n: number) => `${n} without AI answer`,
     question: 'Question', total: 'Total', topicCol: 'Topic', othersNamed: 'Mentioned instead',
-    legendYes: 'mentioned', legendNo: 'not mentioned', legendPart: 'mentioned in some runs (e.g. 2/3 = in 2 of 3 runs)',
+    legendYes: 'mentioned', legendNo: 'not mentioned', legendPart: 'mentioned in some runs (e.g. 1/2 = in 1 of 2 runs)',
     ownSiteH: 'Where your website appears', compOnlyH: 'Where competitors appear – and you don’t', topSourcesH: 'Most used sources', compSitesH: 'Competitors’ websites as sources',
     domain: 'Domain', type: 'Type', typeOwn: 'Your website', typeComp: (n: string) => `Competitor: ${n}`, typeOther: '–',
     compOnlyCol: 'Answers with competitors, without you',
@@ -171,7 +171,7 @@ export function labels(lang: Lang) {
     brandCol: 'Marke', recommended: 'Empfohlen', sov: 'Anteil an allen Nennungen', you: 'du',
     noAi: (n: number) => `${n} ohne KI-Antwort`,
     question: 'Frage', total: 'Gesamt', topicCol: 'Thema', othersNamed: 'Stattdessen genannt',
-    legendYes: 'genannt', legendNo: 'nicht genannt', legendPart: 'in einem Teil der Durchläufe genannt (z. B. 2/3 = in 2 von 3)',
+    legendYes: 'genannt', legendNo: 'nicht genannt', legendPart: 'in einem Teil der Durchläufe genannt (z. B. 1/2 = in 1 von 2)',
     ownSiteH: 'Wo deine Website als Quelle auftaucht', compOnlyH: 'Hier stehen Wettbewerber, du nicht', topSourcesH: 'Meistgenutzte Quellen', compSitesH: 'Websites der Wettbewerber als Quelle',
     domain: 'Domain', type: 'Art', typeOwn: 'Deine Website', typeComp: (n: string) => `Wettbewerber: ${n}`, typeOther: '–',
     compOnlyCol: 'Antworten mit Wettbewerbern, ohne dich',

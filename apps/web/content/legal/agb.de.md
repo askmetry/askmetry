@@ -54,8 +54,8 @@ Stand: 5. November 2026 · Fassung 2026-11-05
 
    | Bericht | Umfang (Stand Beta) |
    |---|---|
-   | **Standortbestimmung** | 20 Fragen, je 3 Abfragen bei 5 KI-Diensten, bis zu 3 Wettbewerber, zitierte Quellen, Maßnahmen mit Umsetzungsschritten und Textvorschlägen, PDF-Bericht per E-Mail |
-   | **Strategiebericht** | 60 Fragen in Themen, je 3 Abfragen bei 5 KI-Diensten, bis zu 5 Wettbewerber, Quellen je Thema, 30-Tage-Plan, PDF-Bericht per E-Mail |
+   | **Standortbestimmung** | 20 Fragen, je 2 Abfragen bei 5 KI-Diensten, bis zu 3 Wettbewerber, zitierte Quellen, Maßnahmen mit Umsetzungsschritten und Textvorschlägen, PDF-Bericht per E-Mail |
+   | **Strategiebericht** | 60 Fragen in Themen, je 2 Abfragen bei 5 KI-Diensten, bis zu 5 Wettbewerber, Quellen je Thema, 30-Tage-Plan, PDF-Bericht per E-Mail |
    | **Nachmessung** | erneute Messung mit denselben Fragen und Einstellungen wie ein vorheriger Bericht des Kunden, Vorher-Nachher-Vergleich, PDF-Bericht per E-Mail |
 
 2. **Einmalkauf, kein Abo.** Jeder Bericht ist ein einzelner Auftrag. Eine Nachmessung ist nicht im Preis eines Berichts enthalten und wird gesondert gekauft.

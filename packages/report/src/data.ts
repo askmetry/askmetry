@@ -415,7 +415,10 @@ export function buildReportModel(input: ReportInput): ReportModel {
     const p = measurementSummary(input.previous);
     const before = p.ownStat;
     const pe = engineStats(input.previous, p.own, p.ix.competitors);
-    const pq = new Map([...p.ix.respsByPrompt.entries()].map(([pid, rs]) => [pid, rs.some((r) => p.ix.ownNamed.has(r.id))]));
+    // „Frage neu/nicht mehr genannt“ heißt: in mindestens einer Antwort genannt. Hatte der Vorbericht mehr Durchläufe
+    // (früher 3, heute 2), zählen dort nur die ersten – sonst hätte er allein durch mehr Antworten öfter „genannt“.
+    const curReps = Math.max(1, ...input.current.runs.map((r) => r.repetition));
+    const pq = new Map([...p.ix.respsByPrompt.entries()].map(([pid, rs]) => [pid, rs.some((r) => (r.repetition ?? 1) <= curReps && p.ix.ownNamed.has(r.id))]));
     let gained = 0, lost = 0;
     for (const q of questions) {
       const was = pq.get(q.id);

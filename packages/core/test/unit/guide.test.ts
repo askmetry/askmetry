@@ -43,7 +43,7 @@ describe('Kurzleitfaden GEO', () => {
     expect(text).toContain(`${REPORT_SCOPE.compact.prompts} Fragen`);
     expect(text).toContain(`(${REPORT_SCOPE.compact.prompts} bzw. ${REPORT_SCOPE.strategy.prompts})`);
     expect(text).toContain(`${REPORT_SCOPE.strategy.prompts - REPORT_SCOPE.compact.prompts} weitere Fragen`);
-    expect(REPORT_SCOPE.compact.repetitions).toBe(3); // „dreimal je KI-Suche“
+    expect(REPORT_SCOPE.compact.repetitions).toBe(2); // „zweimal je KI-Suche“
     expect(REPORT_SCOPE.compact.engines).toHaveLength(5); // „fünf KI-Suchen“
     // Schnell-Check: 8 Fragen ohne Markennamen, je 1× in Gemini + beiden Google-Suchen, die Hälfte (4) auch in ChatGPT
     expect(text).toContain(`nur ${CHECK_SCOPE.measured} Fragen ohne deinen Markennamen, jede einmal in Gemini und den beiden Google-Suchen`);

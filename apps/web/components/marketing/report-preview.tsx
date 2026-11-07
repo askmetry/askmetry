@@ -3,7 +3,7 @@ import type { Messages } from '@/lib/i18n/messages';
 
 type M = Messages['marketing'];
 
-// Beispielwerte (passen zusammen: 36 von 300 Antworten = 12; Ø der fünf KI-Suchen = 12)
+// Beispielwerte (passen zusammen: 24 von 200 Antworten = 12; Ø der fünf KI-Suchen = 12)
 const SCORE = 12;
 const ENGINES = [
   { key: 'chatgpt', v: 0.08 },

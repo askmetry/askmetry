@@ -21,13 +21,13 @@ export function publicUrl(): string {
 
 /** Umfang je Bericht (Fragen, Wettbewerber, Wiederholungen, KIs). */
 export const REPORT_SCOPE: Record<ReportTier, { prompts: number; competitors: number; repetitions: number; engines: string[] }> = {
-  compact: { prompts: 20, competitors: 3, repetitions: 3, engines: ['chatgpt', 'claude', 'gemini', 'google_aio', 'google_ai_mode'] },
-  strategy: { prompts: 60, competitors: 5, repetitions: 3, engines: ['chatgpt', 'claude', 'gemini', 'google_aio', 'google_ai_mode'] },
+  compact: { prompts: 20, competitors: 3, repetitions: 2, engines: ['chatgpt', 'claude', 'gemini', 'google_aio', 'google_ai_mode'] },
+  strategy: { prompts: 60, competitors: 5, repetitions: 2, engines: ['chatgpt', 'claude', 'gemini', 'google_aio', 'google_ai_mode'] },
 };
 
 /**
  * Parallele Abfragen einer Berichtsmessung. Mit dem Runner-Standard (4 / 2 je Anbieter) brauchte ein
- * Strategiebericht (840 Abfragen) gut zwei Stunden. `perProvider` gilt je Anbieter, nicht je KI: google_aio und
+ * Strategiebericht (damals 840 Abfragen) gut zwei Stunden. `perProvider` gilt je Anbieter, nicht je KI: google_aio und
  * google_ai_mode teilen sich DataForSEO (dort liegt der Engpass); Claude läuft als Batch und belegt keine Plätze.
  */
 export const REPORT_CONCURRENCY = { total: 18, perProvider: 6 };

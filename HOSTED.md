@@ -9,8 +9,8 @@ Bau-Vertrag für die gehostete Beta auf askmetry.ai (Betreiber: lindotech GmbH).
 | Angebot | Inhalt | Preis netto (Beta) |
 |---|---|---|
 | **Schnell-Check** (gratis, ohne E-Mail) | URL → Markenprofil, Wettbewerber, 20 Fragen (Discovery); gemessen: Gemini, Google AI Overviews, Google AI Mode für die ersten 8 Fragen, ChatGPT für die ersten 4, je 1×, alle KIs parallel; Website-Technikcheck; Maßnahmen. Ziel: 2–3 Minuten | 0 € |
-| **Standortbestimmung** (`compact`) | 20 Fragen × 3 Wiederholungen × 5 KIs, bis 3 Wettbewerber, alle Maßnahmen mit Schritten und fertigen Prompts, Quellen, **PDF + E-Mail-Versand** | 99 € (Beta 79 €) |
-| **Strategiebericht** (`strategy`) | 60 Fragen in Themen, 3 Wiederholungen × 5 KIs, bis 5 Wettbewerber, Quellen je Thema, 30-Tage-Plan, **PDF + E-Mail-Versand** | 299 € (Beta 249 €) |
+| **Standortbestimmung** (`compact`) | 20 Fragen × 2 Wiederholungen × 5 KIs, bis 3 Wettbewerber, alle Maßnahmen mit Schritten und fertigen Prompts, Quellen, **PDF + E-Mail-Versand** | 99 € (Beta 79 €) |
+| **Strategiebericht** (`strategy`) | 60 Fragen in Themen, 2 Wiederholungen × 5 KIs, bis 5 Wettbewerber, Quellen je Thema, 30-Tage-Plan, **PDF + E-Mail-Versand** | 299 € (Beta 249 €) |
 | **Nachmessung** (`kind = remeasure`) | gleiche Fragen und Einstellungen wie der vorige Bericht, Vorher/Nachher-Vergleich, PDF + E-Mail | 39 € / 119 € |
 
 - Nachmessung ist **nicht** im Preis enthalten. 8 Wochen nach einem fertigen Bericht kommt eine einmalige Erinnerungsmail mit Abmeldelink.
@@ -63,7 +63,7 @@ Konfiguration lesen **nur** über `packages/core/src/hosted/config.ts` (eine Ste
 4. **Warteansicht** (`/check/<token>`, aktualisiert alle 2 s): Checkliste des Agenten aus echtem Zustand – Website lesen → Marke & Angebot erkennen (Markenname) → Wettbewerber finden (Anzahl) → Kundenfragen formulieren (Anzahl) → ChatGPT / Gemini / AI Overviews / AI Mode (je „x/n Fragen“ aus den Runs) → Antworten auswerten → Maßnahmen ableiten. Optional „Benachrichtige mich per Mail“: E-Mail + Turnstile → Bestätigungsmail (`VERIFY_MAX_SENDS`, Limit je E-Mail) → Link `/check/<token>/bestaetigen?code=…` setzt nur `email_verified_at`. Fertig-Mail „Dein Schnell-Check ist fertig“ nur mit bestätigter Adresse (bei Bestätigung nach dem Fertigwerden sofort).
 5. **Teaser** (`/check/<token>`): siehe „Produkt“; Kauf-Buttons für beide Berichte.
 6. **Kauf**: angemeldet sein (sonst Registrierung; E-Mail aus dem Check vorbelegt) → Formular B2B + AGB → `createCheckout({ tier, checkId | workspaceSlug, kind })` → Stripe Checkout (`mode: payment`, Rechnung, USt-ID-Feld, Rechnungsadresse Pflicht) bzw. Fake-Checkout. Webhook `checkout.session.completed` → `markReportPaid(sessionId, …)` (idempotent).
-7. **Bericht vorbereiten** (`/w/<slug>/bericht/<id>`): Kunde prüft Fragen (20 bzw. 60, für `strategy` werden beim Bezahlen 40 weitere in Themen erzeugt) und Wettbewerber, dann „Messung starten“ → `startReport(reportId)` → Collection mit Plan (Prompts des Berichts, 5 KIs, 3 Wiederholungen, `batch: true`). Nachmessung startet direkt mit denselben Prompt-IDs.
+7. **Bericht vorbereiten** (`/w/<slug>/bericht/<id>`): Kunde prüft Fragen (20 bzw. 60, für `strategy` werden beim Bezahlen 40 weitere in Themen erzeugt) und Wettbewerber, dann „Messung starten“ → `startReport(reportId)` → Collection mit Plan (Prompts des Berichts, 5 KIs, 2 Wiederholungen, `batch: true`). Nachmessung startet direkt mit denselben Prompt-IDs.
 8. **Fertig** (Worker, nach `finalizeCollection`): PDF erzeugen → `report_file`, Mail mit PDF-Anhang und Link → `ready`. Telegram: Kauf und Fehler.
 9. **Erinnerung** (Worker, täglich): 8 Wochen nach `ready_at` einmalig Mail „Zeit für die Nachmessung?“ (nicht bei Abmeldung).
 

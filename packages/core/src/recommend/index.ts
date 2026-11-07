@@ -49,7 +49,7 @@ export async function loadRecData(workspaceId: string, collectionId: string): Pr
       .from(brand).where(eq(brand.workspaceId, workspaceId)),
     db.select({ id: prompt.id, text: prompt.text, topicId: prompt.topicId, topicName: topic.name })
       .from(prompt).leftJoin(topic, eq(topic.id, prompt.topicId)).where(eq(prompt.workspaceId, workspaceId)),
-    db.select({ id: response.id, promptId: run.promptId, engine: run.engine })
+    db.select({ id: response.id, promptId: run.promptId, engine: run.engine, repetition: run.repetition })
       .from(response).innerJoin(run, eq(run.id, response.runId)).where(where),
     db.select({
       responseId: mention.responseId, brandId: mention.brandId, name: mention.name, position: mention.position,

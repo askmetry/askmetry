@@ -46,10 +46,10 @@ const marketing: typeof de = {
   preview: {
     badge: 'Example · fictional brand',
     brand: 'Nordwerk',
-    measured: 'Baseline report · 300 answers',
+    measured: 'Baseline report · 200 answers',
     score: 'AI visibility',
     verdict: 'Rarely visible',
-    sentence: 'Mentioned in 36 of 300 answers – Provider A in 186.',
+    sentence: 'Mentioned in 24 of 200 answers – Provider A in 124.',
     engines: 'By AI engine',
     ranking: 'Who leads in AI search',
     you: 'You',
@@ -157,7 +157,7 @@ const marketing: typeof de = {
       name: 'Baseline report',
       for: 'The smaller entry point: where do you stand, and which actions help most?',
       features: [
-        '20 customer questions, each 3× in 5 AI engines (300 answers)',
+        '20 customer questions, each 2× in 5 AI engines (200 answers)',
         'Comparison with up to 3 competitors',
         'All actions with steps and ready-made prompts',
         'The most important sources the AIs use',
@@ -169,7 +169,7 @@ const marketing: typeof de = {
       for: 'Your complete roadmap: every action grouped by topic, plus a 30-day plan with the most important steps.',
       highlight: '30-day plan: what to do in which week',
       features: [
-        '60 customer questions grouped by topic, each 3× in 5 AI engines (900 answers)',
+        '60 customer questions grouped by topic, each 2× in 5 AI engines (600 answers)',
         'Comparison with up to 5 competitors',
         'Sources per topic: where you should be present',
         'All actions with steps and ready-made prompts',
@@ -204,7 +204,7 @@ const marketing: typeof de = {
       },
       {
         title: 'Asked repeatedly, variance shown',
-        text: "The same question doesn't always get the same answer. That's why we ask every question three times per AI and tell you how many answers each number is based on.",
+        text: "The same question doesn't always get the same answer. That's why we ask every question twice per AI and tell you how many answers each number is based on.",
       },
       {
         title: 'The API is not the app',

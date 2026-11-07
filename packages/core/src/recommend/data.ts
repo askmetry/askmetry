@@ -4,7 +4,8 @@ import { matchesAnyDomain, normalizeDomain } from '../domains.ts';
 import { engineLabels, type EngineKey } from '../types.ts';
 import type { Lang } from '../i18n.ts';
 
-export type Resp = { id: string; promptId: string; engine: string };
+/** `repetition`: Durchlauf der Frage (1, 2, …) – nur gesetzt, wo aus der Datenbank geladen */
+export type Resp = { id: string; promptId: string; engine: string; repetition?: number };
 export type Ment = { responseId: string; brandId: string | null; name: string; position: number; recommended: boolean; sentiment: string; snippet: string | null; isCompetitor?: boolean | null };
 export type Cit = { responseId: string; url: string; domain: string; title: string | null; position: number; kind: 'cited' | 'searched' };
 export type BrandLike = { id: string; name: string; aliases?: string[] | null; domains: string[]; isOwn: boolean; description?: string | null; kind?: string | null };

@@ -48,10 +48,10 @@ const marketing = {
   preview: {
     badge: 'Beispiel · erfundene Marke',
     brand: 'Nordwerk',
-    measured: 'Standortbestimmung · 300 Antworten',
+    measured: 'Standortbestimmung · 200 Antworten',
     score: 'KI-Sichtbarkeit',
     verdict: 'Selten sichtbar',
-    sentence: 'In 36 von 300 Antworten genannt – Anbieter A in 186.',
+    sentence: 'In 24 von 200 Antworten genannt – Anbieter A in 124.',
     engines: 'Je KI-Suche',
     ranking: 'Wer in der KI-Suche vorne liegt',
     you: 'Du',
@@ -159,7 +159,7 @@ const marketing = {
       name: 'Standortbestimmung',
       for: 'Der kleinere Einstieg: Wo stehst du, und welche Maßnahmen bringen am meisten?',
       features: [
-        '20 Kundenfragen, je 3× in 5 KI-Suchen (300 Antworten)',
+        '20 Kundenfragen, je 2× in 5 KI-Suchen (200 Antworten)',
         'Vergleich mit bis zu 3 Wettbewerbern',
         'Alle Maßnahmen mit Schritten und fertigen Prompts',
         'Die wichtigsten Quellen der KIs',
@@ -171,7 +171,7 @@ const marketing = {
       for: 'Dein kompletter Fahrplan: alle Maßnahmen nach Themen, dazu ein 30-Tage-Plan mit den wichtigsten Schritten.',
       highlight: '30-Tage-Plan: was du in welcher Woche umsetzt',
       features: [
-        '60 Kundenfragen nach Themen, je 3× in 5 KI-Suchen (900 Antworten)',
+        '60 Kundenfragen nach Themen, je 2× in 5 KI-Suchen (600 Antworten)',
         'Vergleich mit bis zu 5 Wettbewerbern',
         'Quellen je Thema: wo du vertreten sein solltest',
         'Alle Maßnahmen mit Schritten und fertigen Prompts',
@@ -206,7 +206,7 @@ const marketing = {
       },
       {
         title: 'Mehrfach gefragt, Schwankung offen',
-        text: 'Dieselbe Frage bringt nicht immer dieselbe Antwort. Deshalb stellen wir jede Frage dreimal je KI und sagen dir, auf wie vielen Antworten eine Zahl beruht.',
+        text: 'Dieselbe Frage bringt nicht immer dieselbe Antwort. Deshalb stellen wir jede Frage zweimal je KI und sagen dir, auf wie vielen Antworten eine Zahl beruht.',
       },
       {
         title: 'Schnittstelle ist nicht gleich App',

@@ -143,11 +143,11 @@ type Ids = { ws: string; slug: string; own: string; sumup: string; zettle: strin
 let ids: Ids;
 
 /** Eine Messung einfügen: 3 Fragen × 2 KIs × 2 Durchläufe = 12 Antworten. ownNamed(p, e, rep) bestimmt, ob Paylindo genannt wird. */
-async function insertCollection(wsId: string, b: { own: string; sumup: string; zettle: string }, prompts: string[], ownNamed: (pi: number, e: string, rep: number) => boolean, at: Date) {
+async function insertCollection(wsId: string, b: { own: string; sumup: string; zettle: string }, prompts: string[], ownNamed: (pi: number, e: string, rep: number) => boolean, at: Date, reps = [1, 2]) {
   const [c] = await db.insert(collection).values({ workspaceId: wsId, status: 'done', trigger: 'manual', startedAt: at, finishedAt: new Date(at.getTime() + 60_000), createdAt: at }).returning();
   for (const [pi, pid] of prompts.entries()) {
     for (const e of ENGINES) {
-      for (const rep of [1, 2]) {
+      for (const rep of reps) {
         const [r] = await db.insert(run).values({
           collectionId: c.id, workspaceId: wsId, promptId: pid, engine: e, model: e === 'chatgpt' ? 'gpt-test' : 'gemini-test', repetition: rep, status: 'done',
           startedAt: at, finishedAt: at,
@@ -310,6 +310,19 @@ describe('Datenaufbereitung (loadReportInput + buildReportModel)', () => {
     expect(m.recs[1].prompt).toMatch(/robots\.txt/);
     expect(m.recs[0].effortText).toBe('ca. 1 Tag');
     expect(m.topRecs).toHaveLength(2);
+  });
+
+  it('Nachmessung nach Umstellung 3 → 2 Durchläufe: Fragenvergleich nutzt nur die ersten 2 Durchläufe des Vorberichts', async () => {
+    const b = { own: ids.own, sumup: ids.sumup, zettle: ids.zettle };
+    // Vorbericht mit 3 Durchläufen: Paylindo zu Frage 1 nur im 3. Durchlauf genannt
+    const c0 = await insertCollection(ids.ws, b, ids.prompts, (pi, _e, rep) => pi === 1 && rep === 3, new Date('2026-06-01T10:00:00Z'), [1, 2, 3]);
+    const base = { workspaceId: ids.ws, userId: `${PREFIX}user`, tier: 'compact', status: 'ready', paymentProvider: 'fake' };
+    const [r0] = await db.insert(report).values({ ...base, kind: 'initial', collectionId: c0, amountCents: 7900, readyAt: new Date('2026-06-01T12:00:00Z') }).returning();
+    // Jetzt (2 Durchläufe, Messung c1): Paylindo nur bei ChatGPT zu Frage 0
+    const [r] = await db.insert(report).values({ ...base, kind: 'remeasure', previousReportId: r0.id, collectionId: ids.c1, amountCents: 3900, readyAt: new Date('2026-09-02T12:00:00Z') }).returning();
+    const c = buildReportModel(await loadReportInput(r.id)).comparison!;
+    expect(c.questionsLost).toBe(0); // Frage 1 zählt nicht als verloren – der 3. Durchlauf fehlt heute
+    expect(c.questionsGained).toBe(1); // Frage 0
   });
 
   it('Nachmessung: Vergleich mit dem Vorbericht inkl. Rauschen-Hinweis', async () => {
