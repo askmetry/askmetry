@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useActionState, useEffect, useState } from 'react';
-import { giveConsent, submitEmail, type CheckEmailState } from '@/lib/actions/check';
+import { submitEmail, type CheckEmailState } from '@/lib/actions/check';
 import { useI18n } from '@/lib/i18n/client';
 import { Turnstile } from './turnstile';
 
@@ -13,21 +13,6 @@ function ConsentBox({ id }: { id: string }) {
       <input id={id} name="consent" type="checkbox" className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]" data-testid="check-consent" />
       <span>{m.consent}</span>
     </label>
-  );
-}
-
-/** Adresse angegeben, Häkchen damals nicht gesetzt: Einwilligung nachträglich (eigener, kleiner Schritt). */
-function LaterConsent({ token }: { token: string }) {
-  const m = useI18n().t.check.notify;
-  const [state, run, pending] = useActionState<CheckEmailState, FormData>(giveConsent, null);
-  if (state?.ok) return <p className="text-[13px] text-muted" data-testid="check-consent-given">{m.consentGiven}</p>;
-  return (
-    <form action={run} className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="check-consent-later">
-      <input type="hidden" name="token" value={token} />
-      <ConsentBox id="check-consent-later" />
-      <button type="submit" className="btn btn-sm" disabled={pending}>{pending ? '…' : m.consentSave}</button>
-      {state?.error && <p role="alert" className="basis-full text-sm text-bad">{state.error}</p>}
-    </form>
   );
 }
 
@@ -58,7 +43,7 @@ export function CheckNotifyForm({ token, siteKey, sentTo, confirmed, consent }: 
   const hasConsent = consent || (state?.ok && withConsent);
   const consentLine = hasConsent
     ? <p className="text-[13px] text-muted" data-testid="check-consent-given">{m.consentGiven}</p>
-    : sentTo || state?.ok ? <LaterConsent token={token} /> : null;
+    : null;
 
   if (confirmed && sentTo) {
     return (

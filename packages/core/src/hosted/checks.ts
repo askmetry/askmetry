@@ -1,6 +1,6 @@
 // Gratis-Schnell-Check (HOSTED.md „Ablauf“ 1–5): starten (Turnstile, ohne E-Mail), Worker-Verarbeitung, optionale
 // Benachrichtigung per Mail, Teaser-Ansicht.
-import { brand, checkRequest, collection, db, funnelEvent, prompt, recommendation, recommendationGeneration, response, run, siteCheck, topic, workspace } from '@askmetry/db';
+import { brand, checkRequest, collection, db, funnelEvent, prompt, recommendation, recommendationGeneration, report, response, run, siteCheck, topic, user, workspace } from '@askmetry/db';
 import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { isIPv4, isIPv6 } from 'node:net';
@@ -243,20 +243,8 @@ export async function submitCheckEmail(token: string, email: string, opts: { tur
   return { ok: true };
 }
 
-/**
- * Einwilligung in Erinnerung + Tipps nachträglich erteilen (Adresse schon angegeben, Kästchen damals leer gelassen).
- * Gilt für die gespeicherte Adresse; verschickt wird trotzdem nur an eine bestätigte Adresse.
- */
-export async function giveCheckConsent(token: string): Promise<{ ok: true } | { error: CheckError }> {
-  const c = await byToken(token);
-  if (!c) return { error: 'not_found' };
-  if (!c.email || ['failed', 'blocked'].includes(c.status)) return { error: 'wrong_state' };
-  if (c.marketingConsentAt) return { ok: true };
-  const r = await db.update(checkRequest).set({ marketingConsentAt: new Date(), marketingConsentVersion: CHECK_CONSENT_VERSION })
-    .where(and(eq(checkRequest.id, c.id), isNull(checkRequest.marketingConsentAt), eq(checkRequest.email, c.email))).returning({ id: checkRequest.id });
-  if (r.length) await trackEvent('check_consent_given', { checkId: c.id, props: { version: CHECK_CONSENT_VERSION, with: 'later' } });
-  return { ok: true };
-}
+// Einwilligung gibt es nur zusammen mit der Adresse (submitCheckEmail): Die Bestätigungsmail nennt sie, der Klick
+// auf den Link bestätigt Adresse und Einwilligung zugleich (Double-Opt-in). Kein nachträglicher Weg ohne neue Bestätigung.
 
 export async function verifyCheckEmail(token: string, code: string): Promise<{ ok: true } | { error: CheckError }> {
   const c = await byToken(token);
@@ -602,13 +590,23 @@ export const CHECK_REMINDER_WINDOW_MS = 3 * DAY_MS;
  * Einmalige Erinnerung 24 h nach dem fertigen Check: nur mit Einwilligung (UWG § 7 Abs. 2), nur an eine bestätigte
  * Adresse, nur ohne Kauf aus diesem Check, nie nach Abmeldung. Inhalt: der stärkste konkrete Befund und der Link zum Check.
  */
+/** Schon gekauft – aus einem anderen Check derselben Domain oder mit einem Konto unter derselben Adresse? Dann keine Erinnerung. */
+async function boughtElsewhere(domain: string, email: string): Promise<boolean> {
+  const rows = await db.select({ id: report.id }).from(report)
+    .leftJoin(checkRequest, eq(checkRequest.id, report.checkId))
+    .leftJoin(user, eq(user.id, report.userId))
+    .where(and(inArray(report.status, ['paid', 'measuring', 'ready']), or(eq(checkRequest.domain, domain), sql`lower(${user.email}) = lower(${email})`)))
+    .limit(1);
+  return rows.length > 0;
+}
+
 async function sendCheckReminder(c: Check, log: (m: string) => void) {
   if (!c.email || !c.emailVerifiedAt || !c.marketingConsentAt) return;
   // erst beanspruchen (einmalig – auch wenn sie danach entfällt), dann prüfen und senden
   const claimed = await db.update(checkRequest).set({ reminderSentAt: new Date() })
     .where(and(eq(checkRequest.id, c.id), isNull(checkRequest.reminderSentAt))).returning({ id: checkRequest.id });
   if (!claimed.length) return;
-  if (await checkPurchased(c.id) || (await isOptedOut(c.email))) return;
+  if (await checkPurchased(c.id) || (await boughtElsewhere(c.domain, c.email)) || (await isOptedOut(c.email))) return;
   const lang: Lang = c.locale === 'en' ? 'en' : 'de';
   const summary = c.summary as CheckSummary | null;
   const f = c.collectionId ? pickFindings(await loadAnswers(c.collectionId), { simulated: !!summary?.simulated }) : null;

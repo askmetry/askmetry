@@ -10,12 +10,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deleteUserData } from '../../src/hosted/account.ts';
-import { checksWaiting, getCheckView, giveCheckConsent, hasVisibleProgress, markCheckProgressSeen, processCheckReminders, processChecks, QUEUED_STALE_MS, startCheck, submitCheckEmail, trackCheckoutOpened, verifyCheckEmail } from '../../src/hosted/checks.ts';
+import { checksWaiting, getCheckView, hasVisibleProgress, markCheckProgressSeen, processCheckReminders, processChecks, QUEUED_STALE_MS, startCheck, submitCheckEmail, trackCheckoutOpened, verifyCheckEmail } from '../../src/hosted/checks.ts';
 import { editCheckQuestions, editCheckTopics } from '../../src/hosted/check-edit.ts';
 import { CHECK_CONSENT_VERSION, CHECK_SCOPE } from '../../src/hosted/config.ts';
 import { canStartMeasurement, checkReservedUsd, checkSpendToday, DISCOVERY_ESTIMATE_USD, globalSpendToday } from '../../src/hosted/limits.ts';
 import { decodeOptOutParam, isOptedOut, optOut, verifyOptOut } from '../../src/hosted/optout.ts';
-import { attachCheckoutSession, autoStartReport, getReport, getReportPdf, markReportCanceled, markReportPaid, markReportRefunded, prepareReport, processReports, reportsForWorkspace, startReport } from '../../src/hosted/reports.ts';
+import { attachCheckoutSession, AUTOSTART_SINCE, autoStartReport, getReport, getReportPdf, markReportCanceled, markReportPaid, markReportRefunded, prepareReport, processReports, reportsForWorkspace, startReport } from '../../src/hosted/reports.ts';
 import { purgeExpiredData } from '../../src/hosted/retention.ts';
 import { funnelStats } from '../../src/hosted/stats.ts';
 import { createCollection, parseCollectionPlan, processCollection } from '../../src/runner.ts';
@@ -727,6 +727,11 @@ describe('Auto-Start nach der Zahlung: Randfälle', () => {
     await processReports({});
     expect((await getReport(missed))!.status).toBe('measuring');
     expect((await getReport(legacy))!).toMatchObject({ status: 'paid', autoStarting: false });
+    // Kauf von vor der Einführung des Auto-Starts (innerhalb von 7 Tagen) startet nicht ungefragt
+    const ws2 = await customerWs('vorstichtag', 6);
+    const [old] = await db.insert(report).values({ workspaceId: ws2.id, userId: owner, tier: 'compact', kind: 'initial', status: 'paid', amountCents: 1, paidAt: new Date(AUTOSTART_SINCE.getTime() - 60_000) }).returning();
+    await processReports({ now: new Date(AUTOSTART_SINCE.getTime() + DAY) });
+    expect((await getReport(old.id))!.status).toBe('paid');
   });
 
   it('Fortschritt: Zeile je KI, Claude im Sammelauftrag, ohne Antwort ruhig gezählt, ehrliche Restzeit', async () => {
@@ -879,10 +884,6 @@ describe('Check-Seite vor dem Kauf', () => {
     const t = tokenOf(await startCheck({ url: `${P}-einwilligung.de`, locale: 'de', ipHash: `${P}-ip-ew` }));
     expect(await submitCheckEmail(t, `ohne@${P}-firma.de`)).toEqual({ ok: true });
     expect(await row(t)).toMatchObject({ marketingConsentAt: null, marketingConsentVersion: null });
-    expect(await giveCheckConsent(t)).toEqual({ ok: true });
-    expect(await row(t)).toMatchObject({ marketingConsentVersion: CHECK_CONSENT_VERSION });
-    expect((await row(t)).marketingConsentAt).toBeInstanceOf(Date);
-    expect((await getCheckView(t))!.marketingConsent).toBe(true);
     // neue Adresse ohne Häkchen → Einwilligung weg
     await db.update(checkRequest).set({ verifySentAt: new Date(Date.now() - 2 * 60_000) }).where(eq(checkRequest.token, t));
     expect(await submitCheckEmail(t, `andere@${P}-firma.de`)).toEqual({ ok: true });
@@ -890,8 +891,10 @@ describe('Check-Seite vor dem Kauf', () => {
     await db.update(checkRequest).set({ verifySentAt: new Date(Date.now() - 2 * 60_000) }).where(eq(checkRequest.token, t));
     expect(await submitCheckEmail(t, `mit@${P}-firma.de`, { consent: true })).toEqual({ ok: true });
     expect(await row(t)).toMatchObject({ email: `mit@${P}-firma.de`, marketingConsentVersion: CHECK_CONSENT_VERSION });
+    expect((await row(t)).marketingConsentAt).toBeInstanceOf(Date);
+    expect((await getCheckView(t))!.marketingConsent).toBe(true);
     const ev = await db.select().from(funnelEvent).where(and(eq(funnelEvent.checkId, (await row(t)).id), eq(funnelEvent.name, 'check_consent_given')));
-    expect(ev).toHaveLength(2);
+    expect(ev).toHaveLength(1);
   });
 
   it('Erinnerung 24 h nach dem Ergebnis: nur mit Einwilligung und bestätigter Adresse, einmalig, nicht nach Kauf oder Abmeldung', async () => {

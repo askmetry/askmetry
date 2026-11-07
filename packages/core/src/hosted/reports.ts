@@ -101,7 +101,7 @@ export async function prepareReport(input: PrepareReportInput): Promise<{ report
         fromCheck = true;
       }
       // vor dem Kauf auf der Check-Seite bearbeitete Fragen übernehmen (nur solange in der Kopie nichts gemessen wurde)
-      if (c.prompts && (fromCheck || !(await tx.$count(collection, eq(collection.workspaceId, ws.id))))) await applyCheckQuestions(tx, ws.id, c.prompts);
+      if (c.prompts && (fromCheck || await questionsReplaceable(tx, ws.id))) await applyCheckQuestions(tx, ws.id, c.prompts);
     } else if (input.workspaceId) {
       const [w] = await tx.select().from(workspace).where(eq(workspace.id, input.workspaceId));
       if (!w) throw new Error('Arbeitsbereich nicht gefunden');
@@ -147,6 +147,16 @@ export async function attachCheckoutSession(reportId: string, sessionId: string)
 }
 
 /** Zahlung bestätigt (nur aus dem Webhook bzw. Fake-Checkout), danach Auto-Start. Idempotent: gleiche Session erneut → already: true. */
+/**
+ * Check-Fragen dürfen die Fragen eines Arbeitsbereichs nur ersetzen, solange dort nichts gemessen und kein anderer
+ * Bericht bezahlt ist – sonst würde z. B. ein zweiter Kauf aus demselben Check die 60 Fragen eines wartenden
+ * Strategieberichts durch 20 ersetzen.
+ */
+async function questionsReplaceable(tx: Pick<typeof db, 'select' | '$count'>, workspaceId: string): Promise<boolean> {
+  if (await tx.$count(collection, eq(collection.workspaceId, workspaceId))) return false;
+  return !(await tx.$count(report, and(eq(report.workspaceId, workspaceId), inArray(report.status, ['paid', 'measuring', 'ready']))));
+}
+
 export async function markReportPaid(input: { sessionId: string; paymentIntentId?: string | null; invoiceId?: string | null; amountCents?: number | null }): Promise<{ reportId: string; already: boolean } | null> {
   const res = await db.transaction(async (tx) => {
     const [r] = await tx.select().from(report).where(eq(report.checkoutSessionId, input.sessionId)).for('update');
@@ -156,7 +166,7 @@ export async function markReportPaid(input: { sessionId: string; paymentIntentId
     // sperren, damit keine Änderung dazwischenrutscht; ab „paid“ ist die Check-Seite gesperrt)
     if (r.checkId && r.kind === 'initial') {
       const [c] = await tx.select({ prompts: checkRequest.prompts }).from(checkRequest).where(eq(checkRequest.id, r.checkId)).for('update');
-      if (c?.prompts && !(await tx.$count(collection, eq(collection.workspaceId, r.workspaceId)))) await applyCheckQuestions(tx, r.workspaceId, c.prompts);
+      if (c?.prompts && await questionsReplaceable(tx, r.workspaceId)) await applyCheckQuestions(tx, r.workspaceId, c.prompts);
     }
     await tx.update(report).set({
       status: 'paid', paidAt: new Date(), paymentIntentId: input.paymentIntentId ?? r.paymentIntentId,
@@ -254,8 +264,10 @@ export const AUTOSTART_ERROR = 'autostart|';
 export const AUTOSTART_RETRY = ['budget', 'measurement_active'] as const;
 /** Auto-Start, den der Webhook verpasst hat (Absturz dazwischen): so lange nach der Zahlung holt der Worker ihn nach. */
 export const AUTOSTART_GRACE_MS = 2 * 60 * 1000;
-/** Ältere bezahlte Berichte (vor dem Auto-Start bezahlt) startet der Worker nicht ungefragt. */
+/** Ältere bezahlte Berichte startet der Worker nicht ungefragt nach … */
 export const AUTOSTART_MAX_AGE_MS = 7 * DAY_MS;
+/** … und nie Käufe von vor der Einführung des Auto-Starts (diese Kunden starten im alten Ablauf selbst). */
+export const AUTOSTART_SINCE = new Date('2026-11-07T21:00:00Z');
 
 /**
  * Messung nach der Zahlung automatisch starten (Fake-Checkout, Stripe-Webhook, Worker nach den Zusatzfragen).
@@ -441,7 +453,7 @@ export async function processReports(opts: ProcessReportsOptions = {}): Promise<
   const retryErrors = AUTOSTART_RETRY.map((x) => `${AUTOSTART_ERROR}${x}`);
   let budgetStarted = false;
   for (const r of await db.select().from(report).where(and(
-    eq(report.status, 'paid'), gte(report.paidAt, new Date(now.getTime() - AUTOSTART_MAX_AGE_MS)),
+    eq(report.status, 'paid'), gte(report.paidAt, new Date(Math.max(now.getTime() - AUTOSTART_MAX_AGE_MS, AUTOSTART_SINCE.getTime()))),
     or(and(isNull(report.error), lte(report.paidAt, new Date(now.getTime() - AUTOSTART_GRACE_MS))), inArray(report.error, retryErrors)),
   )).orderBy(asc(report.paidAt))) {
     if (stop()) return;

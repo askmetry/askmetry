@@ -3,7 +3,7 @@
 // Berechtigung ist das Check-Token (wer den Link hat). Validierung, Ratenbegrenzung und Speichern macht der Kern.
 import { revalidatePath } from 'next/cache';
 import { getI18n } from '@/lib/i18n/server';
-import { editCheckQuestions, editCheckTopics, giveCheckConsent, submitCheckEmail, type ListOp } from '@/lib/hosted/data';
+import { editCheckQuestions, editCheckTopics, submitCheckEmail, type ListOp } from '@/lib/hosted/data';
 import { clientIp, isHosted } from '@/lib/hosted/server';
 
 export type CheckEmailState = { error?: string; ok?: boolean; sentTo?: string } | null;
@@ -33,18 +33,6 @@ export async function submitEmail(_prev: CheckEmailState, f: FormData): Promise<
   return { ok: true };
 }
 
-/** Einwilligung nachträglich (Adresse schon angegeben, Häkchen damals nicht gesetzt). */
-export async function giveConsent(_prev: CheckEmailState, f: FormData): Promise<CheckEmailState> {
-  const { t } = await getI18n();
-  const e = t.check.states.errors;
-  const token = String(f.get('token') ?? '');
-  if (!isHosted() || !TOKEN_RE.test(token)) return { error: e.not_found };
-  if (f.get('consent') !== 'on') return { error: t.check.notify.consentRequired };
-  const r = await giveCheckConsent(token);
-  if ('error' in r) return { error: e[r.error] ?? e.generic };
-  revalidatePath(`/check/${token}`);
-  return { ok: true };
-}
 
 /** Eine Änderung an den Fragen (kind=questions) oder Themen (kind=topics) eines fertigen Checks. */
 export async function editCheckList(_prev: CheckListState, f: FormData): Promise<CheckListState> {

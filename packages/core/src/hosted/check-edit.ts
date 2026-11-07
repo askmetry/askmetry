@@ -78,6 +78,9 @@ async function overEditLimit(checkId: string): Promise<boolean> {
   return n >= CHECK_QUESTION_RULES.editsPerHour;
 }
 
+/** SQL-Bedingung: für diesen Check gibt es noch keinen bezahlten Bericht */
+const notPurchased = sql`not exists (select 1 from ${report} where ${report.checkId} = ${checkRequest.id} and ${report.status} in ('paid', 'measuring', 'ready'))`;
+
 async function editable(token: string): Promise<{ c: Check } | { error: CheckError }> {
   if (typeof token !== 'string' || token.length < 20 || token.length > 100) return { error: 'not_found' };
   const [c] = await db.select().from(checkRequest).where(eq(checkRequest.token, token));
@@ -98,8 +101,9 @@ export async function editCheckQuestions(token: string, op: ListOp): Promise<{ o
   const r = applyListOp(cur.list, op, { max: CHECK_QUESTION_RULES.max, min: REPORT_MIN_PROMPTS, minLength: CHECK_QUESTION_RULES.minLength, maxLength: CHECK_QUESTION_RULES.maxLength, brand: own?.name, maxWithBrand: CHECK_QUESTION_RULES.maxWithBrand });
   if ('error' in r) return r;
   // nur speichern, wenn sich seit dem Lesen nichts geändert hat (zwei Tabs gleichzeitig)
+  // … und nur, solange nicht bezahlt wurde (atomar: markReportPaid sperrt die Check-Zeile und übernimmt die Fragen)
   const saved = await db.update(checkRequest).set({ prompts: r.list })
-    .where(and(eq(checkRequest.id, c.id), c.prompts ? sql`${checkRequest.prompts} = ${toPgArray(c.prompts)}::text[]` : sql`${checkRequest.prompts} is null`))
+    .where(and(eq(checkRequest.id, c.id), notPurchased, c.prompts ? sql`${checkRequest.prompts} = ${toPgArray(c.prompts)}::text[]` : sql`${checkRequest.prompts} is null`))
     .returning({ id: checkRequest.id });
   if (!saved.length) return { error: 'wrong_state' };
   await trackEvent('check_questions_edited', { checkId: c.id, props: { action: op.action, count: r.list.length } });
@@ -116,7 +120,7 @@ export async function editCheckTopics(token: string, op: ListOp): Promise<{ ok: 
   const r = applyListOp(cur, op, { max: TOPICS.max, min: 0, minLength: TOPICS.minLength, maxLength: TOPICS.maxLength });
   if ('error' in r) return r;
   const saved = await db.update(checkRequest).set({ topics: r.list })
-    .where(and(eq(checkRequest.id, c.id), c.topics ? sql`${checkRequest.topics} = ${toPgArray(c.topics)}::text[]` : sql`${checkRequest.topics} is null`))
+    .where(and(eq(checkRequest.id, c.id), notPurchased, c.topics ? sql`${checkRequest.topics} = ${toPgArray(c.topics)}::text[]` : sql`${checkRequest.topics} is null`))
     .returning({ id: checkRequest.id });
   if (!saved.length) return { error: 'wrong_state' };
   await trackEvent('check_topics_edited', { checkId: c.id, props: { action: op.action, count: r.list.length } });
